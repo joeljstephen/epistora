@@ -1,6 +1,6 @@
 # Epistora — Roadmap
 
-## v1.0 — Foundation (Current) ✅
+## v1.0 — Foundation ✅
 
 - [x] CLI and API interfaces
 - [x] Raindrop.io connector
@@ -12,6 +12,23 @@
 - [x] Vault indexes and operational logs
 - [x] SQLite internal state tracking
 
+## v1.1 — Multi-Backend & Automation ✅
+
+- [x] Backend abstraction layer (ReasoningBackend protocol)
+- [x] Direct API backend (OpenAI-compatible, configurable base_url)
+- [x] OpenCode CLI backend
+- [x] Claude Code CLI backend
+- [x] Backend router with per-task fallback ordering
+- [x] Per-task model/backend configuration
+- [x] Automatic fallback with clear logging
+- [x] Background automation worker (`kb worker`)
+- [x] Interval-based scheduler for sync, lint, and index rebuild
+- [x] File-based locking for overlap prevention
+- [x] Automation API endpoints
+- [x] Backend availability checks and status command
+- [x] Tests for backend routing, availability, and automation
+- [x] Updated documentation and configuration
+
 ## v1.5 — Polish & Enrichment
 
 - [ ] Readwise Reader connector
@@ -19,12 +36,13 @@
 - [ ] Local folder watcher (ingest markdown/PDF files dropped into a folder)
 - [ ] Weekly digest command (`kb digest`)
 - [ ] Improved topic page synthesis (merge patterns across sources)
-- [ ] `save_answer_to_synthesis` option for query
 - [ ] Git integration for vault versioning
 - [ ] Simple HTML status dashboard
 - [ ] Configurable prompt templates
 - [ ] Batch ingest from URL list / OPML file
 - [ ] Better X/Twitter extraction with API authentication option
+- [ ] Cron expression support for the scheduler
+- [ ] Ollama / local model backend
 
 ## v2.0 — Productization
 
@@ -33,7 +51,6 @@
 - [ ] Graph visualization of knowledge connections
 - [ ] Multi-vault support
 - [ ] Plugin system for custom connectors and processors
-- [ ] Scheduled sync with cron / background worker
 - [ ] Export to Anki flashcards from key takeaways
 - [ ] Conflict resolution UI for lint issues
 - [ ] Collaborative vaults (shared knowledge bases)

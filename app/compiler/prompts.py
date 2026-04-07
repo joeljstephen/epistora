@@ -1,5 +1,9 @@
 """All LLM prompt templates used by the compiler."""
 
+from __future__ import annotations
+
+import json
+
 SYSTEM_ROLE = (
     "You are Epistora, a knowledge compiler that turns saved web content into "
     "structured, interconnected knowledge notes. Be precise, factual, and always "
@@ -80,3 +84,86 @@ Respond in JSON format (no markdown fences):
   ]
 }}
 """
+
+SOURCE_ANALYSIS_JSON_SCHEMA = json.dumps(
+    {
+        "type": "object",
+        "required": [
+            "summary",
+            "key_takeaways",
+            "detailed_outline",
+            "important_claims",
+            "why_matters",
+            "open_questions",
+            "topics",
+            "entities",
+            "concepts",
+        ],
+        "properties": {
+            "summary": {"type": "string"},
+            "key_takeaways": {"type": "string"},
+            "detailed_outline": {"type": "string"},
+            "important_claims": {"type": "string"},
+            "why_matters": {"type": "string"},
+            "open_questions": {"type": "string"},
+            "topics": {"type": "array", "items": {"type": "string"}},
+            "entities": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["name", "type", "description"],
+                    "properties": {
+                        "name": {"type": "string"},
+                        "type": {"type": "string"},
+                        "description": {"type": "string"},
+                    },
+                    "additionalProperties": True,
+                },
+            },
+            "concepts": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": ["name", "definition"],
+                    "properties": {
+                        "name": {"type": "string"},
+                        "definition": {"type": "string"},
+                    },
+                    "additionalProperties": True,
+                },
+            },
+        },
+        "additionalProperties": True,
+    }
+)
+
+LINT_ANALYSIS_JSON_SCHEMA = json.dumps(
+    {
+        "type": "object",
+        "required": [
+            "duplicate_candidates",
+            "potential_contradictions",
+            "missing_pages",
+            "merge_candidates",
+        ],
+        "properties": {
+            "duplicate_candidates": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": True},
+            },
+            "potential_contradictions": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": True},
+            },
+            "missing_pages": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": True},
+            },
+            "merge_candidates": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": True},
+            },
+        },
+        "additionalProperties": True,
+    }
+)

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from app.vault.parser import scan_vault
 
+SEARCHABLE_NOTE_TYPES = {"source", "topic", "entity", "concept", "synthesis"}
+
 FTS_SCHEMA = """
 CREATE VIRTUAL TABLE IF NOT EXISTS vault_fts USING fts5(
     title,
@@ -38,7 +40,7 @@ class VaultIndexer:
         notes = scan_vault(self.vault_path)
         count = 0
         for note in notes:
-            if note.note_type == "raw":
+            if note.note_type not in SEARCHABLE_NOTE_TYPES:
                 continue
             try:
                 conn.execute(

@@ -23,6 +23,15 @@ def _run(coro):
     return asyncio.run(coro)
 
 
+def _looks_like_epistora_vault(path: Path) -> bool:
+    return (
+        (path / "wiki").exists()
+        and (path / "inbox").exists()
+        and (path / "wiki" / "indexes").exists()
+        and (path / "wiki" / "logs").exists()
+    )
+
+
 @app.command()
 def init(
     vault_path: str = typer.Option(
@@ -40,7 +49,12 @@ def init(
 
     if target.exists() and any(target.iterdir()):
         console.print(f"[yellow]Vault directory already exists at {target}[/yellow]")
-        if not typer.confirm("Reinitialize? (existing files will be kept)"):
+        if _looks_like_epistora_vault(target):
+            console.print(
+                "[blue]Existing Epistora vault detected; "
+                "ensuring required files exist.[/blue]"
+            )
+        elif not typer.confirm("Reinitialize? (existing files will be kept)"):
             raise typer.Abort()
 
     ensure_vault_dirs(target)
@@ -167,7 +181,7 @@ def query(
     if result.source_references:
         console.print("[bold]Sources consulted:[/bold]")
         for ref in result.source_references:
-            console.print(f"  - [[{ref}]]")
+            console.print(f"  - {ref}")
 
     if result.saved_to:
         console.print(f"\n[green]Answer saved to:[/green] {result.saved_to}")
@@ -249,6 +263,97 @@ def status():
     table.add_row("Raindrop configured", "yes" if settings.raindrop_api_token else "no")
 
     console.print(table)
+
+
+@app.command()
+def worker():
+    """Run the background automation worker (sync, lint, index rebuild)."""
+    import logging
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    console.print("[blue]Starting Epistora worker...[/blue]")
+    interval = settings.sync_interval_seconds
+    console.print(f"  Sync enabled: {settings.sync_enabled} (every {interval}s)")
+    console.print(f"  Auto-lint enabled: {settings.auto_lint_enabled}")
+    console.print(f"  Auto-rebuild enabled: {settings.auto_rebuild_indexes_enabled}")
+    console.print("[dim]Press Ctrl+C to stop.[/dim]\n")
+
+    from app.automation.worker import run_worker
+
+    _run(run_worker())
+
+
+@app.command("backend-status")
+def backend_status():
+    """Show which backend is configured and available for each task."""
+    from app.backends.models import TaskName
+    from app.compiler.llm import get_backend_router
+
+    router = get_backend_router()
+    table = Table(title="Backend Status")
+    table.add_column("Task", style="bold")
+    table.add_column("Backend")
+    table.add_column("Model")
+    table.add_column("Available")
+    table.add_column("Reason")
+
+    for task in TaskName:
+        descriptors = router.describe_all(task)
+        for desc in descriptors:
+            color = "green" if desc.available else "red"
+            table.add_row(
+                task.value,
+                desc.backend_type.value,
+                desc.model or "-",
+                f"[{color}]{'yes' if desc.available else 'no'}[/{color}]",
+                desc.reason or "",
+            )
+    console.print(table)
+
+
+@app.command("run-sync")
+def run_sync_now(
+    limit: int = typer.Option(25, "--limit", "-n", help="Max items to sync"),
+):
+    """Run a one-off Raindrop sync (like sync-raindrop, via automation jobs)."""
+    from app.automation.jobs import run_sync_job
+
+    console.print("[blue]Running sync job...[/blue]")
+    result = _run(run_sync_job(limit=limit))
+    if result.get("status") == "ok":
+        console.print(
+            f"[green]✓ Sync complete:[/green] "
+            f"{result.get('ingested', 0)} ingested, "
+            f"{result.get('skipped', 0)} skipped, "
+            f"{result.get('failed', 0)} failed"
+        )
+    else:
+        console.print(f"[red]Sync failed:[/red] {result.get('error', 'unknown')}")
+        raise typer.Exit(1)
+
+
+@app.command("run-lint")
+def run_lint_now():
+    """Run a one-off lint check via automation jobs."""
+    from app.automation.jobs import run_lint_job
+
+    console.print("[blue]Running lint job...[/blue]")
+    result = _run(run_lint_job())
+    if result.get("status") == "ok":
+        console.print(
+            f"[green]✓ Lint complete:[/green] "
+            f"{result.get('total_notes', 0)} notes, {result.get('issues', 0)} issues"
+        )
+    else:
+        console.print(f"[red]Lint failed:[/red] {result.get('error', 'unknown')}")
+        raise typer.Exit(1)
 
 
 @app.command("rebuild-indexes")

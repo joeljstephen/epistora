@@ -100,8 +100,8 @@ class TestLintReport:
 
         notes = scan_vault(broken_vault)
         state = {"vault_path": str(broken_vault), "notes": notes}
-        state = await _structural_lint(state)
-        state = await _generate_report(state)
+        state = {**state, **await _structural_lint(state)}
+        state = {**state, **await _generate_report(state)}
 
         result = state["result"]
         assert result.total_notes > 0

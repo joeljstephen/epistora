@@ -50,6 +50,12 @@ class VaultNote:
         return extract_wikilinks(self.body)
 
     def _infer_type(self) -> str:
+        if self.path.name == "AGENTS.md":
+            return "system"
+        if "wiki/indexes/" in self.rel_path:
+            return "index"
+        if "wiki/logs/" in self.rel_path:
+            return "log"
         if "wiki/sources/" in self.rel_path:
             return "source"
         if "wiki/topics/" in self.rel_path:

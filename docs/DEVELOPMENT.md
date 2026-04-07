@@ -3,7 +3,7 @@
 ## Prerequisites
 
 - Python 3.12+
-- An OpenAI API key
+- At least one of: OpenAI API key, `opencode` binary, `claude` binary
 - (Optional) Raindrop.io API token
 
 ## Setup
@@ -21,7 +21,7 @@ pip install -e ".[dev]"
 
 # Configure environment
 cp .env.example .env
-# Edit .env with your API keys
+# Edit .env with your API keys / backend config
 
 # Initialize the vault
 kb init
@@ -52,6 +52,12 @@ kb status
 
 # Rebuild indexes
 kb rebuild-indexes
+
+# Check backend availability
+kb backend-status
+
+# Run the automation worker
+kb worker
 ```
 
 ### API Server
@@ -73,7 +79,88 @@ pytest --cov=app --cov-report=term-missing
 
 # Run specific test file
 pytest tests/test_classifier.py -v
+
+# Run backend tests
+pytest tests/test_backends.py -v
+
+# Run automation tests
+pytest tests/test_automation.py -v
+
+# Run integration tests
+pytest tests/test_backend_integration.py -v
 ```
+
+### Testing Without Real Backends
+
+All tests mock external dependencies. You don't need a real OpenAI key, `opencode` binary, or `claude` binary to run the test suite.
+
+**Mocking the backend router:**
+
+```python
+from unittest.mock import AsyncMock, patch
+from app.backends.models import BackendResponse, BackendType
+
+# Mock run_structured for graph node tests
+with patch(
+    "app.compiler.ingest_graph.run_structured",
+    new_callable=AsyncMock,
+    return_value=BackendResponse(
+        text='{"summary": "test"}',
+        success=True,
+        backend_used=BackendType.API,
+        model_used="mock",
+    ),
+):
+    result = await some_graph_node(state)
+```
+
+**Mocking CLI backend binaries:**
+
+```python
+from unittest.mock import patch
+
+# Pretend opencode is installed
+with patch("shutil.which", return_value="/usr/local/bin/opencode"):
+    backend = OpenCodeCliBackend(enabled=True)
+    assert backend.is_available() is True
+
+# Pretend it's missing
+with patch("shutil.which", return_value=None):
+    backend = OpenCodeCliBackend(enabled=True)
+    assert backend.is_available() is False
+```
+
+**Testing the router's fallback behavior:**
+
+```python
+# Create mock backends with controlled availability
+api = _make_mock_backend(available=False)
+oc = _make_mock_backend(available=True, response_text="from opencode")
+router = BackendRouter(
+    backends={BackendType.API: api, BackendType.OPENCODE: oc},
+    default_order=[BackendType.API, BackendType.OPENCODE],
+)
+# Router will skip API and use OpenCode
+selected, reasons = router.select_backend(TaskName.INGEST)
+assert selected is oc
+```
+
+### Developing New Providers
+
+To add a new backend provider:
+
+1. Create `app/backends/my_provider.py`
+2. Subclass `ReasoningBackend` and implement:
+   - `generate(request) -> BackendResponse`
+   - `is_available(task) -> bool`
+   - `describe(task) -> BackendDescriptor`
+3. Add `MY_PROVIDER` to `BackendType` enum in `app/backends/models.py`
+4. Add config settings to `app/config.py`
+5. Register in `get_backend_router()` in `app/compiler/llm.py`
+6. Write availability and routing tests
+7. Update `.env.example`
+
+The `generate_structured()` method has a default implementation that calls `generate()` and parses JSON from the output. Override it if your provider supports native structured output.
 
 ## Project Structure
 
@@ -83,9 +170,21 @@ app/
   main.py            # FastAPI application
   dependencies.py    # Dependency injection
   cli/               # Typer CLI
-  api/               # FastAPI routes
+  api/               # FastAPI routes (+ automation endpoints)
+  backends/          # Multi-backend LLM abstraction
+    base.py          # Abstract ReasoningBackend
+    router.py        # BackendRouter with fallback
+    direct_api.py    # OpenAI-compatible API backend
+    opencode_cli.py  # OpenCode CLI backend
+    claude_code_cli.py # Claude Code CLI backend
+    models.py        # Backend data models
+  automation/        # Background worker subsystem
+    worker.py        # Main worker loop
+    scheduler.py     # Interval-based scheduler
+    jobs.py          # Job definitions
+    locks.py         # File-based locking
   connectors/        # Source connectors and fetchers
-  compiler/          # LangGraph workflows and LLM
+  compiler/          # LangGraph workflows and LLM routing
   models/            # Pydantic data models
   retrieval/         # Search and indexing
   vault/             # Vault read/write operations

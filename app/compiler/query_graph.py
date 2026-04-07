@@ -5,9 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TypedDict
 
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END, START, StateGraph
 
-from app.compiler.llm import get_llm
+from app.backends.models import TaskName
+from app.compiler.llm import run_text
 from app.compiler.prompts import QUERY_PROMPT, SYSTEM_ROLE
 from app.models.results import QueryResult
 
@@ -26,7 +27,7 @@ class QueryState(TypedDict, total=False):
     save_synthesis: bool
 
 
-async def _resolve_context(state: QueryState) -> QueryState:
+async def _resolve_context(state: QueryState) -> dict:
     """Find relevant notes in the vault for the question."""
     from pathlib import Path
 
@@ -41,7 +42,7 @@ async def _resolve_context(state: QueryState) -> QueryState:
         for index_file in sorted(index_dir.glob("*.md")):
             preview = index_file.read_text(encoding="utf-8")[:2000].strip()
             if preview:
-                index_context_parts.append(f"### [index] {index_file.stem}\n{preview}\n")
+                index_context_parts.append(f"### index: {index_file.stem}\n{preview}\n")
 
     results = search_vault(vault_path, question, limit=15)
 
@@ -54,7 +55,7 @@ async def _resolve_context(state: QueryState) -> QueryState:
         snippet = note_info.get("snippet", "")
         note_type = note_info.get("type", "")
         path = note_info.get("path", "")
-        context_parts.append(f"### [{note_type}] {title}\nPath: {path}\n{snippet}\n")
+        context_parts.append(f"### {note_type}: {title}\nPath: {path}\n{snippet}\n")
         if path:
             references.append(path)
         if title:
@@ -63,7 +64,6 @@ async def _resolve_context(state: QueryState) -> QueryState:
     context = "\n".join(context_parts) if context_parts else "No relevant notes found in the vault."
 
     return {
-        **state,
         "relevant_notes": results,
         "context": context,
         "source_references": references,
@@ -71,7 +71,7 @@ async def _resolve_context(state: QueryState) -> QueryState:
     }
 
 
-async def _generate_answer(state: QueryState) -> QueryState:
+async def _generate_answer(state: QueryState) -> dict:
     """Use the LLM to generate a grounded answer."""
     if not state.get("relevant_notes"):
         answer = (
@@ -80,9 +80,7 @@ async def _generate_answer(state: QueryState) -> QueryState:
             "Synthesis:\n"
             "- Ingest more sources or broaden the query terms."
         )
-        return {**state, "answer": answer}
-
-    llm = get_llm()
+        return {"answer": answer}
 
     prompt = QUERY_PROMPT.format(
         question=state["question"],
@@ -90,13 +88,19 @@ async def _generate_answer(state: QueryState) -> QueryState:
     )
 
     try:
-        resp = await llm.ainvoke(
-            [
-                {"role": "system", "content": SYSTEM_ROLE},
-                {"role": "user", "content": prompt},
-            ]
+        resp = await run_text(
+            task=TaskName.QUERY,
+            system_prompt=SYSTEM_ROLE,
+            user_prompt=prompt,
         )
-        answer = resp.content if isinstance(resp.content, str) else str(resp.content)
+        if resp.success:
+            answer = resp.text
+            logger.info(
+                "Query answered via %s (model=%s, fallback=%s)",
+                resp.backend_used.value, resp.model_used, resp.was_fallback,
+            )
+        else:
+            raise RuntimeError(resp.error)
     except Exception as e:
         logger.error("Query LLM call failed: %s", e)
         note_titles = state.get("note_titles", [])
@@ -115,10 +119,10 @@ async def _generate_answer(state: QueryState) -> QueryState:
             f"{refs}"
         )
 
-    return {**state, "answer": answer}
+    return {"answer": answer}
 
 
-async def _maybe_save(state: QueryState) -> QueryState:
+async def _maybe_save(state: QueryState) -> dict:
     """Optionally save the answer as a synthesis note or to outputs/."""
     from pathlib import Path
 
@@ -157,7 +161,7 @@ async def _maybe_save(state: QueryState) -> QueryState:
         saved_to=saved_to,
     )
 
-    return {**state, "result": result}
+    return {"result": result}
 
 
 def build_query_graph() -> StateGraph:
@@ -167,7 +171,7 @@ def build_query_graph() -> StateGraph:
     graph.add_node("generate", _generate_answer)
     graph.add_node("save", _maybe_save)
 
-    graph.set_entry_point("resolve")
+    graph.add_edge(START, "resolve")
     graph.add_edge("resolve", "generate")
     graph.add_edge("generate", "save")
     graph.add_edge("save", END)

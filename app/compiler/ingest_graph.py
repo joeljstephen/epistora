@@ -6,10 +6,15 @@ import json
 import logging
 from typing import Any, TypedDict
 
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END, START, StateGraph
 
-from app.compiler.llm import get_llm
-from app.compiler.prompts import SOURCE_ANALYSIS_PROMPT, SYSTEM_ROLE
+from app.backends.models import TaskName
+from app.compiler.llm import run_structured
+from app.compiler.prompts import (
+    SOURCE_ANALYSIS_JSON_SCHEMA,
+    SOURCE_ANALYSIS_PROMPT,
+    SYSTEM_ROLE,
+)
 from app.connectors.fetchers import fetch_content
 from app.models.db import ProcessedSource, VaultNoteMapping
 from app.models.knowledge import Concept, Entity, Topic
@@ -41,14 +46,14 @@ class IngestState(TypedDict, total=False):
     error: str
 
 
-async def _fetch_content(state: IngestState) -> IngestState:
+async def _fetch_content(state: IngestState) -> dict:
     item = state["item"]
     content = await fetch_content(item)
     slug = slugify(content.source.title or item.url)
-    return {**state, "content": content, "slug": slug}
+    return {"content": content, "slug": slug}
 
 
-async def _check_dedup(state: IngestState) -> IngestState:
+async def _check_dedup(state: IngestState) -> dict:
     from app.config import get_settings
 
     content: SourceContent = state["content"]
@@ -73,20 +78,49 @@ async def _check_dedup(state: IngestState) -> IngestState:
                 raw_capture_path=existing.raw_capture_path,
                 deduplicated=True,
             )
-            return {**state, "deduplicated": True, "duplicate_of": existing, "result": result}
+            return {"deduplicated": True, "duplicate_of": existing, "result": result}
 
-        return state
+        return {}
     finally:
         db.close()
 
 
-async def _analyse_content(state: IngestState) -> IngestState:
+async def _analyse_content(state: IngestState) -> dict:
     content: SourceContent = state["content"]
     text = content.cleaned_text or content.raw_text
 
+    if content.extraction_quality == "metadata_only" and not content.cleaned_text.strip():
+        extraction_note = content.extraction_notes or "Only metadata was captured for this source."
+        title = content.source.title or content.source.url
+        return {
+            "analysis": {
+                "summary": (
+                    f"Metadata-only capture for '{title}'. "
+                    "The source was saved, but the body text could not be extracted automatically."
+                ),
+                "key_takeaways": (
+                    "- The source was captured and tracked in the vault\n"
+                    "- Full body text was not available during ingest\n"
+                    f"- Extraction note: {extraction_note}"
+                ),
+                "detailed_outline": content.raw_text[:2000] or "N/A",
+                "important_claims": "- No direct claims were extracted from the source body",
+                "why_matters": (
+                    "This source may still be useful as a bookmark or prompt for manual review, "
+                    "but it should not yet be treated as fully analyzed."
+                ),
+                "open_questions": (
+                    "- Can the full text be captured manually or via a different fetch path?\n"
+                    "- Should this source be re-ingested later?"
+                ),
+                "topics": [],
+                "entities": [],
+                "concepts": [],
+            }
+        }
+
     if not text or content.extraction_quality == "failed":
         return {
-            **state,
             "analysis": {
                 "summary": "Content could not be extracted from this source.",
                 "key_takeaways": "- Extraction failed or returned empty content",
@@ -101,7 +135,6 @@ async def _analyse_content(state: IngestState) -> IngestState:
         }
 
     truncated = text[:12000]
-    llm = get_llm()
 
     prompt = SOURCE_ANALYSIS_PROMPT.format(
         title=content.source.title,
@@ -111,22 +144,22 @@ async def _analyse_content(state: IngestState) -> IngestState:
     )
 
     try:
-        resp = await llm.ainvoke(
-            [
-                {"role": "system", "content": SYSTEM_ROLE},
-                {"role": "user", "content": prompt},
-            ]
+        resp = await run_structured(
+            task=TaskName.INGEST,
+            system_prompt=SYSTEM_ROLE,
+            user_prompt=prompt,
+            json_schema_hint=SOURCE_ANALYSIS_JSON_SCHEMA,
         )
-        raw = resp.content
-        if isinstance(raw, str):
-            raw = raw.strip()
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-                if raw.endswith("```"):
-                    raw = raw[:-3]
-            analysis = json.loads(raw)
+        if resp.success:
+            analysis = json.loads(resp.text)
+            logger.info(
+                "Ingest analysis via %s (model=%s, fallback=%s)",
+                resp.backend_used.value,
+                resp.model_used,
+                resp.was_fallback,
+            )
         else:
-            analysis = raw
+            raise RuntimeError(resp.error)
     except Exception as e:
         logger.warning("LLM analysis failed: %s", e)
         analysis = {
@@ -141,10 +174,10 @@ async def _analyse_content(state: IngestState) -> IngestState:
             "concepts": [],
         }
 
-    return {**state, "analysis": analysis}
+    return {"analysis": analysis}
 
 
-async def _extract_knowledge(state: IngestState) -> IngestState:
+async def _extract_knowledge(state: IngestState) -> dict:
     analysis = state["analysis"]
     slug = state["slug"]
 
@@ -182,10 +215,10 @@ async def _extract_knowledge(state: IngestState) -> IngestState:
             )
         )
 
-    return {**state, "topics": topics, "entities": entities, "concepts": concepts}
+    return {"topics": topics, "entities": entities, "concepts": concepts}
 
 
-async def _write_vault(state: IngestState) -> IngestState:
+async def _write_vault(state: IngestState) -> dict:
     from pathlib import Path
 
     from app.config import get_settings
@@ -238,10 +271,10 @@ async def _write_vault(state: IngestState) -> IngestState:
 
     rebuild_indexes(vault_path)
 
-    return {**state, "vault_updates": updates}
+    return {"vault_updates": updates}
 
 
-async def _persist_duplicate(state: IngestState) -> IngestState:
+async def _persist_duplicate(state: IngestState) -> dict:
     from pathlib import Path
 
     from app.config import get_settings
@@ -271,12 +304,12 @@ async def _persist_duplicate(state: IngestState) -> IngestState:
         )
 
         append_ingest_log(vault_path, result)
-        return state
+        return {}
     finally:
         db.close()
 
 
-async def _persist_state(state: IngestState) -> IngestState:
+async def _persist_state(state: IngestState) -> dict:
     from pathlib import Path
 
     from app.config import get_settings
@@ -345,7 +378,7 @@ async def _persist_state(state: IngestState) -> IngestState:
     append_ingest_log(vault_path, result)
 
     db.close()
-    return {**state, "result": result}
+    return {"result": result}
 
 
 def _route_after_dedup(state: IngestState) -> str:
@@ -363,7 +396,7 @@ def build_ingest_graph() -> StateGraph:
     graph.add_node("write_vault", _write_vault)
     graph.add_node("persist", _persist_state)
 
-    graph.set_entry_point("fetch")
+    graph.add_edge(START, "fetch")
     graph.add_edge("fetch", "dedup")
     graph.add_conditional_edges(
         "dedup",

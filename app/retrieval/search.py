@@ -7,6 +7,12 @@ from pathlib import Path
 from app.retrieval.indexer import VaultIndexer
 from app.vault.parser import scan_vault
 
+SEARCHABLE_NOTE_TYPES = {"source", "topic", "entity", "concept", "synthesis"}
+
+
+def _is_searchable(note_type: str) -> bool:
+    return note_type in SEARCHABLE_NOTE_TYPES
+
 
 def search_vault(vault_path: Path, query: str, limit: int = 15) -> list[dict]:
     """Search the vault using FTS index with fallback to filename/frontmatter matching."""
@@ -33,7 +39,7 @@ def _fallback_search(vault_path: Path, query: str, limit: int) -> list[dict]:
     scored: list[tuple[float, dict]] = []
 
     for note in notes:
-        if note.note_type == "raw":
+        if not _is_searchable(note.note_type):
             continue
 
         score = 0.0

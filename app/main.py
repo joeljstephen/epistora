@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from app.api.routes_automation import router as automation_router
 from app.api.routes_health import router as health_router
 from app.api.routes_ingest import router as ingest_router
 from app.api.routes_lint import router as lint_router
@@ -36,6 +37,7 @@ app.include_router(health_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
 app.include_router(lint_router)
+app.include_router(automation_router)
 
 
 @app.get("/status")

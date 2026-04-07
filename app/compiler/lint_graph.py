@@ -6,15 +6,22 @@ import json
 import logging
 from typing import TypedDict
 
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END, START, StateGraph
 
-from app.compiler.llm import get_llm
-from app.compiler.prompts import LINT_ANALYSIS_PROMPT, SYSTEM_ROLE
+from app.backends.models import TaskName
+from app.compiler.llm import run_structured
+from app.compiler.prompts import (
+    LINT_ANALYSIS_JSON_SCHEMA,
+    LINT_ANALYSIS_PROMPT,
+    SYSTEM_ROLE,
+)
 from app.models.results import LintIssue, LintResult
 from app.vault.log_updater import write_lint_log
 from app.vault.parser import VaultNote, scan_vault
 
 logger = logging.getLogger(__name__)
+
+LINTABLE_NOTE_TYPES = {"source", "topic", "entity", "concept", "synthesis"}
 
 
 class LintState(TypedDict, total=False):
@@ -24,76 +31,66 @@ class LintState(TypedDict, total=False):
     result: LintResult
 
 
-async def _scan_vault(state: LintState) -> LintState:
+async def _scan_vault(state: LintState) -> dict:
     from pathlib import Path
 
     vault_path = Path(state["vault_path"])
     notes = scan_vault(vault_path)
-    return {**state, "notes": notes}
+    return {"notes": notes}
 
 
-async def _structural_lint(state: LintState) -> LintState:
+async def _structural_lint(state: LintState) -> dict:
     """Rule-based structural checks: orphans, backlinks, weak pages."""
     notes: list[VaultNote] = state["notes"]
     issues: list[LintIssue] = []
 
     title_to_path: dict[str, str] = {}
-    all_outgoing: dict[str, set[str]] = {}
     inbound: dict[str, set[str]] = {}
 
-    for note in notes:
+    lintable_notes = [note for note in notes if note.note_type in LINTABLE_NOTE_TYPES]
+
+    for note in lintable_notes:
         title_to_path[note.title] = note.rel_path
-        links = note.outgoing_links
-        all_outgoing[note.rel_path] = set(links)
-        for link in links:
+        for link in note.outgoing_links:
             inbound.setdefault(link, set()).add(note.title)
 
-    orphan_count = 0
-    backlink_count = 0
-    weak_count = 0
-
-    for note in notes:
-        if note.note_type in ("raw", "unknown"):
-            continue
-
+    for note in lintable_notes:
         if note.title not in inbound and note.note_type != "source":
-            if "indexes" not in note.rel_path and "logs" not in note.rel_path:
+            issues.append(
+                LintIssue(
+                    severity="warning",
+                    category="orphan_page",
+                    message=f"'{note.title}' has no inbound links.",
+                    file_path=note.rel_path,
+                    suggestion="Link to this page from related notes or consider removing it.",
+                )
+            )
+
+    for note in lintable_notes:
+        for link in note.outgoing_links:
+            if link not in title_to_path:
+                continue
+            linked_note = next((n for n in lintable_notes if n.title == link), None)
+            if linked_note and note.title not in linked_note.outgoing_links:
+                if note.note_type == "source" and linked_note.note_type in (
+                    "topic",
+                    "entity",
+                    "concept",
+                ):
+                    continue
                 issues.append(
                     LintIssue(
-                        severity="warning",
-                        category="orphan_page",
-                        message=f"'{note.title}' has no inbound links.",
+                        severity="info",
+                        category="missing_backlink",
+                        message=f"'{note.title}' links to '{link}' but no backlink exists.",
                         file_path=note.rel_path,
-                        suggestion="Link to this page from related notes or consider removing it.",
+                        suggestion=f"Add a reference to [[{note.title}]] in '{link}'.",
                     )
                 )
-                orphan_count += 1
 
-    for note in notes:
-        for link in note.outgoing_links:
-            if link in title_to_path:
-                linked_note = next((n for n in notes if n.title == link), None)
-                if linked_note and note.title not in linked_note.outgoing_links:
-                    if note.note_type == "source" and linked_note.note_type in (
-                        "topic",
-                        "entity",
-                        "concept",
-                    ):
-                        continue
-                    issues.append(
-                        LintIssue(
-                            severity="info",
-                            category="missing_backlink",
-                            message=f"'{note.title}' links to '{link}' but no backlink exists.",
-                            file_path=note.rel_path,
-                            suggestion=f"Add a reference to [[{note.title}]] in '{link}'.",
-                        )
-                    )
-                    backlink_count += 1
-
-    for note in notes:
+    for note in lintable_notes:
         if note.note_type in ("topic", "entity", "concept"):
-            source_count = len([link for link in inbound.get(note.title, set())])
+            source_count = len(inbound.get(note.title, set()))
             if source_count < 2:
                 message = (
                     f"'{note.title}' ({note.note_type}) has only "
@@ -108,10 +105,9 @@ async def _structural_lint(state: LintState) -> LintState:
                         suggestion="This page will strengthen as more sources are ingested.",
                     )
                 )
-                weak_count += 1
 
     mentioned_links: dict[str, int] = {}
-    for note in notes:
+    for note in lintable_notes:
         for link in note.outgoing_links:
             if link not in title_to_path:
                 mentioned_links[link] = mentioned_links.get(link, 0) + 1
@@ -127,23 +123,17 @@ async def _structural_lint(state: LintState) -> LintState:
                 )
             )
 
-    return {
-        **state,
-        "issues": issues,
-        "_orphan_count": orphan_count,
-        "_backlink_count": backlink_count,
-        "_weak_count": weak_count,
-    }
+    return {"issues": issues}
 
 
-async def _llm_lint(state: LintState) -> LintState:
+async def _llm_lint(state: LintState) -> dict:
     """Use LLM to detect semantic issues like contradictions and duplicates."""
     notes: list[VaultNote] = state["notes"]
     issues: list[LintIssue] = state.get("issues", [])
 
     source_notes = [n for n in notes if n.note_type == "source"]
     if len(source_notes) < 2:
-        return state
+        return {}
 
     vault_summary_parts = ["## Source Notes\n"]
     for n in source_notes[:30]:
@@ -164,24 +154,23 @@ async def _llm_lint(state: LintState) -> LintState:
     vault_summary = "\n".join(vault_summary_parts)
 
     try:
-        llm = get_llm()
         prompt = LINT_ANALYSIS_PROMPT.format(vault_summary=vault_summary)
-        resp = await llm.ainvoke(
-            [
-                {"role": "system", "content": SYSTEM_ROLE},
-                {"role": "user", "content": prompt},
-            ]
+        resp = await run_structured(
+            task=TaskName.LINT,
+            system_prompt=SYSTEM_ROLE,
+            user_prompt=prompt,
+            json_schema_hint=LINT_ANALYSIS_JSON_SCHEMA,
         )
-        raw = resp.content
-        if isinstance(raw, str):
-            raw = raw.strip()
-            if raw.startswith("```"):
-                raw = raw.split("\n", 1)[1] if "\n" in raw else raw[3:]
-                if raw.endswith("```"):
-                    raw = raw[:-3]
-            analysis = json.loads(raw)
+        if resp.success:
+            analysis = json.loads(resp.text)
+            logger.info(
+                "Lint analysis via %s (model=%s, fallback=%s)",
+                resp.backend_used.value,
+                resp.model_used,
+                resp.was_fallback,
+            )
         else:
-            analysis = {}
+            raise RuntimeError(resp.error)
 
         for dup in analysis.get("duplicate_candidates", []):
             issues.append(
@@ -223,10 +212,10 @@ async def _llm_lint(state: LintState) -> LintState:
     except Exception as e:
         logger.warning("LLM lint analysis failed: %s", e)
 
-    return {**state, "issues": issues}
+    return {"issues": issues}
 
 
-async def _generate_report(state: LintState) -> LintState:
+async def _generate_report(state: LintState) -> dict:
     from pathlib import Path
 
     vault_path = Path(state["vault_path"])
@@ -248,7 +237,7 @@ async def _generate_report(state: LintState) -> LintState:
     report_path = write_lint_log(vault_path, result)
     result.report_path = report_path
 
-    return {**state, "result": result}
+    return {"result": result}
 
 
 def build_lint_graph() -> StateGraph:
@@ -259,7 +248,7 @@ def build_lint_graph() -> StateGraph:
     graph.add_node("llm_lint", _llm_lint)
     graph.add_node("report", _generate_report)
 
-    graph.set_entry_point("scan")
+    graph.add_edge(START, "scan")
     graph.add_edge("scan", "structural")
     graph.add_edge("structural", "llm_lint")
     graph.add_edge("llm_lint", "report")
