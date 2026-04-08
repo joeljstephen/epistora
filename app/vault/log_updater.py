@@ -18,9 +18,14 @@ def append_ingest_log(vault_path: Path, result: IngestResult) -> None:
 
     entry = f"""### {friendly_date(result.timestamp)}
 
+- **Title:** {result.source_title or "unknown"}
 - **URL:** {result.source_url}
 - **Type:** {result.source_type}
 - **Source note:** `{result.source_note_path}`
+- **Raw capture:** `{result.raw_capture_path}`
+- **Extraction:** `{result.extraction_method or "unknown"}`
+  / `{result.extraction_quality or "unknown"}`
+- **Tags:** {", ".join(result.bookmark_tags) or "none"}
 - **Topics:** {", ".join(result.topics_updated) or "none"}
 - **Entities:** {", ".join(result.entities_updated) or "none"}
 - **Concepts:** {", ".join(result.concepts_updated) or "none"}

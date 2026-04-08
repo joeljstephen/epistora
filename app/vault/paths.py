@@ -14,6 +14,7 @@ VAULT_DIRS = [
     "wiki/sources/videos",
     "wiki/sources/threads",
     "wiki/sources/pdfs",
+    "wiki/sources/misc",
     "wiki/entities/people",
     "wiki/entities/companies",
     "wiki/entities/tools",
@@ -27,6 +28,24 @@ VAULT_DIRS = [
     "outputs/reports",
     ".system/manifests",
     ".system/cache",
+    ".system/state",
+    ".system/archives",
+]
+
+RESETTABLE_DIRS = [
+    "inbox/raw",
+    "wiki/sources",
+    "wiki/topics",
+    "wiki/entities",
+    "wiki/concepts",
+    "wiki/synthesis",
+    "wiki/indexes",
+    "wiki/logs",
+    "outputs/answers",
+    "outputs/digests",
+    "outputs/reports",
+    ".system/cache",
+    ".system/manifests",
     ".system/state",
 ]
 
@@ -44,7 +63,7 @@ SOURCE_NOTE_DIRS: dict[SourceType, str] = {
     SourceType.YOUTUBE: "wiki/sources/videos",
     SourceType.X_THREAD: "wiki/sources/threads",
     SourceType.PDF: "wiki/sources/pdfs",
-    SourceType.GENERIC: "wiki/sources/articles",
+    SourceType.GENERIC: "wiki/sources/misc",
 }
 
 

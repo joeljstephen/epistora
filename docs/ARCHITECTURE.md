@@ -30,16 +30,48 @@ Epistora is a local-first personal knowledge compiler. It ingests content from s
 
 ### A. Connector Layer (`app/connectors/`)
 
-Responsible for fetching source metadata and content.
+Responsible for fetching source metadata and content. **Raindrop is used only
+as a URL inbox** — it provides saved URLs, title, tags, excerpt, and saved
+time. All full-text extraction happens through the fetcher layer.
 
 - **`classifier.py`** — Determines `SourceType` from a URL using regex patterns
 - **`raindrop.py`** — `RaindropConnector` calls the Raindrop.io API to fetch saved bookmarks
-- **`fetchers/`** — Content extraction by type:
-  - `article.py` — Uses trafilatura for readable article extraction
-  - `youtube.py` — Fetches transcripts via `youtube-transcript-api`
-  - `x_thread.py` — Best-effort X/Twitter extraction via noembed + page scraping
-  - `pdf.py` — PDF text extraction using PyMuPDF
-  - `generic.py` — Fallback using trafilatura on any URL
+- **`fetchers/`** — Content extraction by type, each with a multi-tier fallback chain:
+  - `article.py` — Trafilatura → readability-lxml → browser rendering → metadata-only, plus a clean archived article markdown output
+  - `youtube.py` — youtube-transcript-api → yt-dlp subtitles → metadata/noembed → ASR hook, plus structured transcript capture
+  - `x_thread.py` — Official X API → fxtwitter/vxtwitter → oEmbed/noembed → page scrape → browser
+  - `pdf.py` — PyMuPDF text extraction with PDF metadata
+  - `generic.py` — Trafilatura → readability → browser → metadata-only
+  - `browser.py` — Optional Playwright-based rendered extraction (shared by other fetchers)
+  - `readability.py` — readability-lxml wrapper (shared by article + generic)
+  - `x_api.py` — Official X API v2 client for post/thread extraction
+  - `x_mirrors.py` — fxtwitter/vxtwitter/oEmbed helpers for free X extraction
+- **`utils/extraction.py`** — Shared helpers: quality scoring, OG metadata, URL canonicalization
+
+#### Extraction Quality Scoring
+
+Every fetcher returns a `SourceContent` with structured extraction metadata:
+
+- **`extraction_quality`**: `full` | `mostly_full` | `partial` | `metadata_only` | `failed`
+- **`extraction_method`**: which extractor ultimately produced the content
+- **`extraction_fallback_chain`**: ordered list of all methods attempted
+- **`extraction_notes`**: human-readable explanation of what happened
+- **`raw_metadata`**: provider-specific metadata (OG tags, video info, tweet metrics, etc.)
+- **`canonical_url`**: resolved canonical URL when available
+- **`archived_markdown`**: clean markdown body for the raw vault layer when available
+- **`raw_capture_kind`**: distinguishes readable article archives, transcripts, and generic raw captures
+
+Quality is scored based on word count, paragraph count, title presence, and extractor-specific signals (e.g., auto-captions on YouTube are rated `mostly_full` instead of `full`).
+
+#### X/Twitter Extraction Strategy
+
+X extraction uses a five-tier fallback:
+
+1. **Official X API** (Tier 1): When `X_API_BEARER_TOKEN` is configured, uses the Twitter v2 API for full post text, thread reconstruction via `conversation_id`, and structured metadata. Optional — never required.
+2. **Free mirror APIs** (Tier 2): fxtwitter and vxtwitter provide full tweet text, thread content, and X article expansion via free public endpoints.
+3. **oEmbed** (Tier 3): Twitter oEmbed and noembed for basic tweet text.
+4. **Page scrape** (Tier 4): Direct OG metadata extraction.
+5. **Browser rendering** (Tier 5): Optional Playwright-based fallback for difficult cases.
 
 **Extensibility:** New connectors implement the same pattern: receive a `SourceItem`, return a `SourceContent`. Adding a `ReadwiseReaderConnector` or `RSSConnector` requires only a new file and registering it in the fetcher dispatcher.
 
@@ -95,7 +127,16 @@ Uses LangGraph state machines for the three core workflows:
 ```
 fetch → dedup → analyse → extract_knowledge → write_vault → persist
 ```
-Each node is an async function that transforms the shared `IngestState`. The LLM is called during `analyse` via `run_structured()` — the backend router picks the appropriate backend for the "ingest" task.
+Each node is an async function that transforms the shared `IngestState`.
+The LLM is called during `analyse` via `run_structured()`, where the prompt now
+produces a richer wiki-ready schema:
+
+- short summary
+- `5-Minute Read`
+- detailed reading note / articleified video note
+- key ideas, outline, examples, takeaways, quotes
+- consume recommendation, why-it-matters, open questions
+- topics, entities, and concepts
 
 #### Query Graph
 ```
@@ -112,7 +153,7 @@ Combines rule-based checks (orphans, backlinks, weak pages) with LLM-powered sem
 ### E. Vault Writer Layer (`app/vault/`)
 
 - **`paths.py`** — All vault path conventions in one place
-- **`templates.py`** — Markdown + YAML frontmatter generators for each note type
+- **`templates.py`** — Markdown + YAML frontmatter generators for raw captures, source notes, topics, entities, concepts, and synthesis
 - **`writer.py`** — `VaultWriter` handles create-or-update logic, including merging source lists
 - **`parser.py`** — `VaultNote` class for reading and introspecting existing notes
 - **`index_updater.py`** — Rebuilds INDEX, TOPICS, ENTITIES, CONCEPTS indexes
@@ -147,9 +188,12 @@ The automation subsystem enables hands-free operation:
 
 1. User runs `kb ingest-url <url>` or `POST /ingest/url`
 2. URL classified → appropriate fetcher called → `SourceContent` produced
+   - article-tagged generic bookmarks are promoted into the article extractor
+   - article fetches preserve readable raw markdown
+   - YouTube fetches preserve transcript captures
 3. Dedup check against URL hash / content hash in SQLite
 4. Backend router selects best available backend for "ingest" task
-5. LLM generates structured analysis (summary, takeaways, topics, entities, concepts)
+5. LLM generates structured analysis (summary, `5-Minute Read`, detailed note, ideas, examples, recommendations, topics, entities, concepts)
 6. Knowledge extraction produces `Topic`, `Entity`, `Concept` models
 7. VaultWriter creates/updates:
    - Raw capture → `inbox/raw/{type}/`
@@ -158,6 +202,16 @@ The automation subsystem enables hands-free operation:
    - Entity pages → `wiki/entities/`
    - Concept pages → `wiki/concepts/`
 8. Indexes rebuilt, ingest log appended, SQLite state updated
+
+## Reset And Re-run Path
+
+`app/services/reset_service.py` implements the clean reset path used for
+validation and replay:
+
+- archives existing generated artifacts under `.system/archives/`
+- clears generated raw/wiki/output/state directories
+- resets processed-source, vault-note, and sync-cursor tables
+- recreates index and log placeholders for a clean rerun
 
 ## Data Flow: Backend Routing
 

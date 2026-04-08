@@ -41,6 +41,9 @@ kb ingest-url "https://example.com/article"
 # Sync from Raindrop
 kb sync-raindrop --limit 10
 
+# Reset generated vault artifacts before a clean replay
+kb reset-generated --yes --archive
+
 # Query the vault
 kb query "What do I know about LangChain?"
 
@@ -161,6 +164,16 @@ To add a new backend provider:
 7. Update `.env.example`
 
 The `generate_structured()` method has a default implementation that calls `generate()` and parses JSON from the output. Override it if your provider supports native structured output.
+
+## Resetting Generated State
+
+Use `kb reset-generated --yes --archive` when you want to:
+
+- archive the current generated raw/wiki/output/state artifacts
+- clear processed-source and sync cursor state
+- rerun the latest Raindrop items from a clean generated vault
+
+This does not touch application source code or the vault operating manual.
 
 ## Project Structure
 

@@ -15,9 +15,13 @@ class VaultUpdate(BaseModel):
 
 class IngestResult(BaseModel):
     source_url: str
+    source_title: str = ""
     source_type: str = ""
     source_note_path: str = ""
     raw_capture_path: str = ""
+    extraction_quality: str = ""
+    extraction_method: str = ""
+    bookmark_tags: list[str] = Field(default_factory=list)
     topics_updated: list[str] = Field(default_factory=list)
     entities_updated: list[str] = Field(default_factory=list)
     concepts_updated: list[str] = Field(default_factory=list)

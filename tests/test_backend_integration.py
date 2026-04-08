@@ -64,16 +64,22 @@ class TestIngestServiceWithMockedBackend:
             source=item,
             raw_text="raw",
             cleaned_text="This is a test article about AI.",
-            extraction_quality="good",
+            extraction_quality="full",
         )
         state: IngestState = {"item": item, "content": content, "slug": "test-article"}
 
         analysis = {
             "summary": "Test summary",
-            "key_takeaways": "- Point 1",
+            "five_minute_read": "Briefing",
+            "detailed_reading_note": "Detailed note",
+            "key_ideas": "- Point 1",
             "detailed_outline": "## Outline",
-            "important_claims": "- Claim",
-            "why_matters": "It matters.",
+            "important_examples": "- Claim",
+            "actionable_takeaways": "- Action",
+            "notable_quotes": "- None captured verbatim.",
+            "best_for": "- Readers",
+            "consume_recommendation": "Read the original for more detail.",
+            "why_it_matters": "It matters.",
             "open_questions": "- Question",
             "topics": ["AI"],
             "entities": [{"name": "OpenAI", "type": "company", "description": "AI lab"}],

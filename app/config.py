@@ -71,6 +71,38 @@ class Settings(BaseSettings):
     claude_code_model_lint: str = ""
     claude_code_timeout_seconds: int = 180
 
+    # --- Extraction: Article ---
+    article_fetch_timeout_seconds: int = 30
+    article_use_readability_fallback: bool = True
+    article_use_browser_fallback: bool = False
+
+    # --- Extraction: YouTube ---
+    youtube_fetch_timeout_seconds: int = 30
+    youtube_use_ytdlp_fallback: bool = True
+    youtube_transcript_max_chars: int = 0  # 0 = unlimited
+
+    # --- Extraction: X/Twitter ---
+    x_api_enabled: bool = False
+    x_api_bearer_token: str = ""
+    x_api_timeout_seconds: int = 30
+    x_mirror_enabled: bool = True
+    x_mirror_timeout_seconds: int = 20
+    x_oembed_enabled: bool = True
+
+    # --- Extraction: Browser fallback ---
+    browser_fallback_enabled: bool = False
+    browser_fallback_timeout_seconds: int = 30
+
+    # --- Ingest: LLM evidence window ---
+    # Default cap for non-video sources (keeps prompts bounded).
+    ingest_evidence_max_chars: int = 16000
+    # YouTube transcripts are long; a larger window (or segment digests) is needed for
+    # full-video analysis. 0 = same as ingest_evidence_max_chars.
+    ingest_youtube_evidence_max_chars: int = 100_000
+    # When the transcript exceeds ingest_youtube_evidence_max_chars, split into chunks of
+    # roughly this size and digest each chunk before the final analysis pass.
+    ingest_youtube_chunk_chars: int = 24_000
+
     # --- Automation / worker ---
     sync_enabled: bool = False
     sync_interval_seconds: int = 1200

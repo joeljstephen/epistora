@@ -28,11 +28,18 @@ class VaultWriter:
         self,
         content: SourceContent,
         slug: str,
+        raw_capture_path: str,
         summary: str,
-        key_takeaways: str,
+        five_minute_read: str,
+        detailed_reading_note: str,
+        key_ideas: str,
         detailed_outline: str,
-        important_claims: str,
-        why_matters: str,
+        important_examples: str,
+        actionable_takeaways: str,
+        notable_quotes: str,
+        best_for: str,
+        consume_recommendation: str,
+        why_it_matters: str,
         open_questions: str,
         topics: list[str],
         entities: list[str],
@@ -41,11 +48,18 @@ class VaultWriter:
         p = paths.source_note_path(self.vault_path, content.source.source_type, slug)
         md = templates.source_note_md(
             content,
+            raw_capture_path,
             summary,
-            key_takeaways,
+            five_minute_read,
+            detailed_reading_note,
+            key_ideas,
             detailed_outline,
-            important_claims,
-            why_matters,
+            important_examples,
+            actionable_takeaways,
+            notable_quotes,
+            best_for,
+            consume_recommendation,
+            why_it_matters,
             open_questions,
             topics,
             entities,
@@ -91,7 +105,7 @@ class VaultWriter:
         sections = self._extract_sections(body)
         existing_sources = self._extract_section_list(body, "What I Have Saved")
         all_sources = list(dict.fromkeys(existing_sources + source_titles))
-        existing_concepts = self._extract_section_list(body, "Core Concepts")
+        existing_concepts = self._extract_section_list(body, "Related Concepts")
         existing_entities = self._extract_section_list(body, "Important Entities")
         merged_topic = topic.model_copy(
             update={

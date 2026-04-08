@@ -5,23 +5,31 @@ from __future__ import annotations
 from app.models.knowledge import Concept, Entity, SynthesisNote, Topic
 from app.models.source import SourceContent
 from app.utils.dates import friendly_date
-from app.utils.markdown import build_frontmatter_doc, wikilink
+from app.utils.markdown import build_frontmatter_doc, path_wikilink, wikilink
 
 
 def source_note_md(
     content: SourceContent,
+    raw_capture_path: str,
     summary: str,
-    key_takeaways: str,
+    five_minute_read: str,
+    detailed_reading_note: str,
+    key_ideas: str,
     detailed_outline: str,
-    important_claims: str,
-    why_matters: str,
+    important_examples: str,
+    actionable_takeaways: str,
+    notable_quotes: str,
+    best_for: str,
+    consume_recommendation: str,
+    why_it_matters: str,
     open_questions: str,
     topics: list[str],
     entities: list[str],
     concepts: list[str],
 ) -> str:
+    source_title = content.source.title or content.source.url
     meta = {
-        "title": content.source.title,
+        "title": source_title,
         "type": "source",
         "source_url": content.source.url,
         "source_type": content.source.source_type.value,
@@ -34,51 +42,162 @@ def source_note_md(
         "concepts": concepts,
         "word_count": content.word_count,
         "extraction_quality": content.extraction_quality,
+        "extraction_method": content.extraction_method,
+        "extraction_fallback_chain": content.extraction_fallback_chain,
+        "raw_capture_path": raw_capture_path,
+        "raw_capture_kind": content.raw_capture_kind,
     }
+    if content.canonical_url and content.canonical_url != content.source.url:
+        meta["canonical_url"] = content.canonical_url
 
-    topic_links = ", ".join(wikilink(t) for t in topics) if topics else "_None yet_"
-    entity_links = ", ".join(wikilink(e) for e in entities) if entities else "_None yet_"
-    concept_links = ", ".join(wikilink(c) for c in concepts) if concepts else "_None yet_"
+    topic_links = ", ".join(wikilink(topic) for topic in topics) if topics else "_None yet_"
+    entity_links = (
+        ", ".join(wikilink(entity) for entity in entities) if entities else "_None yet_"
+    )
+    concept_links = (
+        ", ".join(wikilink(concept) for concept in concepts) if concepts else "_None yet_"
+    )
+    raw_link = path_wikilink(raw_capture_path, "Raw archive") if raw_capture_path else "_Missing_"
+    tags = ", ".join(content.source.tags) if content.source.tags else "_None_"
 
-    body = f"""# {content.source.title}
-
-> **Source:** {content.source.url}
-> **Type:** {content.source.source_type.value} | **Ingested:** {friendly_date()}
-
-## Summary
-
-{summary}
-
-## Key Takeaways
-
-{key_takeaways}
-
-## Detailed Outline
-
-{detailed_outline}
-
-## Important Claims
-
-{important_claims}
-
-## Why This Matters
-
-{why_matters}
-
-## Open Questions
-
-{open_questions}
-
-## Related Notes
-
-- **Topics:** {topic_links}
-- **Entities:** {entity_links}
-- **Concepts:** {concept_links}
-"""
-    if content.extraction_notes:
-        body += f"\n---\n\n> **Extraction note:** {content.extraction_notes}\n"
+    body = "\n".join(
+        [
+            f"# {source_title}",
+            "",
+            f"> **Source:** {content.source.url}",
+            f"> **Type:** {content.source.source_type.value}",
+            f"> **Ingested:** {friendly_date()}",
+            f"> **Raw archive:** {raw_link}",
+            f"> **Saved tags:** {tags}",
+            "",
+            _source_specific_body(
+                content=content,
+                summary=summary,
+                five_minute_read=five_minute_read,
+                detailed_reading_note=detailed_reading_note,
+                key_ideas=key_ideas,
+                detailed_outline=detailed_outline,
+                important_examples=important_examples,
+                actionable_takeaways=actionable_takeaways,
+                notable_quotes=notable_quotes,
+                best_for=best_for,
+                consume_recommendation=consume_recommendation,
+                why_it_matters=why_it_matters,
+                open_questions=open_questions,
+                topic_links=topic_links,
+                entity_links=entity_links,
+                concept_links=concept_links,
+            ),
+        ]
+    ).strip()
 
     return build_frontmatter_doc(meta, body)
+
+
+def _source_specific_body(
+    *,
+    content: SourceContent,
+    summary: str,
+    five_minute_read: str,
+    detailed_reading_note: str,
+    key_ideas: str,
+    detailed_outline: str,
+    important_examples: str,
+    actionable_takeaways: str,
+    notable_quotes: str,
+    best_for: str,
+    consume_recommendation: str,
+    why_it_matters: str,
+    open_questions: str,
+    topic_links: str,
+    entity_links: str,
+    concept_links: str,
+) -> str:
+    common_sections = [
+        "## Key Ideas\n\n" + key_ideas,
+        "## Detailed Outline\n\n" + detailed_outline,
+        "## Important Examples\n\n" + important_examples,
+        "## Actionable Takeaways\n\n" + actionable_takeaways,
+        "## Notable Quotes\n\n" + notable_quotes,
+        "## Who This Is Useful For\n\n" + best_for,
+        "## Why This Matters\n\n" + why_it_matters,
+        "## Related Notes\n\n"
+        + "\n".join(
+            [
+                f"- **Topics:** {topic_links}",
+                f"- **Entities:** {entity_links}",
+                f"- **Concepts:** {concept_links}",
+            ]
+        ),
+        "## Open Questions\n\n" + open_questions,
+        "## Capture Notes\n\n" + _capture_notes_md(content),
+    ]
+
+    if content.source.source_type.value == "youtube":
+        sections = [
+            "## Transcript Status\n\n" + _youtube_transcript_status(content),
+            "## Short Summary\n\n" + summary,
+            "## 5-Minute Read\n\n" + five_minute_read,
+            "## Detailed Article Version\n\n" + detailed_reading_note,
+            "## Should I Still Watch This?\n\n" + consume_recommendation,
+        ]
+        sections.extend(common_sections)
+        return "\n\n".join(sections)
+
+    if content.source.source_type.value == "article":
+        sections = [
+            "## Concise Summary\n\n" + summary,
+            "## 5-Minute Read\n\n" + five_minute_read,
+            "## Detailed Reading Note\n\n" + detailed_reading_note,
+            "## Should I Still Read The Original?\n\n" + consume_recommendation,
+        ]
+        sections.extend(common_sections)
+        return "\n\n".join(sections)
+
+    sections = [
+        "## Summary\n\n" + summary,
+        "## 5-Minute Read\n\n" + five_minute_read,
+        "## Detailed Reading Note\n\n" + detailed_reading_note,
+        "## Should I Still Consult The Original?\n\n" + consume_recommendation,
+    ]
+    sections.extend(common_sections)
+    return "\n\n".join(sections)
+
+
+def _youtube_transcript_status(content: SourceContent) -> str:
+    transcript_available = bool(content.raw_metadata.get("transcript_available"))
+    caption_type = content.raw_metadata.get("caption_type", "none")
+    source = content.raw_metadata.get("transcript_source", content.extraction_method or "unknown")
+    channel = content.author or content.raw_metadata.get("channel", "")
+    duration = content.raw_metadata.get("duration", "")
+
+    lines = [
+        f"- Transcript available: {'yes' if transcript_available else 'no'}",
+        f"- Caption type: {caption_type}",
+        f"- Extraction source: {source}",
+    ]
+    if channel:
+        lines.append(f"- Channel: {channel}")
+    if duration:
+        lines.append(f"- Duration: {duration}")
+    return "\n".join(lines)
+
+
+def _capture_notes_md(content: SourceContent) -> str:
+    lines = [
+        f"- Extraction quality: `{content.extraction_quality}`",
+        f"- Extraction method: `{content.extraction_method or 'unknown'}`",
+    ]
+    if content.extraction_fallback_chain:
+        lines.append(
+            "- Fallback chain: "
+            + " -> ".join(f"`{step}`" for step in content.extraction_fallback_chain)
+        )
+    if content.canonical_url and content.canonical_url != content.source.url:
+        lines.append(f"- Canonical URL: {content.canonical_url}")
+    if content.extraction_notes:
+        lines.append(f"- Notes: {content.extraction_notes}")
+    return "\n".join(lines)
 
 
 def topic_note_md(
@@ -87,6 +206,10 @@ def topic_note_md(
     sections: dict[str, str] | None = None,
 ) -> str:
     sections = sections or {}
+    topic_summary = topic.summary or "_This topic page will strengthen as more sources accumulate._"
+    recurring_patterns = "_Patterns will be written here as repeated ideas emerge across sources._"
+    conflicting_viewpoints = "_Record disagreements, tensions, or unresolved tradeoffs here._"
+    suggested_next = "_Add likely next sources or questions to pursue._"
     meta = {
         "title": topic.name,
         "type": "topic",
@@ -95,17 +218,17 @@ def topic_note_md(
     }
 
     source_list = (
-        "\n".join(f"- {wikilink(t)}" for t in source_titles)
+        "\n".join(f"- {wikilink(title)}" for title in source_titles)
         if source_titles
         else "- _No sources yet_"
     )
     concept_links = (
-        ", ".join(wikilink(c) for c in topic.related_concepts)
+        ", ".join(wikilink(concept) for concept in topic.related_concepts)
         if topic.related_concepts
         else "_None yet_"
     )
     entity_links = (
-        ", ".join(wikilink(e) for e in topic.related_entities)
+        ", ".join(wikilink(entity) for entity in topic.related_entities)
         if topic.related_entities
         else "_None yet_"
     )
@@ -114,51 +237,35 @@ def topic_note_md(
 
 ## Topic Summary
 
-{
-        sections.get(
-            "Topic Summary",
-            topic.summary or "_Summary will be enriched as more sources are added._",
-        )
-    }
+{sections.get("Topic Summary", topic_summary)}
 
 ## What I Have Saved
 
 {source_list}
 
-## Core Concepts
+## Related Concepts
 
-{sections.get("Core Concepts", concept_links)}
+{sections.get("Related Concepts", concept_links)}
 
 ## Important Entities
 
 {sections.get("Important Entities", entity_links)}
 
-## Patterns Across Sources
+## Recurring Patterns
 
-{
-        sections.get(
-            "Patterns Across Sources",
-            "_Patterns will emerge as more sources are ingested on this topic._",
-        )
-    }
+{sections.get("Recurring Patterns", recurring_patterns)}
+
+## Conflicting Viewpoints
+
+{sections.get("Conflicting Viewpoints", conflicting_viewpoints)}
 
 ## Gaps In My Understanding
 
-{
-        sections.get(
-            "Gaps In My Understanding",
-            "_To be identified through further reading and lint passes._",
-        )
-    }
+{sections.get("Gaps In My Understanding", "_Identify what still feels thin or under-explained._")}
 
-## Suggested Learning Path
+## Suggested Next Reading / Watching
 
-{
-        sections.get(
-            "Suggested Learning Path",
-            "_Will be generated once enough sources cover this topic._",
-        )
-    }
+{sections.get("Suggested Next Reading / Watching", suggested_next)}
 """
     return build_frontmatter_doc(meta, body)
 
@@ -169,6 +276,12 @@ def entity_note_md(
     sections: dict[str, str] | None = None,
 ) -> str:
     sections = sections or {}
+    what_it_is = (
+        entity.description or f"_{entity.entity_type.title()} referenced in saved sources._"
+    )
+    why_it_shows_up = f"Referenced in {len(source_titles)} source(s) in this vault."
+    recurring_contexts = "_Capture the recurring roles or contexts this entity appears in._"
+    open_questions = "_Track ambiguities, missing details, or follow-up questions here._"
     meta = {
         "title": entity.name,
         "type": "entity",
@@ -178,12 +291,12 @@ def entity_note_md(
     }
 
     mentions = (
-        "\n".join(f"- {wikilink(t)}" for t in source_titles)
+        "\n".join(f"- {wikilink(title)}" for title in source_titles)
         if source_titles
         else "- _No mentions yet_"
     )
     concept_links = (
-        ", ".join(wikilink(c) for c in entity.related_concepts)
+        ", ".join(wikilink(concept) for concept in entity.related_concepts)
         if entity.related_concepts
         else "_None yet_"
     )
@@ -192,21 +305,15 @@ def entity_note_md(
 
 ## What It Is
 
-{
-        sections.get(
-            "What It Is",
-            entity.description or f"_{entity.entity_type.title()} referenced in saved sources._",
-        )
-    }
+{sections.get("What It Is", what_it_is)}
 
 ## Why It Shows Up In My Vault
 
-{
-        sections.get(
-            "Why It Shows Up In My Vault",
-            f"Referenced in {len(source_titles)} source(s) in this vault.",
-        )
-    }
+{sections.get("Why It Shows Up In My Vault", why_it_shows_up)}
+
+## Recurring Contexts
+
+{sections.get("Recurring Contexts", recurring_contexts)}
 
 ## Related Concepts
 
@@ -215,6 +322,10 @@ def entity_note_md(
 ## Mentioned In
 
 {mentions}
+
+## Open Questions
+
+{sections.get("Open Questions", open_questions)}
 """
     return build_frontmatter_doc(meta, body)
 
@@ -225,6 +336,10 @@ def concept_note_md(
     sections: dict[str, str] | None = None,
 ) -> str:
     sections = sections or {}
+    definition = (
+        concept.definition or "_Definition will be refined as more sources mention this concept._"
+    )
+    open_questions = "_Track unclear edges, competing definitions, or missing examples._"
     meta = {
         "title": concept.name,
         "type": "concept",
@@ -233,12 +348,12 @@ def concept_note_md(
     }
 
     sources = (
-        "\n".join(f"- {wikilink(t)}" for t in source_titles)
+        "\n".join(f"- {wikilink(title)}" for title in source_titles)
         if source_titles
         else "- _No examples yet_"
     )
     related = (
-        ", ".join(wikilink(c) for c in concept.related_concepts)
+        ", ".join(wikilink(item) for item in concept.related_concepts)
         if concept.related_concepts
         else "_None yet_"
     )
@@ -247,13 +362,11 @@ def concept_note_md(
 
 ## Definition
 
-{
-        sections.get(
-            "Definition",
-            concept.definition
-            or "_Definition will be refined as more sources mention this concept._",
-        )
-    }
+{sections.get("Definition", definition)}
+
+## Why It Matters
+
+{sections.get("Why It Matters", "_Explain why this concept keeps showing up in the vault._")}
 
 ## Where It Appears
 
@@ -266,6 +379,10 @@ def concept_note_md(
 ## Examples From Saved Sources
 
 {sections.get("Examples From Saved Sources", "_Examples will be extracted as the vault grows._")}
+
+## Open Questions
+
+{sections.get("Open Questions", open_questions)}
 """
     return build_frontmatter_doc(meta, body)
 
@@ -279,7 +396,7 @@ def synthesis_note_md(note: SynthesisNote) -> str:
     }
 
     basis = (
-        "\n".join(f"- {wikilink(s)}" for s in note.source_basis)
+        "\n".join(f"- {wikilink(source)}" for source in note.source_basis)
         if note.source_basis
         else "- _No sources_"
     )
@@ -294,34 +411,47 @@ def synthesis_note_md(note: SynthesisNote) -> str:
 
 {basis}
 
-## Main Patterns
+## Cross-Source Patterns
 
 {note.main_patterns or "_No patterns identified yet._"}
 
-## Conflicts or Tensions
+## Conflicts Or Tensions
 
 {note.conflicts or "_No conflicts detected._"}
 
-## Recommended Next Steps
+## Reusable Takeaways
 
-{note.next_steps or "_No recommendations yet._"}
+{note.next_steps or "_No reusable takeaways recorded yet._"}
 """
     return build_frontmatter_doc(meta, body)
 
 
 def raw_capture_md(content: SourceContent) -> str:
+    source_title = content.source.title or content.source.url
     meta = {
-        "title": content.source.title,
+        "title": source_title,
         "type": "raw",
         "source_url": content.source.url,
         "source_type": content.source.source_type.value,
         "captured_at": friendly_date(),
         "immutable": True,
+        "raw_capture_kind": content.raw_capture_kind,
+        "extraction_quality": content.extraction_quality,
+        "extraction_method": content.extraction_method,
     }
-    body = f"""# Raw Capture: {content.source.title}
+    if content.canonical_url and content.canonical_url != content.source.url:
+        meta["canonical_url"] = content.canonical_url
 
-> This file is an immutable raw capture. Do not edit.
+    if content.archived_markdown.strip():
+        body = content.archived_markdown.strip()
+    else:
+        body = f"""# {source_title}
 
-{content.raw_text}
+> Immutable raw capture generated by Epistora.
+> Source: {content.source.url}
+> Extraction: {content.extraction_method or 'unknown'} ({content.extraction_quality})
+
+{content.raw_text or content.cleaned_text or "_No raw text captured._"}
 """
+
     return build_frontmatter_doc(meta, body)

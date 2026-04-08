@@ -2,17 +2,24 @@
 
 **Local-first personal knowledge compiler** that turns saved links and documents into a persistent, markdown-based, queryable knowledge base.
 
-Epistora watches your saved bookmarks (starting with Raindrop.io), fetches the source content, compiles structured knowledge notes, extracts topics/entities/concepts, links everything together, and writes it all into an Obsidian-compatible vault. Over time, your vault compounds — topics get richer, patterns emerge across sources, and you can query your accumulated knowledge with grounded answers.
+Epistora watches your saved bookmarks (starting with Raindrop.io), fetches the
+source content, preserves the raw source material, compiles structured
+knowledge notes, extracts topics/entities/concepts, links everything together,
+and writes it all into an Obsidian-compatible vault. Over time, your vault
+compounds: raw evidence stays intact, wiki pages get richer, patterns emerge
+across sources, and grounded answers can be promoted back into durable notes.
 
 ## Why Epistora?
 
 Most "save for later" tools become link graveyards. Read-it-later apps let you highlight but don't connect ideas. RAG chatbots answer questions but don't build lasting knowledge. Epistora sits in the middle:
 
 - **Compiles**, not just retrieves — new sources update existing topic and concept pages
+- **Preserves evidence** — raw article markdown, transcripts, thread captures, and PDF text stay separate from compiled notes
 - **Local-first** — your knowledge lives in markdown files you own and control
 - **Obsidian-native** — open your vault in Obsidian and browse/edit alongside the automated notes
 - **Queryable** — ask questions and get answers grounded in your actual saved sources
 - **Inspectable** — every note has frontmatter, every claim links to a source, every action is logged
+- **Readable** — YouTube videos become article-style notes with a `5-Minute Read` and a detailed reading version
 - **Multi-backend** — use OpenAI-compatible APIs, OpenCode, or Claude Code as reasoning engines
 - **Automated** — run `kb worker` for hands-free background sync and maintenance
 
@@ -73,6 +80,7 @@ kb query "What are the main components of an AI agent?"
 | `kb backend-status` | Show configured backends and availability |
 | `kb run-sync` | Run a one-off Raindrop sync |
 | `kb run-lint` | Run a one-off lint check |
+| `kb reset-generated` | Archive and clear generated vault/state artifacts before a clean rerun |
 
 ## Background Worker
 
@@ -222,10 +230,13 @@ See `.env.example` for the full list.
 knowledge_vault/
   AGENTS.md                    # Vault conventions
   inbox/raw/                   # Immutable raw captures
-    articles/ videos/ threads/ pdfs/ misc/
+    articles/                  # Readable article archives
+    videos/                    # Transcript captures + video metadata
+    threads/                   # Raw thread captures
+    pdfs/ misc/
   wiki/
     sources/                   # Compiled source notes
-      articles/ videos/ threads/ pdfs/
+      articles/ videos/ threads/ pdfs/ misc/
     topics/                    # Topic pages (auto-maintained)
     entities/                  # Entity pages (people, companies, tools)
     concepts/                  # Concept pages
@@ -237,6 +248,19 @@ knowledge_vault/
     digests/ reports/
 ```
 
+## Resetting And Re-running
+
+To clear only generated vault artifacts and generated internal state while
+keeping source code and `AGENTS.md` intact:
+
+```bash
+kb reset-generated --yes --archive
+kb sync-raindrop --limit 30
+```
+
+This archives the previous generated raw/wiki/output/state files under
+`.system/archives/` before rebuilding from a clean slate.
+
 ## Testing
 
 ```bash
@@ -246,14 +270,88 @@ pytest tests/test_backends.py -v          # Backend tests
 pytest tests/test_automation.py -v        # Automation tests
 ```
 
+## Content Extraction
+
+Epistora uses multi-tier fallback chains for each source type to maximize extraction quality:
+
+### Articles
+1. **Trafilatura** (primary) — best-in-class Python article extraction
+2. **readability-lxml** (fallback) — alternative extraction when trafilatura yields thin content
+3. **Browser rendering** (optional) — Playwright-based for JS-heavy pages
+4. **Metadata-only** — OG tags, title, description when all else fails
+
+For article sources, Epistora writes two separate artifacts:
+
+- a clean readable markdown archive in `inbox/raw/articles/`
+- a compiled source note in `wiki/sources/articles/`
+
+### Generic Pages
+1. **Trafilatura** (primary) — best-effort main-content extraction
+2. **readability-lxml** (fallback) — useful for docs pages and mixed layouts
+3. **Browser rendering** (optional) — Playwright fallback for JS-heavy pages
+4. **Metadata-only** — OG tags, title, description when body extraction fails
+
+If a Raindrop bookmark is tagged `article`, Epistora treats that tag as a
+strong signal and routes the bookmark through the article-preservation path.
+
+### YouTube
+1. **youtube-transcript-api** — prefers manual English, then auto, then any language
+2. **yt-dlp subtitles** — subtitle-only extraction (no video download)
+3. **Metadata/noembed** — title, channel, description when no transcript available
+4. **Local ASR hook** — extension point for Whisper (not active by default)
+
+When a transcript is available, the raw transcript is preserved in
+`inbox/raw/videos/`, and the compiled source note in `wiki/sources/videos/`
+includes:
+
+- a short summary
+- a `5-Minute Read`
+- a detailed article-style reading note
+- key ideas, examples, takeaways, quotes, and follow-up questions
+- an explicit recommendation on whether the full video is still worth watching
+
+### X/Twitter
+1. **Official X API** — full post + thread reconstruction (optional, requires bearer token)
+2. **fxtwitter/vxtwitter** — free mirror APIs with thread and article expansion
+3. **oEmbed/noembed** — embedded tweet text extraction
+4. **Page scrape** — OG tags and visible text
+5. **Browser rendering** (optional) — Playwright fallback
+
+### PDFs
+- **PyMuPDF** text extraction with metadata from PDF properties
+
+Every extraction result includes `extraction_quality` (`full`, `mostly_full`, `partial`, `metadata_only`, `failed`), the method used, the full fallback chain attempted, and detailed notes.
+
+### Optional X API Support
+
+X extraction works without any API credentials using free mirror endpoints. If you want higher-quality extraction with thread reconstruction, configure the official X API:
+
+```env
+X_API_ENABLED=true
+X_API_BEARER_TOKEN=your-bearer-token
+```
+
+### Browser-Rendered Fallback
+
+For JS-heavy pages that static extraction can't handle:
+
+```bash
+pip install playwright && playwright install chromium
+```
+
+```env
+BROWSER_FALLBACK_ENABLED=true
+```
+
 ## Limitations
 
-- **X/Twitter extraction** is limited without API authentication — posts may be partially captured
 - **YouTube transcripts** require captions to be available on the video
+- **X/Twitter free extraction** may miss some thread continuity — configure X API for best results
+- **Browser fallback** requires separate Playwright installation
+- **PDF OCR** not supported — scanned/image-only PDFs yield limited text
 - **No semantic/vector search** — uses FTS5 keyword search. Semantic search is planned for v2
 - **Single-user** — designed for personal use, no multi-tenancy
 - **CLI backends** depend on the external binaries (`opencode`, `claude`) being installed
-- **No cron expressions** — the worker uses fixed intervals only
 
 ## Future Connectors (Planned)
 
@@ -261,7 +359,6 @@ pytest tests/test_automation.py -v        # Automation tests
 - RSS feeds
 - Notion
 - Local folder watcher
-- X/Twitter bookmarks (with API auth)
 - Direct PDF/EPUB file import
 
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the full roadmap.

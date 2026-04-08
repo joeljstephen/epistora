@@ -1,76 +1,497 @@
+"""YouTube video extraction with multi-tier fallback chain.
+
+Fallback order:
+1. youtube-transcript-api (prefer manual English -> auto English -> any)
+2. yt-dlp subtitle-only fallback
+3. metadata/noembed fallback
+4. Optional local ASR hook (extension point, disabled)
+"""
+
 from __future__ import annotations
 
+import logging
 import re
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+from typing import Any
 
 import httpx
 
-from app.models.source import SourceContent, SourceItem
+from app.config import get_settings
+from app.models.source import ExtractionQuality, SourceContent, SourceItem
+from app.utils.extraction import normalize_whitespace, truncate_text
 from app.utils.hashing import content_hash, url_hash
+
+logger = logging.getLogger(__name__)
+
+_VIDEO_ID_RE = re.compile(r"(?:v=|/v/|youtu\.be/|/embed/|/shorts/)([a-zA-Z0-9_-]{11})")
+_TIMESTAMP_RE = re.compile(
+    r"(?P<hours>\d{2}:)?(?P<minutes>\d{2}):(?P<seconds>\d{2})(?:\.\d+)?"
+)
 
 
 def _extract_video_id(url: str) -> str | None:
-    patterns = [
-        r"(?:v=|/v/|youtu\.be/|/embed/|/shorts/)([a-zA-Z0-9_-]{11})",
-    ]
-    for pat in patterns:
-        m = re.search(pat, url)
-        if m:
-            return m.group(1)
-    return None
+    m = _VIDEO_ID_RE.search(url)
+    return m.group(1) if m else None
 
 
 async def fetch_youtube(item: SourceItem) -> SourceContent:
-    """Fetch YouTube video transcript and metadata."""
+    """Fetch YouTube video transcript and metadata with fallback chain."""
+    settings = get_settings()
     video_id = _extract_video_id(item.url)
+
     if not video_id:
         return SourceContent(
             source=item,
             extraction_quality="failed",
+            extraction_method="none",
+            extraction_fallback_chain=["video_id_parse_failed"],
             extraction_notes="Could not extract video ID from URL.",
+            raw_capture_kind="youtube_metadata_note",
             url_hash=url_hash(item.url),
         )
 
+    fallback_chain: list[str] = []
+    notes_parts: list[str] = []
     transcript_text = ""
-    extraction_notes = ""
-    quality = "good"
+    method = ""
+    is_auto_caption = False
 
+    transcript_text, method, is_auto_caption, note = await _try_transcript_api(video_id)
+    fallback_chain.append("youtube_transcript_api")
+    if note:
+        notes_parts.append(note)
+
+    if (
+        not transcript_text
+        and settings.youtube_use_ytdlp_fallback
+        and shutil.which("yt-dlp")
+    ):
+        transcript_text, method, is_auto_caption, note = _try_ytdlp(
+            video_id, timeout=settings.youtube_fetch_timeout_seconds
+        )
+        fallback_chain.append("yt_dlp")
+        if note:
+            notes_parts.append(note)
+
+    title, channel, description, duration = await _fetch_video_metadata(
+        video_id,
+        item.title,
+        timeout=settings.youtube_fetch_timeout_seconds,
+    )
+
+    if not transcript_text:
+        fallback_chain.append("metadata_only")
+        method = "metadata_only"
+        notes_parts.append("Transcript unavailable from all sources; metadata-only ingest.")
+
+    transcript_text = normalize_whitespace(transcript_text)
+
+    max_chars = settings.youtube_transcript_max_chars
+    if transcript_text and max_chars > 0:
+        transcript_text, was_truncated = truncate_text(transcript_text, max_chars)
+        if was_truncated:
+            notes_parts.append(f"Transcript truncated to {max_chars} chars.")
+
+    item.title = item.title or title or f"YouTube Video {video_id}"
+
+    caption_type = "none"
+    if transcript_text:
+        caption_type = "auto" if is_auto_caption else "manual"
+
+    if transcript_text:
+        quality = ExtractionQuality.MOSTLY_FULL if is_auto_caption else ExtractionQuality.FULL
+        cleaned_text = transcript_text
+    else:
+        quality = ExtractionQuality.METADATA_ONLY
+        cleaned_text = normalize_whitespace(description or "")
+
+    archived_markdown = _build_youtube_archive_markdown(
+        title=item.title,
+        source_url=item.url,
+        channel=channel,
+        duration=duration,
+        description=description,
+        transcript_text=transcript_text,
+        caption_type=caption_type,
+        extraction_method=method or "metadata_only",
+        extraction_quality=quality.value,
+    )
+
+    raw_text_lines = [
+        f"Video ID: {video_id}",
+        f"Title: {item.title}",
+        f"Channel: {channel}",
+    ]
+    if duration:
+        raw_text_lines.append(f"Duration: {duration}")
+    if description:
+        raw_text_lines.append(f"Description: {description[:1500]}")
+    if transcript_text:
+        raw_text_lines.extend(["", transcript_text])
+
+    raw_metadata: dict[str, Any] = {
+        "video_id": video_id,
+        "channel": channel,
+        "duration": duration,
+        "description": description[:2000] if description else "",
+        "transcript_available": bool(transcript_text),
+        "caption_type": caption_type,
+        "transcript_source": method or "metadata_only",
+    }
+
+    return SourceContent(
+        source=item,
+        raw_text="\n".join(raw_text_lines).strip(),
+        cleaned_text=cleaned_text,
+        archived_markdown=archived_markdown,
+        raw_capture_kind="youtube_transcript" if transcript_text else "youtube_metadata_note",
+        author=channel,
+        word_count=len(transcript_text.split()) if transcript_text else 0,
+        extraction_quality=quality.value,
+        extraction_method=method or "metadata_only",
+        extraction_fallback_chain=fallback_chain,
+        extraction_notes=" ".join(notes_parts),
+        raw_metadata=raw_metadata,
+        canonical_url=f"https://www.youtube.com/watch?v={video_id}",
+        content_hash=content_hash(transcript_text) if transcript_text else "",
+        url_hash=url_hash(item.url),
+    )
+
+
+async def _try_transcript_api(
+    video_id: str,
+) -> tuple[str, str, bool, str]:
+    """Attempt youtube-transcript-api. Returns (text, method, is_auto, note)."""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
 
         ytt_api = YouTubeTranscriptApi()
-        transcript = ytt_api.fetch(video_id)
-        transcript_text = " ".join(snippet.text for snippet in transcript)
-    except Exception as e:
-        extraction_notes = (
-            f"Transcript unavailable ({e}). "
-            "Falling back to metadata-only ingest. "
-            "This video may have disabled captions or be age-restricted."
-        )
-        quality = "metadata_only"
+        transcript_list = ytt_api.list(video_id)
 
-    title = item.title
-    if not title:
-        try:
-            async with httpx.AsyncClient(timeout=15) as client:
-                resp = await client.get(
-                    f"https://noembed.com/embed?url=https://www.youtube.com/watch?v={video_id}"
+        selected = None
+        is_auto = False
+
+        manual_transcripts = [t for t in transcript_list if not t.is_generated]
+        auto_transcripts = [t for t in transcript_list if t.is_generated]
+
+        for transcript in manual_transcripts:
+            if transcript.language_code.startswith("en"):
+                selected = transcript
+                break
+        if not selected:
+            for transcript in auto_transcripts:
+                if transcript.language_code.startswith("en"):
+                    selected = transcript
+                    is_auto = True
+                    break
+        if not selected and manual_transcripts:
+            selected = manual_transcripts[0]
+        if not selected and auto_transcripts:
+            selected = auto_transcripts[0]
+            is_auto = True
+
+        if selected:
+            snippets = selected.fetch()
+            text = _transcript_snippets_to_sectioned_text(snippets)
+            note_parts: list[str] = []
+            if is_auto:
+                note_parts.append("Using auto-generated captions (may contain errors).")
+            if not selected.language_code.startswith("en"):
+                note_parts.append(f"Transcript language: {selected.language_code}.")
+            return text, "youtube_transcript_api", is_auto, " ".join(note_parts)
+
+        return "", "", False, "No transcripts found via transcript API."
+
+    except Exception as exc:
+        logger.debug("youtube-transcript-api failed for %s: %s", video_id, exc)
+        return "", "", False, f"Transcript API failed: {exc}"
+
+
+def _try_ytdlp(video_id: str, *, timeout: int) -> tuple[str, str, bool, str]:
+    """Attempt yt-dlp subtitle-only extraction. Returns (text, method, is_auto, note)."""
+    url = f"https://www.youtube.com/watch?v={video_id}"
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        for sub_flag in ["--write-subs", "--write-auto-subs"]:
+            is_auto = sub_flag == "--write-auto-subs"
+            try:
+                subprocess.run(
+                    [
+                        "yt-dlp",
+                        "--skip-download",
+                        sub_flag,
+                        "--sub-lang",
+                        "en",
+                        "--sub-format",
+                        "vtt",
+                        "--output",
+                        f"{tmpdir}/%(id)s.%(ext)s",
+                        url,
+                    ],
+                    capture_output=True,
+                    text=True,
+                    timeout=max(timeout, 1),
                 )
-                if resp.status_code == 200:
-                    title = resp.json().get("title", "")
-        except Exception:
-            pass
-        title = title or f"YouTube Video {video_id}"
-    item.title = title
 
-    raw_text = f"Video ID: {video_id}\nTitle: {title}\n\n{transcript_text}"
+                vtt_files = list(Path(tmpdir).glob("*.vtt"))
+                if vtt_files:
+                    text = _parse_vtt(vtt_files[0].read_text(encoding="utf-8"))
+                    if text:
+                        note = "auto-caption" if is_auto else "manual subtitle"
+                        return text, "yt_dlp", is_auto, f"Extracted via yt-dlp ({note})."
+            except subprocess.TimeoutExpired:
+                return "", "", False, "yt-dlp timed out."
+            except Exception as exc:
+                logger.debug("yt-dlp attempt failed: %s", exc)
+                continue
 
-    return SourceContent(
-        source=item,
-        raw_text=raw_text,
-        cleaned_text=transcript_text,
-        word_count=len(transcript_text.split()) if transcript_text else 0,
-        extraction_quality=quality,
-        extraction_notes=extraction_notes,
-        content_hash=content_hash(transcript_text) if transcript_text else "",
-        url_hash=url_hash(item.url),
+    return "", "", False, "yt-dlp found no subtitles."
+
+
+def _parse_vtt(vtt_content: str) -> str:
+    """Parse WebVTT content into a sectioned transcript."""
+    segments = _parse_vtt_segments(vtt_content)
+    return _transcript_segments_to_sectioned_text(segments)
+
+
+def _parse_vtt_segments(vtt_content: str) -> list[dict[str, Any]]:
+    segments: list[dict[str, Any]] = []
+    current_timing: tuple[float, float] | None = None
+    seen_text: set[str] = set()
+
+    for raw_line in vtt_content.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("WEBVTT") or line.startswith("NOTE"):
+            continue
+        if re.match(r"^\d+$", line):
+            continue
+        if "-->" in line:
+            parts = [part.strip() for part in line.split("-->")]
+            if len(parts) == 2:
+                current_timing = (_timestamp_to_seconds(parts[0]), _timestamp_to_seconds(parts[1]))
+            continue
+
+        clean = re.sub(r"<[^>]+>", "", line).strip()
+        if not clean or clean == "[Music]":
+            continue
+        if clean in seen_text:
+            continue
+        seen_text.add(clean)
+
+        start = current_timing[0] if current_timing else 0.0
+        duration = (current_timing[1] - current_timing[0]) if current_timing else 0.0
+
+        segments.append({"start": start, "duration": duration, "text": clean})
+
+    return segments
+
+
+def _transcript_snippets_to_sectioned_text(snippets: Any) -> str:
+    segments: list[dict[str, Any]] = []
+
+    for snippet in snippets:
+        text = _snippet_value(snippet, "text")
+        if not text:
+            continue
+        clean = normalize_whitespace(str(text))
+        if not clean or clean == "[Music]":
+            continue
+        start = float(_snippet_value(snippet, "start", default=0.0) or 0.0)
+        duration = float(_snippet_value(snippet, "duration", default=0.0) or 0.0)
+        if segments and segments[-1]["text"] == clean:
+            continue
+        segments.append({"start": start, "duration": duration, "text": clean})
+
+    return _transcript_segments_to_sectioned_text(segments)
+
+
+def _snippet_value(snippet: Any, key: str, *, default: Any = "") -> Any:
+    if hasattr(snippet, key):
+        return getattr(snippet, key)
+    if isinstance(snippet, dict):
+        return snippet.get(key, default)
+    return default
+
+
+def _transcript_segments_to_sectioned_text(segments: list[dict[str, Any]]) -> str:
+    if not segments:
+        return ""
+
+    grouped: list[tuple[str, list[str]]] = []
+    current_bucket = -1
+    current_heading = ""
+    current_lines: list[str] = []
+
+    for segment in segments:
+        text = normalize_whitespace(str(segment.get("text", "")))
+        if not text:
+            continue
+
+        start = float(segment.get("start", 0.0) or 0.0)
+        bucket = int(start // 300)
+        heading = f"## {_format_seconds(bucket * 300)}-{_format_seconds((bucket + 1) * 300)}"
+
+        if bucket != current_bucket:
+            if current_lines:
+                grouped.append((current_heading, current_lines))
+            current_bucket = bucket
+            current_heading = heading
+            current_lines = [text]
+        else:
+            if current_lines and current_lines[-1] == text:
+                continue
+            current_lines.append(text)
+
+    if current_lines:
+        grouped.append((current_heading, current_lines))
+
+    rendered_sections: list[str] = []
+    for heading, lines in grouped:
+        paragraph = _paragraphize_transcript_lines(lines)
+        if paragraph:
+            rendered_sections.append(f"{heading}\n\n{paragraph}")
+
+    return "\n\n".join(rendered_sections).strip()
+
+
+def _paragraphize_transcript_lines(lines: list[str]) -> str:
+    words: list[str] = []
+    for line in lines:
+        words.extend(line.split())
+
+    paragraphs: list[str] = []
+    for index in range(0, len(words), 120):
+        paragraphs.append(" ".join(words[index : index + 120]))
+    return "\n\n".join(paragraphs)
+
+
+def _format_seconds(total_seconds: int | float) -> str:
+    total = int(max(total_seconds, 0))
+    hours, remainder = divmod(total, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours:
+        return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+    return f"{minutes:02d}:{seconds:02d}"
+
+
+def _timestamp_to_seconds(value: str) -> float:
+    match = _TIMESTAMP_RE.search(value.strip())
+    if not match:
+        return 0.0
+
+    hours = match.group("hours")
+    minutes = match.group("minutes")
+    seconds = match.group("seconds")
+    total = int(minutes) * 60 + int(seconds)
+    if hours:
+        total += int(hours[:-1]) * 3600
+    return float(total)
+
+
+def _build_youtube_archive_markdown(
+    *,
+    title: str,
+    source_url: str,
+    channel: str,
+    duration: str,
+    description: str,
+    transcript_text: str,
+    caption_type: str,
+    extraction_method: str,
+    extraction_quality: str,
+) -> str:
+    lines = [f"# {title}", "", f"> Source: {source_url}"]
+    if channel:
+        lines.append(f"> Channel: {channel}")
+    if duration:
+        lines.append(f"> Duration: {duration}")
+    lines.append(
+        f"> Transcript: {'available' if transcript_text else 'unavailable'}"
+        + (f" ({caption_type})" if transcript_text and caption_type != "none" else "")
     )
+    lines.append(f"> Extraction: {extraction_method} ({extraction_quality})")
+
+    if description:
+        lines.extend(["", "## Description", "", description.strip()])
+
+    if transcript_text:
+        lines.extend(["", "## Transcript", "", transcript_text.strip()])
+    else:
+        lines.extend(
+            [
+                "",
+                "## Transcript",
+                "",
+                (
+                    "_Transcript was unavailable during ingest. This raw note preserves "
+                    "metadata only._"
+                ),
+            ]
+        )
+
+    return "\n".join(lines).strip()
+
+
+async def _fetch_video_metadata(
+    video_id: str, existing_title: str, *, timeout: int
+) -> tuple[str, str, str, str]:
+    """Fetch title, channel, description, duration via noembed and oembed."""
+    title = existing_title
+    channel = ""
+    description = ""
+    duration = ""
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(
+                f"https://noembed.com/embed?url=https://www.youtube.com/watch?v={video_id}"
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if not title:
+                    title = data.get("title", "")
+                channel = data.get("author_name", "")
+    except Exception:
+        pass
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(
+                "https://www.youtube.com/oembed",
+                params={"url": f"https://www.youtube.com/watch?v={video_id}", "format": "json"},
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                if not title:
+                    title = data.get("title", "")
+                if not channel:
+                    channel = data.get("author_name", "")
+    except Exception:
+        pass
+
+    try:
+        async with httpx.AsyncClient(timeout=timeout, follow_redirects=True) as client:
+            page_resp = await client.get(f"https://www.youtube.com/watch?v={video_id}")
+            if page_resp.status_code == 200:
+                text = page_resp.text
+                desc_match = re.search(
+                    r'"shortDescription"\s*:\s*"((?:[^"\\]|\\.)*)"', text
+                )
+                if desc_match:
+                    raw = desc_match.group(1)
+                    description = raw.encode().decode("unicode_escape", errors="replace")
+                dur_match = re.search(r'"lengthSeconds"\s*:\s*"(\d+)"', text)
+                if dur_match:
+                    duration = _format_seconds(int(dur_match.group(1)))
+    except Exception:
+        pass
+
+    return title, channel, description, duration
+
+
+async def local_asr_hook(video_id: str) -> str | None:
+    """Extension point for local ASR (e.g. Whisper). Not implemented — returns None."""
+    return None

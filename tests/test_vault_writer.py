@@ -29,7 +29,7 @@ def content() -> SourceContent:
         author="Test Author",
         published_date="2025-06-01",
         word_count=7,
-        extraction_quality="good",
+        extraction_quality="full",
         content_hash="hash123",
         url_hash="urlhash456",
     )
@@ -50,11 +50,18 @@ class TestVaultWriter:
         update = writer.write_source_note(
             content=content,
             slug="test-article-about-ai",
+            raw_capture_path="inbox/raw/articles/test-article-about-ai.md",
             summary="A test summary",
-            key_takeaways="- Key point 1\n- Key point 2",
+            five_minute_read="A five minute read",
+            detailed_reading_note="A detailed reading note",
+            key_ideas="- Key point 1\n- Key point 2",
             detailed_outline="## Section 1\n- Detail",
-            important_claims="- Claim A",
-            why_matters="This matters because testing.",
+            important_examples="- Claim A",
+            actionable_takeaways="- Try this in practice",
+            notable_quotes="- None captured verbatim.",
+            best_for="- Builders",
+            consume_recommendation="Read the original for more detail.",
+            why_it_matters="This matters because testing.",
             open_questions="- What about edge cases?",
             topics=["AI", "Testing"],
             entities=["Test Author"],
@@ -68,6 +75,82 @@ class TestVaultWriter:
         assert "[[AI]]" in text
         assert "[[Test Author]]" in text
         assert "source_url" in text
+
+    def test_write_generic_source_note_to_misc(self, writer: VaultWriter):
+        item = SourceItem(
+            url="https://example.com/docs",
+            title="Docs Home",
+            source_type=SourceType.GENERIC,
+        )
+        content = SourceContent(
+            source=item,
+            raw_text="Raw docs content",
+            cleaned_text="Docs landing page content.",
+            extraction_quality="partial",
+            url_hash="generic-urlhash",
+        )
+
+        update = writer.write_source_note(
+            content=content,
+            slug="docs-home",
+            raw_capture_path="inbox/raw/misc/docs-home.md",
+            summary="Summary",
+            five_minute_read="Briefing",
+            detailed_reading_note="Detailed note",
+            key_ideas="- Docs",
+            detailed_outline="Overview",
+            important_examples="- Claim",
+            actionable_takeaways="- Action",
+            notable_quotes="- None captured verbatim.",
+            best_for="- Readers",
+            consume_recommendation="Open the source if needed.",
+            why_it_matters="Why it matters",
+            open_questions="- Question",
+            topics=[],
+            entities=[],
+            concepts=[],
+        )
+
+        assert update.path == "wiki/sources/misc/docs-home.md"
+
+    def test_write_source_note_falls_back_to_url_when_title_missing(self, writer: VaultWriter):
+        item = SourceItem(
+            url="https://example.com/missing-title",
+            title="",
+            source_type=SourceType.GENERIC,
+        )
+        content = SourceContent(
+            source=item,
+            raw_text="Raw content",
+            cleaned_text="Cleaned content",
+            extraction_quality="failed",
+            url_hash="missing-title-hash",
+        )
+
+        update = writer.write_source_note(
+            content=content,
+            slug="missing-title",
+            raw_capture_path="inbox/raw/misc/missing-title.md",
+            summary="Summary",
+            five_minute_read="Briefing",
+            detailed_reading_note="Detailed note",
+            key_ideas="- Takeaway",
+            detailed_outline="Outline",
+            important_examples="- Claim",
+            actionable_takeaways="- Action",
+            notable_quotes="- None captured verbatim.",
+            best_for="- Readers",
+            consume_recommendation="Open the source if needed.",
+            why_it_matters="Why",
+            open_questions="- Question",
+            topics=[],
+            entities=[],
+            concepts=[],
+        )
+
+        text = (writer.vault_path / update.path).read_text(encoding="utf-8")
+        assert "title: https://example.com/missing-title" in text
+        assert "# https://example.com/missing-title" in text
 
     def test_write_topic(self, writer: VaultWriter):
         topic = Topic(name="Machine Learning", slug="machine-learning", summary="ML is cool")
@@ -119,7 +202,7 @@ class TestVaultWriter:
         path = writer.vault_path / update.path
         original = path.read_text(encoding="utf-8")
         edited = original.replace(
-            "_Patterns will emerge as more sources are ingested on this topic._",
+            "_Patterns will be written here as repeated ideas emerge across sources._",
             "Manual pattern notes about recurring architecture tradeoffs.",
         )
         path.write_text(edited, encoding="utf-8")

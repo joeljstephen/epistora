@@ -73,6 +73,27 @@ Build a local-first personal knowledge compiler that turns saved links (from Rai
 - [x] Integration tests with mocked backend router for all three graph workflows
 - [x] Updated all documentation
 
+### Phase 9: Extraction Stack Upgrade ✅
+- [x] Extend `SourceContent` model with extraction metadata (method, fallback_chain, raw_metadata, canonical_url)
+- [x] Add `ExtractionQuality` enum (full, mostly_full, partial, metadata_only, failed)
+- [x] Extraction config settings (article, YouTube, X, browser timeouts and toggles)
+- [x] Quality scoring utilities (`app/utils/extraction.py`)
+- [x] Article fetcher: Trafilatura → readability-lxml → browser rendering → metadata-only
+- [x] YouTube fetcher: transcript-api → yt-dlp subtitles → metadata/noembed + ASR hook
+- [x] X fetcher overhaul: Official API → fxtwitter/vxtwitter → oEmbed → page scrape → browser
+  - [x] `x_api.py` — Official X API v2 client with thread reconstruction
+  - [x] `x_mirrors.py` — fxtwitter/vxtwitter/oEmbed helpers
+  - [x] Five-tier fallback in `x_thread.py`
+- [x] Generic fetcher: Trafilatura → readability → browser → metadata-only
+- [x] PDF fetcher: Updated with extraction metadata
+- [x] Browser fallback module (`browser.py`) — optional Playwright
+- [x] Readability module (`readability.py`) — readability-lxml wrapper
+- [x] Fetcher router with timing, logging, and crash protection
+- [x] Vault templates updated with extraction_method, fallback_chain, canonical_url
+- [x] New dependency: `readability-lxml`; optional: `playwright`
+- [x] Tests: 41 new tests covering all fetcher fallback chains and quality scoring
+- [x] Documentation updates (README, ARCHITECTURE, ROADMAP)
+
 ## Key Decisions
 
 1. **LangGraph over raw LangChain chains**: Gives clear state machines for each workflow, easy to extend with new nodes
@@ -84,3 +105,31 @@ Build a local-first personal knowledge compiler that turns saved links (from Rai
 7. **CLI backends**: Enables using OpenCode/Claude Code without reimplementing their auth/model access
 8. **File-based locking**: Simplest reliable mechanism for single-machine local-first automation
 9. **Interval scheduler over cron**: Simpler implementation, adequate for the use case, cron can be added later
+10. **Multi-tier extraction fallbacks**: Each source type has its own fallback chain to maximize content capture while degrading gracefully
+11. **X API optional, mirrors default**: Official X API provides best quality but free mirrors (fxtwitter/vxtwitter) work well enough as default
+12. **Browser rendering opt-in**: Playwright adds significant weight; kept as optional install with config toggle
+
+### Phase 10: Knowledge Compiler Quality Upgrade
+- [ ] Resolve current branch instability in vault templates and keep all user-owned edits intact
+- [ ] Upgrade the source-analysis schema and prompts so source notes are richer, more grounded, and more cumulative
+- [ ] Improve YouTube ingest:
+  - [ ] Preserve transcript/raw capture separately from compiled notes
+  - [ ] Clean transcript structure and record transcript availability / quality
+  - [ ] Generate article-style video notes with a 5-minute read and detailed reading version
+- [ ] Improve article ingest for Raindrop items tagged `article`:
+  - [ ] Treat the tag as a strong signal to use article extraction
+  - [ ] Preserve a clean readable markdown archive in the raw layer
+  - [ ] Keep the compiled source note separate from the raw archive
+- [ ] Strengthen vault templates and conventions:
+  - [ ] Source note templates for video/article/generic sources
+  - [ ] Topic/entity/concept/synthesis templates with stronger navigation sections
+  - [ ] `knowledge_vault_template/AGENTS.md` as the operating manual for the vault
+- [ ] Improve maintenance surfaces:
+  - [ ] Query prompt and saved outputs for better grounded answers
+  - [ ] Lint prompt and structural checks for wiki health issues
+  - [ ] Index and ingest-log generation so the vault is easier to navigate
+- [ ] Add a clean reset path for generated vault artifacts and internal generated state
+- [ ] Re-run the upgraded pipeline against the latest 30 Raindrop bookmarks from a clean state
+- [ ] Inspect generated results, fix workflow or quality issues discovered during the rerun, and rerun as needed
+- [ ] Expand tests for YouTube/article raw-vs-compiled separation and mixed-source ingest
+- [ ] Update README and architecture/development/roadmap docs with the new behavior and validation notes

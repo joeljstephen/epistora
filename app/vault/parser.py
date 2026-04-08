@@ -31,7 +31,8 @@ class VaultNote:
 
     @property
     def title(self) -> str:
-        return self.meta.get("title", self.path.stem)
+        title = self.meta.get("title", "")
+        return title or self.path.stem
 
     @property
     def note_type(self) -> str:

@@ -29,3 +29,12 @@ def extract_wikilinks(text: str) -> list[str]:
 
 def wikilink(name: str) -> str:
     return f"[[{name}]]"
+
+
+def path_wikilink(path: str, label: str | None = None) -> str:
+    normalized = path.replace("\\", "/")
+    if normalized.endswith(".md"):
+        normalized = normalized[:-3]
+    if label:
+        return f"[[{normalized}|{label}]]"
+    return f"[[{normalized}]]"

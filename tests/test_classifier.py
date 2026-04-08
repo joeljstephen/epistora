@@ -36,7 +36,16 @@ class TestClassifyUrl:
         assert classify_url("https://blog.example.com/great-article") == SourceType.ARTICLE
 
     def test_generic_article_fallback(self):
-        assert classify_url("https://example.com/some-page") == SourceType.ARTICLE
+        assert classify_url("https://example.com/some-page") == SourceType.GENERIC
+
+    def test_generic_root_url(self):
+        assert classify_url("https://example.com/") == SourceType.GENERIC
+
+    def test_article_slug_on_main_domain(self):
+        assert (
+            classify_url("https://example.com/notes/why-retrieval-augmented-generation-matters")
+            == SourceType.ARTICLE
+        )
 
     def test_url_with_query_params(self):
         url = "https://youtube.com/watch?v=abc123&t=100"

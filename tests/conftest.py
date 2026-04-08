@@ -59,7 +59,7 @@ def sample_source_content(sample_source_item):
         author="Jane Doe",
         published_date="2025-01-15",
         word_count=18,
-        extraction_quality="good",
+        extraction_quality="full",
         content_hash="abc123",
         url_hash="def456",
     )

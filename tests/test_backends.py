@@ -133,15 +133,10 @@ class TestOpenCodeCliBackend:
     @patch("shutil.which", return_value="/usr/local/bin/opencode")
     @pytest.mark.asyncio
     async def test_generate_uses_run_subcommand_message_positional(self, _mock):
-        proc = AsyncMock()
-        proc.communicate.return_value = (b"ok", b"")
-        proc.returncode = 0
-
         with patch(
-            "asyncio.create_subprocess_exec",
-            new_callable=AsyncMock,
-            return_value=proc,
-        ) as mock_exec:
+            "app.backends.opencode_cli._pty_run_sync",
+            return_value=("ok", 0),
+        ) as mock_pty:
             backend = OpenCodeCliBackend(enabled=True, model="provider/model")
             request = BackendRequest(
                 task=TaskName.QUERY,
@@ -151,13 +146,13 @@ class TestOpenCodeCliBackend:
             resp = await backend.generate(request)
 
         assert resp.success is True
-        args = mock_exec.await_args.args
-        assert args[:4] == (
+        args = mock_pty.call_args.args[0]
+        assert args[:4] == [
             "/usr/local/bin/opencode",
             "run",
             "--model",
             "provider/model",
-        )
+        ]
         assert args[-1] == "[System]\nsystem\n\nhello world"
 
 

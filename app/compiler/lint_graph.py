@@ -41,6 +41,9 @@ async def _scan_vault(state: LintState) -> dict:
 
 async def _structural_lint(state: LintState) -> dict:
     """Rule-based structural checks: orphans, backlinks, weak pages."""
+    from pathlib import Path
+
+    vault_path = Path(state["vault_path"])
     notes: list[VaultNote] = state["notes"]
     issues: list[LintIssue] = []
 
@@ -55,6 +58,32 @@ async def _structural_lint(state: LintState) -> dict:
             inbound.setdefault(link, set()).add(note.title)
 
     for note in lintable_notes:
+        if note.note_type == "source":
+            raw_capture_path = note.meta.get("raw_capture_path", "")
+            if not raw_capture_path:
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        category="missing_raw_capture",
+                        message=f"'{note.title}' has no raw capture link in frontmatter.",
+                        file_path=note.rel_path,
+                        suggestion="Source notes should point back to their immutable raw archive.",
+                    )
+                )
+            elif not (vault_path / raw_capture_path).exists():
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        category="missing_raw_capture",
+                        message=(
+                            f"'{note.title}' points to a missing raw capture: "
+                            f"{raw_capture_path}."
+                        ),
+                        file_path=note.rel_path,
+                        suggestion="Recreate the raw capture or re-run ingest for this source.",
+                    )
+                )
+
         if note.title not in inbound and note.note_type != "source":
             issues.append(
                 LintIssue(
@@ -137,7 +166,13 @@ async def _llm_lint(state: LintState) -> dict:
 
     vault_summary_parts = ["## Source Notes\n"]
     for n in source_notes[:30]:
-        vault_summary_parts.append(f"- **{n.title}** (topics: {', '.join(n.topics)})")
+        vault_summary_parts.append(
+            "- **"
+            + n.title
+            + "** "
+            + f"(topics: {', '.join(n.topics)}, "
+            + f"quality: {n.meta.get('extraction_quality', 'unknown')})"
+        )
 
     topic_notes = [n for n in notes if n.note_type == "topic"]
     if topic_notes:
@@ -208,6 +243,20 @@ async def _llm_lint(state: LintState) -> dict:
                         suggestion=f"Create a {missing.get('type', 'concept')} page for '{name}'.",
                     )
                 )
+
+        for gap in analysis.get("navigation_gaps", []):
+            notes_label = ", ".join(gap.get("notes", []))
+            issues.append(
+                LintIssue(
+                    severity="info",
+                    category="navigation_gap",
+                    message=(
+                        f"Navigation gap around {notes_label or 'related notes'}: "
+                        f"{gap.get('reason', '')}"
+                    ),
+                    suggestion="Improve backlinks, index entries, or topic/source cross-links.",
+                )
+            )
 
     except Exception as e:
         logger.warning("LLM lint analysis failed: %s", e)

@@ -375,5 +375,38 @@ def rebuild_indexes():
         console.print(f"  - {path}")
 
 
+@app.command("reset-generated")
+def reset_generated(
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt"),
+    archive: bool = typer.Option(
+        True,
+        "--archive/--no-archive",
+        help="Archive current generated artifacts before clearing",
+    ),
+):
+    """Reset generated vault content and generated internal state."""
+    from app.config import get_settings
+    from app.services.reset_service import reset_generated_state
+
+    settings = get_settings()
+    vault_path = Path(settings.vault_path)
+
+    if not yes:
+        confirmed = typer.confirm(
+            f"Reset generated content under {vault_path}? This keeps source code and AGENTS.md."
+        )
+        if not confirmed:
+            raise typer.Abort()
+
+    result = reset_generated_state(archive_existing=archive)
+    console.print("[green]✓ Generated vault artifacts reset[/green]")
+    if result.get("archive_path"):
+        console.print(f"[blue]Archive:[/blue] {result['archive_path']}")
+    cleared = result.get("cleared", [])
+    if isinstance(cleared, list):
+        for relative in cleared:
+            console.print(f"  - cleared {relative}")
+
+
 if __name__ == "__main__":
     app()
