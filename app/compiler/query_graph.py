@@ -97,7 +97,9 @@ async def _generate_answer(state: QueryState) -> dict:
             answer = resp.text
             logger.info(
                 "Query answered via %s (model=%s, fallback=%s)",
-                resp.backend_used.value, resp.model_used, resp.was_fallback,
+                resp.backend_used,
+                resp.model_used,
+                resp.was_fallback,
             )
         else:
             raise RuntimeError(resp.error)

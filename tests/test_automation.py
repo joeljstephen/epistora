@@ -160,7 +160,7 @@ class TestSyncJob:
         ]
 
         with patch(
-            "app.services.ingest_service.sync_raindrop",
+            "app.services.ingest_service.sync_inbox",
             new_callable=AsyncMock,
             return_value=mock_results,
         ):
@@ -175,7 +175,7 @@ class TestSyncJob:
     @pytest.mark.asyncio
     async def test_sync_job_error(self):
         with patch(
-            "app.services.ingest_service.sync_raindrop",
+            "app.services.ingest_service.sync_inbox",
             new_callable=AsyncMock,
             side_effect=ValueError("no token"),
         ):

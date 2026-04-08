@@ -11,12 +11,28 @@ from app.connectors.fetchers.pdf import fetch_pdf
 from app.connectors.fetchers.x_thread import fetch_x_thread
 from app.connectors.fetchers.youtube import fetch_youtube
 from app.models.source import SourceContent, SourceItem, SourceType
+from app.utils.http import UnsafeUrlError, assert_safe_http_url
 
 logger = logging.getLogger(__name__)
 
 
 async def fetch_content(item: SourceItem) -> SourceContent:
     """Route to the appropriate fetcher based on source type, with logging."""
+    try:
+        assert_safe_http_url(item.url)
+    except UnsafeUrlError as exc:
+        from app.utils.hashing import url_hash
+
+        item.title = item.title or item.url
+        return SourceContent(
+            source=item,
+            extraction_quality="failed",
+            extraction_method="none",
+            extraction_fallback_chain=["url_safety_check"],
+            extraction_notes=str(exc),
+            url_hash=url_hash(item.url),
+        )
+
     if item.source_type == SourceType.GENERIC and any(
         tag.strip().lower() == "article" for tag in item.tags
     ):

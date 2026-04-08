@@ -5,23 +5,24 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 
+from app.api.auth import require_api_key
 from app.api.routes_automation import router as automation_router
 from app.api.routes_health import router as health_router
 from app.api.routes_ingest import router as ingest_router
 from app.api.routes_lint import router as lint_router
 from app.api.routes_query import router as query_router
 from app.config import get_settings
+from app.dependencies import create_database, get_database
 from app.storage.sqlite import Database
 from app.vault.parser import scan_vault
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    settings = get_settings()
-    db = Database(settings.db_path)
-    db.connect()
+    db = create_database()
+    app.state.db = db
     yield
     db.close()
 
@@ -40,8 +41,8 @@ app.include_router(lint_router)
 app.include_router(automation_router)
 
 
-@app.get("/status")
-async def status():
+@app.get("/status", dependencies=[Depends(require_api_key)])
+async def status(db: Database = Depends(get_database)):
     settings = get_settings()
     vault_path = Path(settings.vault_path)
 
@@ -49,6 +50,8 @@ async def status():
         "vault_path": str(vault_path),
         "vault_exists": vault_path.exists(),
         "model": settings.openai_model,
+        "api_auth_enabled": bool(settings.epistora_api_key),
+        "configured_inbox_connectors": ["raindrop"] if settings.raindrop_api_token else [],
         "raindrop_configured": bool(settings.raindrop_api_token),
     }
 
@@ -62,15 +65,12 @@ async def status():
     if settings.db_path.exists():
         from app.storage.repositories import SourceRepository
 
-        db = Database(settings.db_path)
-        db.connect()
         info["processed_sources"] = SourceRepository(db).count()
-        db.close()
 
     return info
 
 
-@app.get("/indexes")
+@app.get("/indexes", dependencies=[Depends(require_api_key)])
 async def indexes():
     settings = get_settings()
     vault_path = Path(settings.vault_path)

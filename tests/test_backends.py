@@ -19,6 +19,7 @@ from app.backends.models import (
 )
 from app.backends.opencode_cli import OpenCodeCliBackend
 from app.backends.router import BackendRouter
+from app.compiler.llm import _parse_order
 
 # ---------------------------------------------------------------------------
 # JSON extraction helper
@@ -347,3 +348,23 @@ class TestBackendRouter:
         assert len(descriptions) == 2
         assert descriptions[1].available is False
         assert descriptions[1].reason == "not registered"
+
+
+class TestBackendOrderParsing:
+    def test_ignores_unknown_tokens_when_not_strict(self, caplog):
+        order = _parse_order(
+            "api,unknown,claude",
+            known_backend_ids={"api", "opencode", "claude_code"},
+            strict=False,
+        )
+
+        assert order == ["api", "claude_code"]
+        assert "Unknown backend token 'unknown'" in caplog.text
+
+    def test_raises_on_unknown_tokens_in_strict_mode(self):
+        with pytest.raises(ValueError):
+            _parse_order(
+                "api,unknown",
+                known_backend_ids={"api", "opencode", "claude_code"},
+                strict=True,
+            )

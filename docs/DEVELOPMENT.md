@@ -157,9 +157,9 @@ To add a new backend provider:
    - `generate(request) -> BackendResponse`
    - `is_available(task) -> bool`
    - `describe(task) -> BackendDescriptor`
-3. Add `MY_PROVIDER` to `BackendType` enum in `app/backends/models.py`
+3. Add `MY_PROVIDER` to `BackendType` if you want a first-class built-in identifier
 4. Add config settings to `app/config.py`
-5. Register in `get_backend_router()` in `app/compiler/llm.py`
+5. Register the factory in `app/backends/registry.py`
 6. Write availability and routing tests
 7. Update `.env.example`
 

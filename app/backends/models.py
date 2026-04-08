@@ -22,7 +22,7 @@ class BackendType(str, Enum):
 class BackendDescriptor(BaseModel):
     """Metadata about a configured backend."""
 
-    backend_type: BackendType
+    backend_type: str
     model: str = ""
     provider: str = ""
     available: bool = False
@@ -44,7 +44,7 @@ class BackendResponse(BaseModel):
     """The response from a reasoning backend."""
 
     text: str = ""
-    backend_used: BackendType = BackendType.API
+    backend_used: str = BackendType.API.value
     model_used: str = ""
     was_fallback: bool = False
     fallback_reasons: list[str] = Field(default_factory=list)

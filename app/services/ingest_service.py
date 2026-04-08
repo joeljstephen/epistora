@@ -1,4 +1,4 @@
-"""High-level ingest service — coordinates URL and Raindrop ingestion."""
+"""High-level ingest service — coordinates direct URL and inbox ingestion."""
 
 from __future__ import annotations
 
@@ -8,13 +8,14 @@ from datetime import datetime, timezone
 from app.compiler.ingest_graph import get_ingest_graph
 from app.config import get_settings
 from app.connectors.classifier import classify_url
-from app.connectors.raindrop import RaindropConnector
+from app.connectors.registry import get_inbox_connector
 from app.models.db import SyncCursor
 from app.models.results import IngestResult
 from app.models.source import SourceItem
 from app.storage.repositories import SourceRepository, SyncCursorRepository
 from app.storage.sqlite import Database
 from app.utils.hashing import url_hash
+from app.utils.http import assert_safe_http_url
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 async def ingest_url(url: str) -> IngestResult:
     """Ingest a single URL into the vault."""
     settings = get_settings()
+    assert_safe_http_url(url)
 
     db = Database(settings.db_path)
     db.connect()
@@ -55,28 +57,25 @@ async def ingest_url(url: str) -> IngestResult:
     )
 
 
-async def sync_raindrop(limit: int = 25) -> list[IngestResult]:
-    """Sync recent items from Raindrop and ingest them."""
+async def sync_inbox(connector_id: str = "raindrop", limit: int = 25) -> list[IngestResult]:
+    """Sync recent items from a saved-link inbox connector and ingest them."""
     settings = get_settings()
-
-    if not settings.raindrop_api_token:
-        raise ValueError("RAINDROP_API_TOKEN is not configured")
-
-    connector = RaindropConnector(
-        api_token=settings.raindrop_api_token,
-        collection_id=settings.raindrop_collection_id,
-    )
+    connector = get_inbox_connector(connector_id, settings)
 
     db = Database(settings.db_path)
     db.connect()
     cursor_repo = SyncCursorRepository(db)
     source_repo = SourceRepository(db)
 
-    last_cursor = cursor_repo.get("raindrop")
+    last_cursor = cursor_repo.get(connector.connector_id)
     since = last_cursor.last_sync_at if last_cursor else datetime(2020, 1, 1, tzinfo=timezone.utc)
 
     items = connector.fetch_since(since, limit=limit)
-    logger.info("Raindrop sync found %d new items", len(items))
+    logger.info(
+        "Inbox sync found %d new items for connector=%s",
+        len(items),
+        connector.connector_id,
+    )
 
     results: list[IngestResult] = []
     for item in items:
@@ -96,7 +95,12 @@ async def sync_raindrop(limit: int = 25) -> list[IngestResult]:
             logger.error("Failed to ingest %s: %s", item.url, e)
             results.append(IngestResult(source_url=item.url, errors=[str(e)]))
 
-    cursor_repo.upsert(SyncCursor(connector="raindrop"))
+    cursor_repo.upsert(SyncCursor(connector=connector.connector_id))
     db.close()
 
     return results
+
+
+async def sync_raindrop(limit: int = 25) -> list[IngestResult]:
+    """Backward-compatible alias for the generic inbox sync path."""
+    return await sync_inbox(connector_id="raindrop", limit=limit)

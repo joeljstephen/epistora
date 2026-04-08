@@ -1,54 +1,56 @@
-"""LLM client initialisation and backend router factory.
-
-The legacy ``get_llm()`` still works for any code that needs a raw LangChain
-ChatOpenAI client.  New code should prefer ``get_backend_router()`` which
-provides multi-backend, per-task routing with automatic fallback.
-"""
+"""Backend router factory and text-generation helpers."""
 
 from __future__ import annotations
 
 import logging
-from functools import lru_cache
 
-from langchain_openai import ChatOpenAI
-
-from app.backends.claude_code_cli import ClaudeCodeCliBackend
-from app.backends.direct_api import DirectApiBackend
 from app.backends.models import BackendRequest, BackendResponse, BackendType, TaskName
-from app.backends.opencode_cli import OpenCodeCliBackend
+from app.backends.registry import build_backends, builtin_backend_order
 from app.backends.router import BackendRouter
 from app.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-
-@lru_cache
-def get_llm() -> ChatOpenAI:
-    """Legacy single-client accessor — kept for backward compatibility."""
-    settings = get_settings()
-    return ChatOpenAI(
-        model=settings.openai_model,
-        api_key=settings.openai_api_key,
-        temperature=0.2,
-    )
+_BACKEND_ALIASES = {
+    "api": BackendType.API.value,
+    "opencode": BackendType.OPENCODE.value,
+    "open_code": BackendType.OPENCODE.value,
+    "claude_code": BackendType.CLAUDE_CODE.value,
+    "claude-code": BackendType.CLAUDE_CODE.value,
+    "claude": BackendType.CLAUDE_CODE.value,
+}
 
 
-def _parse_order(raw: str) -> list[BackendType]:
-    mapping = {
-        "api": BackendType.API,
-        "opencode": BackendType.OPENCODE,
-        "open_code": BackendType.OPENCODE,
-        "claude_code": BackendType.CLAUDE_CODE,
-        "claude-code": BackendType.CLAUDE_CODE,
-        "claude": BackendType.CLAUDE_CODE,
-    }
-    ordered: list[BackendType] = []
+def _parse_order(
+    raw: str,
+    *,
+    known_backend_ids: set[str],
+    strict: bool = False,
+) -> list[str]:
+    ordered: list[str] = []
     for token in raw.split(","):
         normalized = token.strip().lower()
-        backend_type = mapping.get(normalized)
-        if backend_type and backend_type not in ordered:
-            ordered.append(backend_type)
-    return ordered or [BackendType.API, BackendType.OPENCODE, BackendType.CLAUDE_CODE]
+        if not normalized:
+            continue
+        backend_id = _BACKEND_ALIASES.get(normalized, normalized)
+        if backend_id not in known_backend_ids:
+            message = f"Unknown backend token '{token.strip()}' in backend order '{raw}'"
+            if strict:
+                raise ValueError(message)
+            logger.warning(message)
+            continue
+        if backend_id not in ordered:
+            ordered.append(backend_id)
+
+    if ordered:
+        return ordered
+
+    fallback = [
+        backend_id for backend_id in builtin_backend_order() if backend_id in known_backend_ids
+    ]
+    if fallback:
+        return fallback
+    return list(known_backend_ids)
 
 
 _router: BackendRouter | None = None
@@ -61,85 +63,35 @@ def get_backend_router() -> BackendRouter:
         return _router
 
     settings = get_settings()
+    backends = build_backends(settings)
+    known_backend_ids = set(backends)
 
-    # --- Direct API backend ---
-    api_key = settings.effective_api_key()
-    api_model = settings.effective_api_model()
-    task_overrides: dict[TaskName, dict] = {}
-    for task, suffix in [
-        (TaskName.INGEST, "ingest"),
-        (TaskName.QUERY, "query"),
-        (TaskName.LINT, "lint"),
-    ]:
-        ovr: dict = {}
-        key = getattr(settings, f"api_api_key_{suffix}", "")
-        url = getattr(settings, f"api_base_url_{suffix}", "")
-        model = getattr(settings, f"api_model_{suffix}", "")
-        if key:
-            ovr["api_key"] = key
-        if url:
-            ovr["base_url"] = url
-        if model:
-            ovr["model"] = model
-        if ovr:
-            task_overrides[task] = ovr
-
-    api_backend = DirectApiBackend(
-        api_key=api_key,
-        base_url=settings.api_base_url,
-        model=api_model,
-        temperature=settings.api_temperature,
-        task_overrides=task_overrides,
-    )
-
-    # --- OpenCode CLI backend ---
-    oc_task_models: dict[TaskName, str] = {}
-    if settings.opencode_model_ingest:
-        oc_task_models[TaskName.INGEST] = settings.opencode_model_ingest
-    if settings.opencode_model_query:
-        oc_task_models[TaskName.QUERY] = settings.opencode_model_query
-    if settings.opencode_model_lint:
-        oc_task_models[TaskName.LINT] = settings.opencode_model_lint
-
-    opencode_backend = OpenCodeCliBackend(
-        enabled=settings.opencode_enabled,
-        binary=settings.opencode_binary,
-        model=settings.opencode_model,
-        timeout_seconds=settings.opencode_timeout_seconds,
-        task_models=oc_task_models,
-    )
-
-    # --- Claude Code CLI backend ---
-    cc_task_models: dict[TaskName, str] = {}
-    if settings.claude_code_model_ingest:
-        cc_task_models[TaskName.INGEST] = settings.claude_code_model_ingest
-    if settings.claude_code_model_query:
-        cc_task_models[TaskName.QUERY] = settings.claude_code_model_query
-    if settings.claude_code_model_lint:
-        cc_task_models[TaskName.LINT] = settings.claude_code_model_lint
-
-    claude_backend = ClaudeCodeCliBackend(
-        enabled=settings.claude_code_enabled,
-        binary=settings.claude_code_binary,
-        model=settings.claude_code_model,
-        timeout_seconds=settings.claude_code_timeout_seconds,
-        task_models=cc_task_models,
-    )
-
-    backends = {
-        BackendType.API: api_backend,
-        BackendType.OPENCODE: opencode_backend,
-        BackendType.CLAUDE_CODE: claude_backend,
+    task_orders: dict[TaskName, list[str]] = {
+        TaskName.INGEST: _parse_order(
+            settings.backend_order_ingest,
+            known_backend_ids=known_backend_ids,
+            strict=settings.backend_order_strict,
+        ),
+        TaskName.QUERY: _parse_order(
+            settings.backend_order_query,
+            known_backend_ids=known_backend_ids,
+            strict=settings.backend_order_strict,
+        ),
+        TaskName.LINT: _parse_order(
+            settings.backend_order_lint,
+            known_backend_ids=known_backend_ids,
+            strict=settings.backend_order_strict,
+        ),
     }
 
-    task_orders: dict[TaskName, list[BackendType]] = {
-        TaskName.INGEST: _parse_order(settings.backend_order_ingest),
-        TaskName.QUERY: _parse_order(settings.backend_order_query),
-        TaskName.LINT: _parse_order(settings.backend_order_lint),
-    }
-
-    _router = BackendRouter(backends=backends, task_orders=task_orders)
-    logger.info("Backend router initialized with %d backends", len(backends))
+    _router = BackendRouter(
+        backends=backends,
+        task_orders=task_orders,
+        default_order=[
+            backend_id for backend_id in builtin_backend_order() if backend_id in backends
+        ],
+    )
+    logger.info("Backend router initialized with backends=%s", ",".join(backends))
     return _router
 
 

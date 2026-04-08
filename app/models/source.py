@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -30,9 +31,10 @@ class SourceItem(BaseModel):
     source_type: SourceType = SourceType.GENERIC
     tags: list[str] = Field(default_factory=list)
     saved_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    raindrop_id: int | None = None
-    collection_id: int | None = None
-    extra: dict = Field(default_factory=dict)
+    inbox_provider: str = ""
+    external_id: str = ""
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
+    extra: dict[str, Any] = Field(default_factory=dict)
 
 
 class SourceContent(BaseModel):
@@ -51,7 +53,7 @@ class SourceContent(BaseModel):
     extraction_method: str = ""
     extraction_fallback_chain: list[str] = Field(default_factory=list)
     extraction_notes: str = ""
-    raw_metadata: dict = Field(default_factory=dict)
+    raw_metadata: dict[str, Any] = Field(default_factory=dict)
     canonical_url: str = ""
     content_hash: str = ""
     url_hash: str = ""

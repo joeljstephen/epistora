@@ -27,11 +27,13 @@ class Settings(BaseSettings):
     vault_path: Path = Field(default=Path("./knowledge_vault"))
     database_url: str = "sqlite:///./data/app.db"
     log_level: str = "INFO"
+    epistora_api_key: str = ""
 
     # --- Backend fallback order (comma-separated: api,opencode,claude_code) ---
     backend_order_ingest: str = "api,opencode,claude_code"
     backend_order_query: str = "api,opencode,claude_code"
     backend_order_lint: str = "api,opencode,claude_code"
+    backend_order_strict: bool = False
 
     # --- Direct API backend (global defaults) ---
     api_enabled: bool = True
@@ -60,7 +62,7 @@ class Settings(BaseSettings):
     opencode_model_ingest: str = ""
     opencode_model_query: str = ""
     opencode_model_lint: str = ""
-    opencode_timeout_seconds: int = 180
+    opencode_timeout_seconds: int = 300
 
     # --- Claude Code CLI backend ---
     claude_code_enabled: bool = True
@@ -130,10 +132,6 @@ class Settings(BaseSettings):
     def effective_api_model(self) -> str:
         """Resolve model: new setting → legacy OpenAI model."""
         return self.api_model or self.openai_model
-
-    def parse_backend_order(self, raw: str) -> list[str]:
-        return [b.strip() for b in raw.split(",") if b.strip()]
-
 
 _settings: Settings | None = None
 

@@ -128,7 +128,7 @@ class OpenCodeCliBackend(ReasoningBackend):
         enabled: bool = True,
         binary: str = "opencode",
         model: str = "",
-        timeout_seconds: int = 180,
+        timeout_seconds: int = 300,
         task_models: dict[TaskName, str] | None = None,
     ):
         self._enabled = enabled

@@ -13,6 +13,8 @@ RAINDROP_API_BASE = "https://api.raindrop.io/rest/v1"
 
 
 class RaindropConnector:
+    connector_id = "raindrop"
+
     def __init__(self, api_token: str, collection_id: int = 0):
         self._token = api_token
         self._collection_id = collection_id
@@ -51,8 +53,11 @@ class RaindropConnector:
                     source_type=classify_url(link),
                     tags=[t for t in rd.get("tags", [])],
                     saved_at=saved_at,
-                    raindrop_id=rd.get("_id"),
-                    collection_id=rd.get("collection", {}).get("$id"),
+                    inbox_provider=self.connector_id,
+                    external_id=str(rd.get("_id") or ""),
+                    provider_metadata={
+                        "collection_id": rd.get("collection", {}).get("$id"),
+                    },
                     extra={"excerpt": rd.get("excerpt", ""), "domain": rd.get("domain", "")},
                 )
             )

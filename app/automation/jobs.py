@@ -11,15 +11,15 @@ logger = logging.getLogger(__name__)
 
 
 async def run_sync_job(limit: int | None = None) -> dict:
-    """Run one Raindrop sync cycle, returning a summary dict."""
-    from app.services.ingest_service import sync_raindrop
+    """Run one inbox sync cycle, returning a summary dict."""
+    from app.services.ingest_service import sync_inbox
 
     settings = get_settings()
     batch_limit = limit or settings.sync_batch_limit
 
     logger.info("Sync job starting (limit=%d)", batch_limit)
     try:
-        results = await sync_raindrop(limit=batch_limit)
+        results = await sync_inbox(limit=batch_limit)
         ingested = sum(1 for r in results if not r.deduplicated and not r.errors)
         skipped = sum(1 for r in results if r.deduplicated)
         failed = sum(1 for r in results if r.errors)

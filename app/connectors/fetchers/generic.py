@@ -26,6 +26,7 @@ from app.utils.extraction import (
     score_extraction_quality,
 )
 from app.utils.hashing import content_hash, url_hash
+from app.utils.http import assert_safe_http_url
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,10 @@ async def fetch_generic(item: SourceItem) -> SourceContent:
         ) as client:
             resp = await client.get(item.url)
             resp.raise_for_status()
+            response_url = (
+                resp.url if isinstance(getattr(resp, "url", None), str | httpx.URL) else item.url
+            )
+            assert_safe_http_url(str(response_url))
             html = resp.text
     except Exception as e:
         return SourceContent(

@@ -393,7 +393,8 @@ def _source_specific_guidance(content: SourceContent) -> str:
             [
                 (
                     "Apply the numbered YouTube rules in the main prompt: full-arc article, "
-                    "chapters with timestamps in detailed_outline, synthesized prose (not transcript echo)."
+                    "chapters with timestamps in detailed_outline, synthesized prose "
+                    "(not transcript echo)."
                 ),
                 "Help the reader decide whether they still need to watch the full video.",
             ]
@@ -650,7 +651,7 @@ async def _analyse_content(state: IngestState) -> dict:
             analysis = _normalize_analysis(json.loads(resp.text))
             logger.info(
                 "Ingest analysis via %s (model=%s, fallback=%s)",
-                resp.backend_used.value,
+                resp.backend_used,
                 resp.model_used,
                 resp.was_fallback,
             )
@@ -866,7 +867,9 @@ async def _persist_duplicate(state: IngestState) -> dict:
                 title=content.source.title or existing.title,
                 source_note_path=existing.source_note_path,
                 raw_capture_path=existing.raw_capture_path,
-                raindrop_id=content.source.raindrop_id,
+                provider=content.source.inbox_provider,
+                external_id=content.source.external_id,
+                provider_metadata=content.source.provider_metadata,
                 status="completed",
             )
         )
@@ -914,7 +917,9 @@ async def _persist_state(state: IngestState) -> dict:
             title=content.source.title or content.source.url,
             source_note_path=source_note_path,
             raw_capture_path=raw_path,
-            raindrop_id=content.source.raindrop_id,
+            provider=content.source.inbox_provider,
+            external_id=content.source.external_id,
+            provider_metadata=content.source.provider_metadata,
             status="completed",
         )
     )

@@ -200,7 +200,7 @@ async def _llm_lint(state: LintState) -> dict:
             analysis = json.loads(resp.text)
             logger.info(
                 "Lint analysis via %s (model=%s, fallback=%s)",
-                resp.backend_used.value,
+                resp.backend_used,
                 resp.model_used,
                 resp.was_fallback,
             )

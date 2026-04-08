@@ -71,6 +71,7 @@ kb query "What are the main components of an AI agent?"
 |---------|-------------|
 | `kb init` | Initialize a new knowledge vault |
 | `kb ingest-url <url>` | Ingest a single URL |
+| `kb sync-inbox` | Sync recent items from a configured inbox connector |
 | `kb sync-raindrop` | Sync recent items from Raindrop.io |
 | `kb query "<question>"` | Ask a question against your vault |
 | `kb lint` | Health-check the vault |
@@ -86,7 +87,7 @@ kb query "What are the main components of an AI agent?"
 
 The `kb worker` command starts a long-running process that automatically:
 
-- **Syncs Raindrop** at a configurable interval (default: every 20 minutes)
+- **Syncs the configured inbox connector** at a configurable interval (default: every 20 minutes)
 - **Runs lint** checks on a separate schedule (optional, default: daily)
 - **Rebuilds indexes** periodically (optional, default: every 6 hours)
 
@@ -126,6 +127,10 @@ OPENCODE_ENABLED=true
 OPENCODE_MODEL=your-model
 ```
 
+Epistora sends the full OpenCode prompt as a single `opencode run ... "<prompt>"`
+argument. That keeps execution simple, but very large prompts are still subject
+to OS argv limits.
+
 ### 3. Claude Code CLI Backend
 
 Shells out to [Claude Code](https://docs.anthropic.com/en/docs/claude-code) in print mode:
@@ -150,6 +155,9 @@ BACKEND_ORDER_INGEST=opencode,api,claude_code
 BACKEND_ORDER_QUERY=api,claude_code
 BACKEND_ORDER_LINT=claude_code,api
 ```
+
+Unknown backend tokens are ignored with a warning by default. Set
+`BACKEND_ORDER_STRICT=true` to fail fast on typos.
 
 ### Mixed Backend Configuration
 
@@ -183,6 +191,7 @@ uvicorn app.main:app --reload --port 8000
 |--------|------|-------------|
 | GET | `/health` | Health check |
 | POST | `/ingest/url` | Ingest a URL |
+| POST | `/ingest/inbox/sync` | Sync from a configured inbox connector |
 | POST | `/ingest/raindrop/sync` | Sync from Raindrop |
 | POST | `/query` | Query the vault |
 | POST | `/lint` | Run vault lint |
@@ -195,17 +204,22 @@ uvicorn app.main:app --reload --port 8000
 
 Full OpenAPI docs at `http://localhost:8000/docs`.
 
+If `EPISTORA_API_KEY` is set, the sensitive routes above require
+`Authorization: Bearer <token>`. `/health` remains public.
+
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `OPENAI_API_KEY` | For API backend | — | OpenAI API key (also used via `API_API_KEY`) |
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | Default model (also used via `API_MODEL`) |
+| `EPISTORA_API_KEY` | No | — | Optional bearer token for sensitive API routes |
 | `RAINDROP_API_TOKEN` | For sync | — | Raindrop.io API token |
 | `BACKEND_ORDER_*` | No | `api,opencode,claude_code` | Fallback order per task |
+| `BACKEND_ORDER_STRICT` | No | `false` | Fail on unknown backend tokens instead of warning |
 | `OPENCODE_ENABLED` | No | `true` | Enable OpenCode CLI backend |
 | `CLAUDE_CODE_ENABLED` | No | `true` | Enable Claude Code CLI backend |
-| `SYNC_ENABLED` | No | `false` | Enable background Raindrop sync |
+| `SYNC_ENABLED` | No | `false` | Enable background inbox sync |
 | `SYNC_INTERVAL_SECONDS` | No | `1200` | Sync interval |
 
 See `.env.example` for the full list.
@@ -222,7 +236,7 @@ See `.env.example` for the full list.
 
 1. Create a Raindrop.io account and get an API token from [app.raindrop.io/settings/integrations](https://app.raindrop.io/settings/integrations)
 2. Set `RAINDROP_API_TOKEN` in your `.env`
-3. Run `kb sync-raindrop` to ingest recent saves, or enable `SYNC_ENABLED=true` and run `kb worker`
+3. Run `kb sync-raindrop` (or `kb sync-inbox --connector raindrop`) to ingest recent saves, or enable `SYNC_ENABLED=true` and run `kb worker`
 
 ## Vault Structure
 

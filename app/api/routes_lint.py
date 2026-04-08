@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.auth import require_api_key
 from app.models.results import LintResult
 
-router = APIRouter(tags=["lint"])
+router = APIRouter(tags=["lint"], dependencies=[Depends(require_api_key)])
 
 
 @router.post("/lint", response_model=LintResult)

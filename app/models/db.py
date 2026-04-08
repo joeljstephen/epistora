@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -14,7 +15,9 @@ class ProcessedSource(BaseModel):
     title: str = ""
     source_note_path: str = ""
     raw_capture_path: str = ""
-    raindrop_id: int | None = None
+    provider: str = ""
+    external_id: str = ""
+    provider_metadata: dict[str, Any] = Field(default_factory=dict)
     status: str = "completed"
     error_message: str = ""
     retry_count: int = 0

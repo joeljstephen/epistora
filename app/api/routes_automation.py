@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 
+from app.api.auth import require_api_key
 from app.automation.jobs import run_lint_job, run_rebuild_indexes_job, run_sync_job
 from app.backends.models import TaskName
 from app.compiler.llm import get_backend_router
 from app.config import get_settings
 
-router = APIRouter(prefix="/automation", tags=["automation"])
+router = APIRouter(
+    prefix="/automation",
+    tags=["automation"],
+    dependencies=[Depends(require_api_key)],
+)
 
 
 @router.get("/status")
@@ -35,7 +40,7 @@ async def automation_status():
 
 @router.post("/run-sync")
 async def trigger_sync(limit: int = 25):
-    """Trigger a one-off Raindrop sync."""
+    """Trigger a one-off inbox sync."""
     return await run_sync_job(limit=limit)
 
 

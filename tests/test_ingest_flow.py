@@ -8,13 +8,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.backends.models import BackendResponse
-
 from app.compiler.ingest_graph import (
     IngestState,
     _analyse_content,
     _extract_knowledge,
-    _write_vault,
     _prepare_ingest_evidence,
+    _write_vault,
     _youtube_transcript_chunks,
 )
 from app.models.db import ProcessedSource

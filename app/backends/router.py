@@ -11,16 +11,15 @@ from app.backends.models import (
     BackendDescriptor,
     BackendRequest,
     BackendResponse,
-    BackendType,
     TaskName,
 )
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_FALLBACK_ORDER: list[BackendType] = [
-    BackendType.API,
-    BackendType.OPENCODE,
-    BackendType.CLAUDE_CODE,
+DEFAULT_FALLBACK_ORDER: list[str] = [
+    "api",
+    "opencode",
+    "claude_code",
 ]
 
 
@@ -29,15 +28,15 @@ class BackendRouter:
 
     def __init__(
         self,
-        backends: dict[BackendType, ReasoningBackend],
-        task_orders: dict[TaskName, list[BackendType]] | None = None,
-        default_order: list[BackendType] | None = None,
+        backends: dict[str, ReasoningBackend],
+        task_orders: dict[TaskName, list[str]] | None = None,
+        default_order: list[str] | None = None,
     ):
         self._backends = backends
         self._task_orders = task_orders or {}
         self._default_order = default_order or DEFAULT_FALLBACK_ORDER
 
-    def _get_order(self, task: TaskName) -> list[BackendType]:
+    def _get_order(self, task: TaskName) -> list[str]:
         return self._task_orders.get(task, self._default_order)
 
     def select_backend(self, task: TaskName) -> tuple[ReasoningBackend | None, list[str]]:
@@ -45,24 +44,24 @@ class BackendRouter:
         order = self._get_order(task)
         skip_reasons: list[str] = []
 
-        for bt in order:
-            backend = self._backends.get(bt)
+        for backend_id in order:
+            backend = self._backends.get(backend_id)
             if backend is None:
-                skip_reasons.append(f"{bt.value}: not registered")
+                skip_reasons.append(f"{backend_id}: not registered")
                 continue
             if not backend.is_available(task):
                 desc = backend.describe(task)
-                skip_reasons.append(f"{bt.value}: {desc.reason or 'unavailable'}")
+                skip_reasons.append(f"{backend_id}: {desc.reason or 'unavailable'}")
                 continue
             if skip_reasons:
                 logger.info(
                     "Backend fallback for task=%s: using %s (skipped: %s)",
                     task.value,
-                    bt.value,
+                    backend_id,
                     "; ".join(skip_reasons),
                 )
             else:
-                logger.debug("Backend selected for task=%s: %s", task.value, bt.value)
+                logger.debug("Backend selected for task=%s: %s", task.value, backend_id)
             return backend, skip_reasons
 
         return None, skip_reasons
@@ -72,17 +71,17 @@ class BackendRouter:
         order = self._get_order(request.task)
         all_reasons: list[str] = []
 
-        for bt in order:
-            backend = self._backends.get(bt)
+        for backend_id in order:
+            backend = self._backends.get(backend_id)
             if backend is None:
-                all_reasons.append(f"{bt.value}: not registered")
+                all_reasons.append(f"{backend_id}: not registered")
                 continue
             if not backend.is_available(request.task):
                 desc = backend.describe(request.task)
-                all_reasons.append(f"{bt.value}: {desc.reason or 'unavailable'}")
+                all_reasons.append(f"{backend_id}: {desc.reason or 'unavailable'}")
                 continue
 
-            logger.info("Trying backend %s for task=%s", bt.value, request.task.value)
+            logger.info("Trying backend %s for task=%s", backend_id, request.task.value)
             response = await backend.generate(request)
 
             if response.success:
@@ -90,10 +89,10 @@ class BackendRouter:
                 response.fallback_reasons = list(all_reasons)
                 return response
 
-            all_reasons.append(f"{bt.value}: execution failed — {response.error}")
+            all_reasons.append(f"{backend_id}: execution failed - {response.error}")
             logger.warning(
                 "Backend %s failed for task=%s: %s — trying next",
-                bt.value,
+                backend_id,
                 request.task.value,
                 response.error,
             )
@@ -115,17 +114,21 @@ class BackendRouter:
         order = self._get_order(request.task)
         all_reasons: list[str] = []
 
-        for bt in order:
-            backend = self._backends.get(bt)
+        for backend_id in order:
+            backend = self._backends.get(backend_id)
             if backend is None:
-                all_reasons.append(f"{bt.value}: not registered")
+                all_reasons.append(f"{backend_id}: not registered")
                 continue
             if not backend.is_available(request.task):
                 desc = backend.describe(request.task)
-                all_reasons.append(f"{bt.value}: {desc.reason or 'unavailable'}")
+                all_reasons.append(f"{backend_id}: {desc.reason or 'unavailable'}")
                 continue
 
-            logger.info("Trying backend %s for structured task=%s", bt.value, request.task.value)
+            logger.info(
+                "Trying backend %s for structured task=%s",
+                backend_id,
+                request.task.value,
+            )
             response = await backend.generate_structured(request, schema_class=schema_class)
 
             if response.success:
@@ -133,10 +136,10 @@ class BackendRouter:
                 response.fallback_reasons = list(all_reasons)
                 return response
 
-            all_reasons.append(f"{bt.value}: {response.error}")
+            all_reasons.append(f"{backend_id}: {response.error}")
             logger.warning(
                 "Backend %s structured output failed for task=%s: %s",
-                bt.value,
+                backend_id,
                 request.task.value,
                 response.error,
             )
@@ -152,14 +155,16 @@ class BackendRouter:
         """Return descriptors for all backends in order for a task."""
         order = self._get_order(task)
         result = []
-        for bt in order:
-            backend = self._backends.get(bt)
+        for backend_id in order:
+            backend = self._backends.get(backend_id)
             if backend:
                 result.append(backend.describe(task))
             else:
                 result.append(
                     BackendDescriptor(
-                        backend_type=bt, available=False, reason="not registered"
+                        backend_type=backend_id,
+                        available=False,
+                        reason="not registered",
                     )
                 )
         return result

@@ -18,20 +18,26 @@ YOUTUBE_ANALYSIS_RULES = """
       that captures the full intellectual arc and every major beat—**not** a line-by-line rephrase
       of the transcript.
     - **Coverage:** Address the entire timeline in the evidence. If the evidence says it was built
-      from segment digests, or if timestamps stop before the video ends, state that limitation explicitly.
-    - **`summary`:** State the speaker's core thesis and how the argument develops (not a play-by-play).
-    - **`five_minute_read`:** A dense briefing that walks through **each major theme in order**, with enough
+      from segment digests, or if timestamps stop before the video ends, state that limitation
+      explicitly.
+    - **`summary`:** State the speaker's core thesis and how the argument develops
+      (not a play-by-play).
+    - **`five_minute_read`:** A dense briefing that walks through **each major theme in order**,
+      with enough
       substance that the reader grasps the whole video without watching it.
-    - **`detailed_reading_note`:** A long-form article using multiple `###` subsections. For each major
-      segment, include a short title and, when the evidence provides `## MM:SS-MM:SS` (or similar) headers,
-      the approximate time range in the heading (e.g. `### [12:30–18:00] Why X matters`). Under each,
-      explain claims, reasoning, and evidence in **synthesized prose**—do not paste transcript filler.
-    - **`detailed_outline`:** Use a "Chapters & timestamps" shape: `## [H:MM–H:MM] Short chapter title`
+    - **`detailed_reading_note`:** A long-form article using multiple `###` subsections.
+      For each major segment, include a short title and, when the evidence provides
+      `## MM:SS-MM:SS` (or similar) headers, the approximate time range in the heading
+      (e.g. `### [12:30–18:00] Why X matters`). Under each, explain claims, reasoning,
+      and evidence in **synthesized prose** - do not paste transcript filler.
+    - **`detailed_outline`:** Use a "Chapters & timestamps" shape:
+      `## [H:MM–H:MM] Short chapter title`
       with nested bullets for sub-points. Mirror the structure of the video.
-    - **`important_examples`:** Name specific products, people, stories, numbers, demos, or case studies
-      the speaker uses (not generic restatements).
-    - **Anti-paraphrase:** Compress repetition; elevate the speaker's conclusions and mechanisms. If two
-      paragraphs of transcript say the same thing, merge them into one clear paragraph in the analysis.
+    - **`important_examples`:** Name specific products, people, stories, numbers, demos,
+      or case studies the speaker uses (not generic restatements).
+    - **Anti-paraphrase:** Compress repetition; elevate the speaker's conclusions and
+      mechanisms. If two paragraphs of transcript say the same thing, merge them into
+      one clear paragraph in the analysis.
 """
 
 YOUTUBE_CHUNK_DIGEST_SYSTEM = (
@@ -50,7 +56,8 @@ Transcript segment (may include ## MM:SS-MM:SS section headers from the capture)
 
 Produce markdown with:
 - A one-line recap of what happens in this segment (time range if headers exist).
-- Bullet points: main claims, arguments, named tools/products/people, stories, examples, and any numbers.
+- Bullet points: main claims, arguments, named tools/products/people, stories,
+  examples, and any numbers.
 - If the segment is mostly an ad read or aside, label it briefly and move on.
 
 Keep it under ~800 words. Use clear markdown (headings optional)."""

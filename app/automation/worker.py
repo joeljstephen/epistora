@@ -23,7 +23,7 @@ def _build_scheduler() -> IntervalScheduler:
 
     scheduler.register(
         ScheduledJob(
-            name="raindrop_sync",
+            name="inbox_sync",
             interval_seconds=settings.sync_interval_seconds,
             fn=run_sync_job,
             enabled=settings.sync_enabled,

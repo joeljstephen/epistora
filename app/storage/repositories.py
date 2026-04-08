@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from app.models.db import ProcessedSource, SyncCursor, VaultNoteMapping
 from app.storage.sqlite import Database
 from app.utils.dates import iso_now
@@ -15,7 +17,7 @@ class SourceRepository:
         ).fetchone()
         if row is None:
             return None
-        return ProcessedSource(**dict(row))
+        return self._row_to_processed_source(row)
 
     def find_by_content_hash(self, content_hash: str) -> ProcessedSource | None:
         if not content_hash:
@@ -23,21 +25,26 @@ class SourceRepository:
         row = self._db.conn.execute(
             "SELECT * FROM processed_sources WHERE content_hash = ?", (content_hash,)
         ).fetchone()
-        return ProcessedSource(**dict(row)) if row else None
+        return self._row_to_processed_source(row) if row else None
 
     def upsert(self, src: ProcessedSource) -> None:
         now = iso_now()
         self._db.conn.execute(
             """INSERT INTO processed_sources
                (url, url_hash, content_hash, source_type, title,
-                source_note_path, raw_capture_path, raindrop_id,
+                source_note_path, raw_capture_path, provider, external_id, provider_metadata,
                 status, error_message, retry_count, created_at, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                ON CONFLICT(url_hash) DO UPDATE SET
+                 url=excluded.url,
                  content_hash=excluded.content_hash,
+                 source_type=excluded.source_type,
                  title=excluded.title,
                  source_note_path=excluded.source_note_path,
                  raw_capture_path=excluded.raw_capture_path,
+                 provider=excluded.provider,
+                 external_id=excluded.external_id,
+                 provider_metadata=excluded.provider_metadata,
                  status=excluded.status,
                  error_message=excluded.error_message,
                  retry_count=excluded.retry_count,
@@ -51,7 +58,9 @@ class SourceRepository:
                 src.title,
                 src.source_note_path,
                 src.raw_capture_path,
-                src.raindrop_id,
+                src.provider,
+                src.external_id,
+                json.dumps(src.provider_metadata or {}, sort_keys=True),
                 src.status,
                 src.error_message,
                 src.retry_count,
@@ -69,7 +78,20 @@ class SourceRepository:
         rows = self._db.conn.execute(
             "SELECT * FROM processed_sources ORDER BY created_at DESC"
         ).fetchall()
-        return [ProcessedSource(**dict(r)) for r in rows]
+        return [self._row_to_processed_source(r) for r in rows]
+
+    @staticmethod
+    def _row_to_processed_source(row) -> ProcessedSource:
+        payload = dict(row)
+        metadata = payload.get("provider_metadata", "{}") or "{}"
+        if isinstance(metadata, str):
+            try:
+                payload["provider_metadata"] = json.loads(metadata)
+            except json.JSONDecodeError:
+                payload["provider_metadata"] = {}
+        elif metadata is None:
+            payload["provider_metadata"] = {}
+        return ProcessedSource(**payload)
 
 
 class SyncCursorRepository:

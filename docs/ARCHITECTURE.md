@@ -36,6 +36,7 @@ time. All full-text extraction happens through the fetcher layer.
 
 - **`classifier.py`** — Determines `SourceType` from a URL using regex patterns
 - **`raindrop.py`** — `RaindropConnector` calls the Raindrop.io API to fetch saved bookmarks
+- **`registry.py`** — `LinkInboxConnector` protocol + connector registry/factory for saved-link inboxes
 - **`fetchers/`** — Content extraction by type, each with a multi-tier fallback chain:
   - `article.py` — Trafilatura → readability-lxml → browser rendering → metadata-only, plus a clean archived article markdown output
   - `youtube.py` — youtube-transcript-api → yt-dlp subtitles → metadata/noembed → ASR hook, plus structured transcript capture
@@ -84,6 +85,10 @@ All data flows through typed Pydantic models:
 - **`results.py`** — `IngestResult`, `QueryResult`, `LintResult`, `VaultUpdate`, `LintIssue`
 - **`db.py`** — `ProcessedSource`, `SyncCursor`, `VaultNoteMapping` (SQLite row models)
 
+Inbox-specific persistence uses provider-neutral fields (`provider`,
+`external_id`, `provider_metadata`) so the stored state is not coupled to a
+single bookmark service.
+
 ### C. Backend Layer (`app/backends/`)
 
 The backend layer abstracts over multiple reasoning/LLM execution engines so the rest of the app is backend-agnostic.
@@ -97,7 +102,7 @@ ReasoningBackend (abstract base)
   └── ClaudeCodeCliBackend  – Shells out to `claude -p`
 
 BackendRouter
-  - Holds a registry of backends keyed by BackendType
+  - Holds a registry of backends keyed by stable backend IDs
   - Per-task fallback ordering (BACKEND_ORDER_INGEST, etc.)
   - Selection-time availability check + execution-time fallback
   - Logs every fallback decision
@@ -110,6 +115,13 @@ Not every model or provider is accessible through a simple API endpoint. CLI age
 - May support models not available through direct APIs
 - Enable mixing paid APIs with local/alternative models
 - Allow the automation worker to use whatever reasoning tool is installed locally
+
+Built-in backends are registered through `app/backends/registry.py`. Unknown
+tokens in `BACKEND_ORDER_*` are ignored with a warning by default, or rejected
+when `BACKEND_ORDER_STRICT=true`.
+
+OpenCode receives the composed system + user prompt as one argv element, so
+extremely large prompts can still hit OS command-line size limits.
 
 #### Structured Output
 

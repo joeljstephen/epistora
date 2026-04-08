@@ -137,12 +137,40 @@ def sync_raindrop(
     limit: int = typer.Option(25, "--limit", "-n", help="Max items to sync"),
 ):
     """Sync recent items from Raindrop.io and ingest them."""
-    from app.services.ingest_service import sync_raindrop as _sync
+    from app.services.ingest_service import sync_inbox as _sync
 
     console.print("[blue]Syncing from Raindrop...[/blue]")
 
     try:
-        results = _run(_sync(limit=limit))
+        results = _run(_sync(connector_id="raindrop", limit=limit))
+    except ValueError as e:
+        console.print(f"[red]Configuration error:[/red] {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Sync failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    ingested = sum(1 for r in results if not r.deduplicated and not r.errors)
+    skipped = sum(1 for r in results if r.deduplicated)
+    failed = sum(1 for r in results if r.errors)
+
+    console.print(
+        f"[green]✓ Sync complete:[/green] {ingested} ingested, {skipped} skipped, {failed} failed"
+    )
+
+
+@app.command("sync-inbox")
+def sync_inbox(
+    connector: str = typer.Option("raindrop", "--connector", "-c", help="Inbox connector ID"),
+    limit: int = typer.Option(25, "--limit", "-n", help="Max items to sync"),
+):
+    """Sync recent items from a configured inbox connector and ingest them."""
+    from app.services.ingest_service import sync_inbox as _sync
+
+    console.print(f"[blue]Syncing inbox connector:[/blue] {connector}")
+
+    try:
+        results = _run(_sync(connector_id=connector, limit=limit))
     except ValueError as e:
         console.print(f"[red]Configuration error:[/red] {e}")
         raise typer.Exit(1)
@@ -261,6 +289,7 @@ def status():
 
     table.add_row("OpenAI model", settings.openai_model)
     table.add_row("Raindrop configured", "yes" if settings.raindrop_api_token else "no")
+    table.add_row("API auth enabled", "yes" if settings.epistora_api_key else "no")
 
     console.print(table)
 
@@ -310,7 +339,7 @@ def backend_status():
             color = "green" if desc.available else "red"
             table.add_row(
                 task.value,
-                desc.backend_type.value,
+                desc.backend_type,
                 desc.model or "-",
                 f"[{color}]{'yes' if desc.available else 'no'}[/{color}]",
                 desc.reason or "",
