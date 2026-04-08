@@ -161,6 +161,17 @@ Build a local-first personal knowledge compiler that turns saved links (from Rai
 - [x] Updated PLAN.md with Phase 11 completion notes
 - [x] Updated tests for new navigation files and deprecation warnings
 
+### Phase 12: summarize.sh Source Extraction Integration 🚧
+- [x] Add typed summarize settings and `.env.example`
+- [x] Add dedicated `summarize_cli` wrapper with availability checks, timeout handling, and JSON parsing
+- [x] Normalize summarize output into `SourceContent` without changing ingest graph / vault / state boundaries
+- [x] Add explicit weak-extraction heuristics for article, generic, YouTube, and X fallback decisions
+- [x] Use summarize as primary extraction for YouTube when enabled
+- [x] Use summarize as fallback for article and generic extraction
+- [x] Use summarize as fallback-only for X after X-specific tiers
+- [x] Add tests for wrapper success/failure/timeout plus source-specific integration behavior
+- [x] Update README, ARCHITECTURE, DEVELOPMENT, and ROADMAP docs
+
 ## Phase 10 Execution Notes
 
 - The validation run should target the newest Raindrop bookmark only.

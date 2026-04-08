@@ -40,16 +40,29 @@ time. All full-text extraction happens through the fetcher layer.
 - **`raindrop.py`** — `RaindropConnector` calls the Raindrop.io API to fetch saved bookmarks
 - **`registry.py`** — `LinkInboxConnector` protocol + connector registry/factory for saved-link inboxes
 - **`fetchers/`** — Content extraction by type, each with a multi-tier fallback chain:
-  - `article.py` — Trafilatura → readability-lxml → browser rendering → metadata-only, plus a clean archived article markdown output
-  - `youtube.py` — youtube-transcript-api → yt-dlp subtitles → metadata/noembed → ASR hook, plus structured transcript capture
-  - `x_thread.py` — Official X API → fxtwitter/vxtwitter → oEmbed/noembed → page scrape → browser
+  - `article.py` — Trafilatura → readability-lxml → summarize fallback → browser rendering → metadata-only, plus a clean archived article markdown output
+  - `youtube.py` — summarize primary → youtube-transcript-api → yt-dlp subtitles → metadata/noembed → ASR hook, plus structured transcript capture
+  - `x_thread.py` — Official X API → fxtwitter/vxtwitter → oEmbed/noembed → summarize fallback → page scrape → browser
   - `pdf.py` — PyMuPDF text extraction with PDF metadata
-  - `generic.py` — Trafilatura → readability → browser → metadata-only
+  - `generic.py` — Trafilatura → readability → summarize fallback → browser → metadata-only
   - `browser.py` — Optional Playwright-based rendered extraction (shared by other fetchers)
   - `readability.py` — readability-lxml wrapper (shared by article + generic)
+  - `summarize_cli.py` — summarize.sh subprocess wrapper plus normalization into `SourceContent`
   - `x_api.py` — Official X API v2 client for post/thread extraction
   - `x_mirrors.py` — fxtwitter/vxtwitter/oEmbed helpers for free X extraction
 - **`utils/extraction.py`** — Shared helpers: quality scoring, OG metadata, URL canonicalization
+
+#### summarize.sh Boundary
+
+summarize is integrated strictly at the **`SourceContent` boundary**:
+
+- fetchers may invoke `summarize_cli.py`
+- summarize output is normalized into Epistora's existing `SourceContent` model
+- the ingest graph, dedup/state ledger, vault writer, merge logic, and query pipeline stay unchanged
+
+This keeps summarize focused on what it is best at: source extraction,
+transcription, and first-pass evidence preparation. It is not the schema owner
+for downstream analysis.
 
 #### Extraction Quality Scoring
 
@@ -66,15 +79,27 @@ Every fetcher returns a `SourceContent` with structured extraction metadata:
 
 Quality is scored based on word count, paragraph count, title presence, and extractor-specific signals (e.g., auto-captions on YouTube are rated `mostly_full` instead of `full`).
 
+#### Source-Aware summarize Strategy
+
+- **YouTube**: summarize is the optional primary extractor; local transcript paths remain the fallback chain.
+- **Articles**: summarize is fallback-only after Trafilatura/readability and before browser rendering.
+- **Generic pages**: summarize is fallback-only after the generic extractor and before browser rendering.
+- **X/Twitter**: summarize is fallback-only after the X-specific API/mirror/oEmbed tiers.
+
+Weak-extraction detection is explicit and shared. Fetchers trigger summarize
+only when the earlier result is too short, too thin, teaser-like, truncated, or
+metadata-only.
+
 #### X/Twitter Extraction Strategy
 
-X extraction uses a five-tier fallback:
+X extraction uses a six-tier fallback:
 
 1. **Official X API** (Tier 1): When `X_API_BEARER_TOKEN` is configured, uses the Twitter v2 API for full post text, thread reconstruction via `conversation_id`, and structured metadata. Optional — never required.
 2. **Free mirror APIs** (Tier 2): fxtwitter and vxtwitter provide full tweet text, thread content, and X article expansion via free public endpoints.
 3. **oEmbed** (Tier 3): Twitter oEmbed and noembed for basic tweet text.
-4. **Page scrape** (Tier 4): Direct OG metadata extraction.
-5. **Browser rendering** (Tier 5): Optional Playwright-based fallback for difficult cases.
+4. **summarize CLI** (Tier 4): Attempted only when earlier X-specific results are still weak.
+5. **Page scrape** (Tier 5): Direct OG metadata extraction.
+6. **Browser rendering** (Tier 6): Optional Playwright-based fallback for difficult cases.
 
 **Extensibility:** New connectors implement the same pattern: receive a `SourceItem`, return a `SourceContent`. Adding a `ReadwiseReaderConnector` or `RSSConnector` requires only a new file and registering it in the fetcher dispatcher.
 

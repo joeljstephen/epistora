@@ -104,6 +104,21 @@ class Settings(BaseSettings):
     browser_fallback_enabled: bool = False
     browser_fallback_timeout_seconds: int = 30
 
+    # --- Extraction: summarize.sh integration ---
+    summarize_enabled: bool = False
+    summarize_binary: str = "summarize"
+    summarize_timeout_seconds: int = 180
+    summarize_use_for_youtube_primary: bool = True
+    summarize_use_for_article_fallback: bool = True
+    summarize_use_for_generic_fallback: bool = True
+    summarize_use_for_x_fallback: bool = True
+    summarize_prefer_markdown: bool = True
+    summarize_allow_daemon: bool = False
+    summarize_daemon_url: str = ""
+    summarize_weak_text_min_chars: int = 400
+    summarize_weak_paragraph_min_count: int = 2
+    summarize_weak_x_snippet_max_chars: int = 320
+
     # --- Ingest: LLM evidence window ---
     # Default cap for non-video sources (keeps prompts bounded).
     ingest_evidence_max_chars: int = 16000
