@@ -442,6 +442,310 @@ def rebuild_indexes():
         console.print(f"  - {path}")
 
 
+# ---------------------------------------------------------------------------
+# Automation subcommand group
+# ---------------------------------------------------------------------------
+
+automation_app = typer.Typer(
+    name="automation",
+    help="Queue-based automation: discover, process, maintain, schedule.",
+    add_completion=False,
+)
+app.add_typer(automation_app, name="automation")
+
+
+@automation_app.command("discover")
+def automation_discover(
+    connector: str = typer.Option("raindrop", "--connector", "-c", help="Inbox connector ID"),
+    limit: int = typer.Option(None, "--limit", "-n", help="Max items to discover"),
+):
+    """Discover and queue new bookmarks from configured inbox connectors."""
+    from app.automation.runner import run_discover
+
+    console.print(f"[blue]Discovering items from connector:[/blue] {connector}")
+    result = _run(run_discover(connector_id=connector, limit=limit))
+
+    if result.get("error"):
+        console.print(f"[red]Discovery failed:[/red] {result['error']}")
+        raise typer.Exit(1)
+
+    console.print(
+        f"[green]Discovery complete:[/green] "
+        f"{result.get('items_discovered', 0)} discovered, "
+        f"{result.get('items_skipped_duplicate', 0)} skipped (duplicate)"
+    )
+
+
+@automation_app.command("process-pending")
+def automation_process_pending(
+    mode: str = typer.Option("safe", "--mode", "-m", help="Processing mode: safe|balanced|deep"),
+    limit: int = typer.Option(None, "--limit", "-n", help="Max items to process"),
+    retry_failed: bool = typer.Option(False, "--retry-failed", help="Include retryable failures"),
+    connector: str = typer.Option(None, "--connector", "-c", help="Filter by connector ID"),
+):
+    """Process pending queued items with mode-aware enrichment."""
+    from app.automation.runner import run_process_pending
+
+    console.print(f"[blue]Processing pending items in {mode} mode...[/blue]")
+    result = _run(run_process_pending(
+        mode=mode, limit=limit, retry_failed=retry_failed, connector_id=connector,
+    ))
+
+    if result.get("status") == "ok":
+        console.print(
+            f"[green]Processing complete:[/green] "
+            f"{result.get('succeeded', 0)} succeeded, "
+            f"{result.get('failed', 0)} failed"
+        )
+    else:
+        console.print(f"[red]Processing failed:[/red] {result}")
+        raise typer.Exit(1)
+
+
+@automation_app.command("maintain")
+def automation_maintain(
+    lint: bool = typer.Option(None, "--lint/--no-lint", help="Run vault lint"),
+    rebuild: bool = typer.Option(None, "--rebuild/--no-rebuild", help="Rebuild indexes"),
+):
+    """Run maintenance tasks (lint, index rebuild)."""
+    from app.automation.runner import run_maintenance
+
+    console.print("[blue]Running maintenance tasks...[/blue]")
+    result = _run(run_maintenance(run_lint=lint, run_rebuild=rebuild))
+
+    if result.get("lint"):
+        lint_r = result["lint"]
+        if lint_r.get("status") == "ok":
+            console.print(
+                f"  Lint: {lint_r.get('total_notes', 0)} notes, "
+                f"{lint_r.get('issues', 0)} issues"
+            )
+
+    if result.get("rebuild_indexes"):
+        rebuild_r = result["rebuild_indexes"]
+        if rebuild_r.get("status") == "ok":
+            console.print(f"  Indexes: {rebuild_r.get('indexes_updated', 0)} rebuilt")
+
+    console.print("[green]Maintenance complete[/green]")
+
+
+@automation_app.command("run-pending")
+def automation_run_pending(
+    mode: str = typer.Option(None, "--mode", "-m", help="Processing mode: safe|balanced|deep"),
+    limit: int = typer.Option(None, "--limit", "-n", help="Max items per step"),
+    connector: str = typer.Option("raindrop", "--connector", "-c", help="Inbox connector ID"),
+    retry_failed: bool = typer.Option(False, "--retry-failed", help="Include retryable failures"),
+    no_maintenance: bool = typer.Option(False, "--no-maintenance", help="Skip maintenance tasks"),
+):
+    """One-shot end-to-end: discover + process + maintain, then exit.
+
+    This is the primary command for OS scheduler integration.
+    """
+    from app.automation.runner import run_automation
+
+    effective_mode = mode
+    if effective_mode is None:
+        from app.config import get_settings
+        effective_mode = get_settings().automation_default_mode
+
+    console.print(f"[blue]Running automation ({effective_mode} mode)...[/blue]")
+    result = _run(run_automation(
+        mode=effective_mode,
+        limit=limit,
+        connector_id=connector,
+        run_maintenance_tasks=not no_maintenance,
+        retry_failed=retry_failed,
+    ))
+
+    discover = result.get("discover", {})
+    process = result.get("process", {})
+
+    console.print(
+        f"  Discovered: {discover.get('items_discovered', 0)} new, "
+        f"{discover.get('items_skipped_duplicate', 0)} skipped"
+    )
+    console.print(
+        f"  Processed: {process.get('succeeded', 0)} succeeded, "
+        f"{process.get('failed', 0)} failed"
+    )
+
+    if result.get("error"):
+        console.print(f"[red]Error:[/red] {result['error']}")
+        raise typer.Exit(1)
+
+    console.print("[green]Automation run complete[/green]")
+
+
+@automation_app.command("status")
+def automation_status():
+    """Show automation system status: queue counts, last run, backends."""
+    from app.automation.runner import get_automation_status
+
+    result = _run(get_automation_status())
+
+    table = Table(title="Automation Status")
+    table.add_column("Item", style="bold")
+    table.add_column("Value")
+
+    table.add_row("Enabled", "yes" if result["automation_enabled"] else "no")
+    table.add_row("Default mode", result["default_mode"])
+
+    # Queue counts
+    counts = result.get("queue_counts", {})
+    for status_name, count in sorted(counts.items()):
+        table.add_row(f"  queue: {status_name}", str(count))
+    table.add_row("  queue: total", str(result.get("total_queued", 0)))
+    table.add_row("Retryable failures", str(result.get("retryable_failures", 0)))
+
+    # Connectors
+    for cid, info in result.get("connectors", {}).items():
+        last_sync = info.get("last_sync_at", "never")
+        table.add_row(f"Connector: {cid}", f"last sync: {last_sync}")
+
+    # Last run
+    last_run = result.get("last_run")
+    if last_run:
+        table.add_row("Last run type", last_run.get("run_type", ""))
+        table.add_row("Last run mode", last_run.get("mode", ""))
+        table.add_row("Last run at", str(last_run.get("started_at", "")))
+        table.add_row("Last run summary", last_run.get("summary", ""))
+
+    # Backends
+    for backend, available in result.get("backends_available", {}).items():
+        color = "green" if available else "red"
+        table.add_row(
+            f"Backend: {backend}",
+            f"[{color}]{'available' if available else 'unavailable'}[/{color}]",
+        )
+
+    console.print(table)
+
+
+@automation_app.command("retry-failed")
+def automation_retry_failed(
+    mode: str = typer.Option("safe", "--mode", "-m", help="Processing mode"),
+    limit: int = typer.Option(10, "--limit", "-n", help="Max items to retry"),
+):
+    """Retry items with retryable failures."""
+    from app.automation.runner import run_process_pending
+
+    console.print(f"[blue]Retrying failed items in {mode} mode...[/blue]")
+    result = _run(run_process_pending(
+        mode=mode, limit=limit, retry_failed=True,
+    ))
+
+    console.print(
+        f"[green]Retry complete:[/green] "
+        f"{result.get('succeeded', 0)} succeeded, "
+        f"{result.get('failed', 0)} failed"
+    )
+
+
+@automation_app.command("list-pending")
+def automation_list_pending(
+    limit: int = typer.Option(20, "--limit", "-n", help="Max items to show"),
+    status_filter: str = typer.Option(None, "--status", "-s", help="Filter by status"),
+):
+    """List queued items pending processing."""
+    from app.automation.queue_store import QueueRepository
+    from app.config import get_settings
+    from app.storage.sqlite import Database
+
+    settings = get_settings()
+    db = Database(settings.db_path)
+    db.connect()
+
+    try:
+        queue_repo = QueueRepository(db)
+        if status_filter:
+            items = queue_repo.get_pending(limit=limit, include_retryable=True)
+            items = [i for i in items if i.status == status_filter]
+        else:
+            items = queue_repo.get_pending(limit=limit, include_retryable=True)
+
+        if not items:
+            console.print("[dim]No pending items in queue.[/dim]")
+            return
+
+        table = Table(title=f"Pending Queue Items ({len(items)})")
+        table.add_column("ID", style="dim")
+        table.add_column("Status")
+        table.add_column("Title")
+        table.add_column("URL")
+        table.add_column("Attempts")
+        table.add_column("Last Error")
+
+        for item in items[:limit]:
+            status_color = {
+                "discovered": "blue",
+                "retryable_failed": "yellow",
+                "processing": "cyan",
+            }.get(item.status, "white")
+            table.add_row(
+                str(item.id),
+                f"[{status_color}]{item.status}[/{status_color}]",
+                (item.title or "untitled")[:40],
+                item.url[:50],
+                str(item.attempt_count),
+                (item.last_error or "")[:40],
+            )
+
+        console.print(table)
+    finally:
+        db.close()
+
+
+@automation_app.command("generate-scheduler")
+def automation_generate_scheduler(
+    platform: str = typer.Option(
+        ..., "--platform", "-p", help="Target platform: macos|linux|windows|all"
+    ),
+    mode: str = typer.Option("safe", "--mode", "-m", help="Automation mode"),
+    interval: int = typer.Option(30, "--interval", "-i", help="Interval in minutes"),
+    output_dir: str = typer.Option(".", "--output", "-o", help="Output directory"),
+):
+    """Generate OS-specific scheduler configuration files."""
+    from app.automation.scheduler_helpers import (
+        generate_launchd_plist,
+        generate_scheduler_instructions,
+        generate_systemd_timer,
+        generate_windows_task_xml,
+    )
+
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    platforms = [platform] if platform != "all" else ["macos", "linux", "windows"]
+
+    for plat in platforms:
+        if plat == "macos":
+            content = generate_launchd_plist(mode=mode, interval_minutes=interval)
+            path = out / "com.epistora.automation.plist"
+            path.write_text(content)
+            console.print(f"[green]Generated:[/green] {path}")
+
+        elif plat == "linux":
+            service, timer = generate_systemd_timer(mode=mode, interval_minutes=interval)
+            svc_path = out / "epistora-automation.service"
+            tmr_path = out / "epistora-automation.timer"
+            svc_path.write_text(service)
+            tmr_path.write_text(timer)
+            console.print(f"[green]Generated:[/green] {svc_path}")
+            console.print(f"[green]Generated:[/green] {tmr_path}")
+
+        elif plat == "windows":
+            content = generate_windows_task_xml(mode=mode, interval_minutes=interval)
+            path = out / "epistora-automation.xml"
+            path.write_text(content)
+            console.print(f"[green]Generated:[/green] {path}")
+
+    # Always generate instructions
+    instructions = generate_scheduler_instructions(mode=mode, interval_minutes=interval)
+    inst_path = out / "SCHEDULING.md"
+    inst_path.write_text(instructions)
+    console.print(f"[green]Generated:[/green] {inst_path}")
+
+
 @app.command("reset-generated")
 def reset_generated(
     yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt"),

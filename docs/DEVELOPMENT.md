@@ -59,9 +59,61 @@ kb rebuild-indexes
 # Check backend availability
 kb backend-status
 
-# Run the automation worker
+# Run the legacy automation worker
 kb worker
+
+# --- Queue-Based Automation ---
+
+# Discover and queue new bookmarks
+kb automation discover
+
+# Process pending items (safe mode — no LLM cost)
+kb automation process-pending --mode safe
+
+# Process with AI enrichment (capped)
+kb automation process-pending --mode balanced --limit 5
+
+# One-shot end-to-end: discover + process + maintain
+kb automation run-pending --mode safe
+
+# Check automation status
+kb automation status
+
+# List pending queue items
+kb automation list-pending
+
+# Retry failed items
+kb automation retry-failed --mode balanced
+
+# Run maintenance tasks
+kb automation maintain --lint --rebuild
+
+# Generate OS scheduler helpers
+kb automation generate-scheduler --platform macos --mode safe --interval 30
 ```
+
+### Automation Modes
+
+| Mode | LLM Usage | Description |
+|------|-----------|-------------|
+| `safe` | None | Fetch + archive only. No LLM cost. Good for default scheduled runs. |
+| `balanced` | Capped | Safe mode + limited LLM enrichment per run. Controlled cost. |
+| `deep` | Full | Full ingest graph with topic/entity/concept updates. Opt-in. |
+
+### Cross-Platform Scheduling
+
+The `kb automation run-pending` command is the primary building block for OS schedulers. It runs one-shot, is idempotent, and exits cleanly.
+
+```bash
+# Generate scheduler configs for your OS
+kb automation generate-scheduler --platform all --mode safe --interval 30
+```
+
+This generates:
+- macOS: LaunchAgent plist
+- Linux: systemd service + timer
+- Windows: Task Scheduler XML
+- Instructions: SCHEDULING.md
 
 ### Querying the Vault (Agent-First)
 
@@ -105,8 +157,11 @@ pytest tests/test_classifier.py -v
 # Run backend tests
 pytest tests/test_backends.py -v
 
-# Run automation tests
+# Run automation tests (legacy)
 pytest tests/test_automation.py -v
+
+# Run queue-based automation tests
+pytest tests/test_queue_automation.py -v
 
 # Run integration tests
 pytest tests/test_backend_integration.py -v
@@ -230,10 +285,16 @@ app/
     opencode_cli.py  # OpenCode CLI backend
     claude_code_cli.py # Claude Code CLI backend
     models.py        # Backend data models
-  automation/        # Background worker subsystem
-    worker.py        # Main worker loop
-    scheduler.py     # Interval-based scheduler
-    jobs.py          # Job definitions
+  automation/        # Automation subsystem
+    models.py        # Queue and run data models
+    queue_store.py   # Durable SQLite queue persistence
+    discovery.py     # Bookmark discovery and staging
+    processing.py    # Mode-aware processing pipeline
+    runner.py        # One-shot automation runner
+    scheduler_helpers.py  # Cross-platform scheduler generation
+    worker.py        # Legacy interval-based worker loop
+    scheduler.py     # Legacy interval-based scheduler
+    jobs.py          # Legacy job definitions
     locks.py         # File-based locking
   connectors/        # Source connectors and fetchers
   compiler/          # LangGraph workflows and LLM routing

@@ -189,12 +189,41 @@ Combines rule-based checks (orphans, backlinks, weak pages) with LLM-powered sem
 
 ### H. Automation Layer (`app/automation/`)
 
-The automation subsystem enables hands-free operation:
+The automation subsystem enables hands-free operation with two complementary approaches:
+
+#### Queue-Based Automation (recommended)
+
+The durable queue-based system separates discovery from processing and supports safe/balanced/deep modes:
+
+- **`models.py`** — Pydantic models: `QueuedItem`, `AutomationRun`, `ItemAttempt`, `AutomationMode`, `QueueItemStatus`, `FailureType`
+- **`queue_store.py`** — SQLite-backed durable queue with `QueueRepository`, `AutomationRunRepository`, `ItemAttemptRepository`
+- **`discovery.py`** — Discovers new bookmarks from connectors and stages them durably in the queue. Advances the sync cursor only after items are staged.
+- **`processing.py`** — Mode-aware processing pipeline. Safe mode: fetch + archive only. Balanced: capped LLM enrichment. Deep: full ingest graph. Includes failure classification, retry with exponential backoff, and partial batch handling.
+- **`runner.py`** — One-shot automation runner (`run_automation`): discover → process → maintain → exit. Primary building block for cross-platform scheduling.
+- **`scheduler_helpers.py`** — Generates OS-specific scheduler config (macOS LaunchAgent, Linux systemd, Windows Task Scheduler).
+
+#### Legacy Interval-Based Worker (still supported)
 
 - **`worker.py`** — Main loop for `kb worker`. Acquires a file lock, builds a scheduler, and ticks every 5s until interrupted.
 - **`scheduler.py`** — `IntervalScheduler` manages `ScheduledJob` instances. Each job has an interval, an async function, and overlap protection.
 - **`jobs.py`** — Individual job functions (`run_sync_job`, `run_lint_job`, `run_rebuild_indexes_job`) that call the existing service layer.
 - **`locks.py`** — `FileLock` using `fcntl.flock` for single-machine mutual exclusion.
+
+#### Queue Tables
+
+```sql
+queued_items     — durable bookmark queue (status lifecycle: discovered → processing → completed/failed)
+automation_runs  — history of automation runs with stats
+item_attempts    — per-item attempt history for debugging
+```
+
+#### Automation Modes
+
+| Mode | LLM Usage | Behavior |
+|------|-----------|----------|
+| **safe** | None | Fetch, archive raw, write minimal source note from text extraction |
+| **balanced** | Capped | Safe mode + LLM enrichment for a limited number of items per run |
+| **deep** | Full | Full ingest graph with topic/entity/concept/wiki updates |
 
 ### I. Interface Layer
 

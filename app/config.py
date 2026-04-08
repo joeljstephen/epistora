@@ -114,7 +114,7 @@ class Settings(BaseSettings):
     # roughly this size and digest each chunk before the final analysis pass.
     ingest_youtube_chunk_chars: int = 24_000
 
-    # --- Automation / worker ---
+    # --- Automation / worker (legacy — still honoured by the interval-based worker) ---
     sync_enabled: bool = False
     sync_interval_seconds: int = 1200
     sync_batch_limit: int = 25
@@ -124,6 +124,25 @@ class Settings(BaseSettings):
 
     auto_rebuild_indexes_enabled: bool = False
     auto_rebuild_indexes_interval_seconds: int = 21600
+
+    # --- Queue-based automation ---
+    automation_enabled: bool = False
+    automation_default_mode: str = "safe"  # safe | balanced | deep
+
+    automation_discover_batch_limit: int = 25
+    automation_process_limit: int = 10
+    automation_deep_enrich_limit_per_run: int = 3
+    automation_deep_enrich_limit_per_day: int = 20
+
+    automation_retry_max_attempts: int = 5
+    automation_retry_base_seconds: int = 60
+
+    automation_run_lint: bool = False
+    automation_run_rebuild_indexes: bool = False
+
+    automation_backend_order_safe: str = "api,opencode,claude_code,codex"
+    automation_backend_order_balanced: str = "api,opencode,claude_code,codex"
+    automation_backend_order_deep: str = "opencode,api,claude_code,codex"
 
     @property
     def db_path(self) -> Path:

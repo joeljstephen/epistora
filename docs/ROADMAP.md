@@ -74,7 +74,27 @@
 - [x] Updated README with Claude Code / OpenCode usage sections
 - [x] Updated tests for new navigation files and deprecation warnings
 
-## v1.5 — Polish & Enrichment
+## v1.5 — Queue-Based Cross-Platform Automation ✅
+
+- [x] Durable SQLite queue separating discovery from processing
+- [x] Safe / balanced / deep automation modes with cost control
+- [x] One-shot `kb automation run-pending` command for scheduler integration
+- [x] Discovery pipeline: fetch bookmarks → stage in queue → advance cursor only after staging
+- [x] Processing pipeline: mode-aware enrichment with failure classification and exponential backoff
+- [x] Partial batch failure handling (one failed item doesn't block the rest)
+- [x] Retryable vs permanent failure tracking with max attempt caps
+- [x] Cross-platform scheduler helper generation (macOS LaunchAgent, Linux systemd, Windows Task Scheduler)
+- [x] Automation status and observability (`kb automation status`)
+- [x] Queue management commands (list-pending, retry-failed)
+- [x] Automation run history table for observability
+- [x] Per-item attempt history for debugging
+- [x] Daily enrichment caps to prevent runaway LLM costs
+- [x] 39 new tests covering queue, discovery, processing, runner, modes, and scheduler helpers
+- [x] Updated API endpoints for queue-based automation
+- [x] Extended config with 15+ automation settings
+- [x] Updated all documentation
+
+## v1.6 — Polish & Enrichment
 
 - [ ] Readwise Reader connector
 - [ ] RSS feed connector

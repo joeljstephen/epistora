@@ -116,17 +116,68 @@ cd knowledge_vault
 | `kb lint` | Health-check the vault |
 | `kb status` | Show vault and system status |
 | `kb rebuild-indexes` | Rebuild all vault index files |
-| `kb worker` | Run the background automation worker |
+| `kb worker` | Run the legacy background automation worker |
 | `kb backend-status` | Show configured backends and availability |
 | `kb run-sync` | Run a one-off Raindrop sync |
 | `kb run-lint` | Run a one-off lint check |
 | `kb reset-generated` | Archive and clear generated vault/state artifacts before a clean rerun |
 | `kb query` | ~~Query the vault~~ (deprecated — use a direct agent instead) |
+| **Automation** | |
+| `kb automation discover` | Discover and queue new bookmarks |
+| `kb automation process-pending` | Process queued items (--mode safe\|balanced\|deep) |
+| `kb automation run-pending` | One-shot: discover + process + maintain, then exit |
+| `kb automation maintain` | Run maintenance tasks (lint, index rebuild) |
+| `kb automation status` | Show queue counts, last run, backend availability |
+| `kb automation list-pending` | List queued items pending processing |
+| `kb automation retry-failed` | Retry items with retryable failures |
+| `kb automation generate-scheduler` | Generate OS scheduler config files |
 
 Use `--force` with `kb ingest-url`, `kb sync-inbox`, or `kb sync-raindrop` to
 re-run ingest for already-seen sources without deleting existing vault state.
 
-## Background Worker
+## Automation
+
+Epistora provides two automation approaches: queue-based (recommended) and legacy interval-based worker.
+
+### Queue-Based Automation (recommended)
+
+The queue-based system separates discovery from processing and supports cost-aware modes:
+
+```bash
+# One-shot: discover + process + maintain, then exit
+kb automation run-pending --mode safe
+
+# Or run steps individually:
+kb automation discover                          # Queue new bookmarks
+kb automation process-pending --mode balanced    # Process with capped LLM
+kb automation maintain --lint --rebuild          # Run maintenance
+
+# Check status
+kb automation status
+```
+
+#### Automation Modes
+
+| Mode | LLM Cost | Behavior |
+|------|----------|----------|
+| **safe** (default) | None | Fetch, archive raw content, write minimal source note |
+| **balanced** | Capped | Safe + limited LLM enrichment per run |
+| **deep** | Full | Full ingest graph with topic/entity/concept updates |
+
+#### Cross-Platform Scheduling
+
+The one-shot `run-pending` command is designed for OS schedulers:
+
+```bash
+# Generate scheduler config for your platform
+kb automation generate-scheduler --platform macos --mode safe --interval 30
+kb automation generate-scheduler --platform linux --mode safe --interval 30
+kb automation generate-scheduler --platform windows --mode safe --interval 30
+```
+
+This generates LaunchAgent plists, systemd units, or Task Scheduler XML files.
+
+### Legacy Background Worker
 
 The `kb worker` command starts a long-running process that automatically:
 
@@ -252,8 +303,11 @@ uvicorn app.main:app --reload --port 8000
 | POST | `/lint` | Run vault lint |
 | GET | `/status` | System status |
 | GET | `/indexes` | List index summaries |
-| GET | `/automation/status` | Backend and automation status |
-| POST | `/automation/run-sync` | Trigger one-off sync |
+| GET | `/automation/status` | Backend, queue, and automation status |
+| POST | `/automation/discover` | Discover and queue new bookmarks |
+| POST | `/automation/process-pending` | Process queued items |
+| POST | `/automation/run-pending` | One-shot: discover + process + maintain |
+| POST | `/automation/run-sync` | Trigger one-off sync (legacy) |
 | POST | `/automation/run-lint` | Trigger one-off lint |
 | POST | `/automation/rebuild-indexes` | Trigger index rebuild |
 
@@ -275,8 +329,14 @@ If `EPISTORA_API_KEY` is set, the sensitive routes above require
 | `OPENCODE_ENABLED` | No | `true` | Enable OpenCode CLI backend |
 | `CLAUDE_CODE_ENABLED` | No | `true` | Enable Claude Code CLI backend |
 | `CODEX_ENABLED` | No | `true` | Enable Codex CLI backend |
-| `SYNC_ENABLED` | No | `false` | Enable background inbox sync |
-| `SYNC_INTERVAL_SECONDS` | No | `1200` | Sync interval |
+| `SYNC_ENABLED` | No | `false` | Enable background inbox sync (legacy worker) |
+| `SYNC_INTERVAL_SECONDS` | No | `1200` | Sync interval (legacy worker) |
+| `AUTOMATION_ENABLED` | No | `false` | Enable queue-based automation |
+| `AUTOMATION_DEFAULT_MODE` | No | `safe` | Default mode: safe, balanced, deep |
+| `AUTOMATION_PROCESS_LIMIT` | No | `10` | Max items processed per run |
+| `AUTOMATION_DEEP_ENRICH_LIMIT_PER_RUN` | No | `3` | Max LLM enrichments per run |
+| `AUTOMATION_DEEP_ENRICH_LIMIT_PER_DAY` | No | `20` | Max LLM enrichments per day |
+| `AUTOMATION_RETRY_MAX_ATTEMPTS` | No | `5` | Max retry attempts before permanent failure |
 
 See `.env.example` for the full list.
 

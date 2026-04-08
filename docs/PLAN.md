@@ -161,6 +161,56 @@ Build a local-first personal knowledge compiler that turns saved links (from Rai
 - [x] Updated PLAN.md with Phase 11 completion notes
 - [x] Updated tests for new navigation files and deprecation warnings
 
+### Phase 12: Queue-Based Cross-Platform Automation ✅
+- [x] Durable queue system with SQLite persistence
+  - [x] `queued_items` table with full status lifecycle
+  - [x] `automation_runs` history table
+  - [x] `item_attempts` per-item attempt tracking
+  - [x] Repository pattern for all three tables
+- [x] Discovery pipeline (`app/automation/discovery.py`)
+  - [x] Fetches new bookmarks from connectors
+  - [x] Stages items durably in queue before advancing sync cursor
+  - [x] Dedup against both queue and processed_sources tables
+- [x] Mode-aware processing pipeline (`app/automation/processing.py`)
+  - [x] Safe mode: fetch + archive only, no LLM cost
+  - [x] Balanced mode: capped LLM enrichment per run
+  - [x] Deep mode: full ingest graph with topic/entity/concept updates
+  - [x] Failure classification (network, timeout, rate_limit, extraction, unsupported, unknown)
+  - [x] Retry with exponential backoff
+  - [x] Partial batch failure handling
+  - [x] Daily enrichment caps
+- [x] One-shot automation runner (`app/automation/runner.py`)
+  - [x] `run_automation()`: discover → process → maintain → exit
+  - [x] Records automation runs with stats
+  - [x] Status and observability endpoint
+- [x] CLI commands (`kb automation` subgroup)
+  - [x] `discover`, `process-pending`, `maintain`, `run-pending`
+  - [x] `status`, `list-pending`, `retry-failed`
+  - [x] `generate-scheduler` for cross-platform scheduler config generation
+- [x] API endpoints for queue-based automation
+  - [x] `POST /automation/discover`
+  - [x] `POST /automation/process-pending`
+  - [x] `POST /automation/run-pending`
+  - [x] Updated `GET /automation/status` with queue data
+- [x] Cross-platform scheduler helpers
+  - [x] macOS LaunchAgent plist generation
+  - [x] Linux systemd service + timer generation
+  - [x] Windows Task Scheduler XML generation
+  - [x] Scheduling instructions document
+- [x] Configuration (15+ new settings in `.env.example` and `config.py`)
+- [x] 39 new tests covering all automation components
+- [x] All 212 tests passing (new + existing)
+- [x] Updated ARCHITECTURE.md, DEVELOPMENT.md, ROADMAP.md, PLAN.md
+
+## Key Decisions
+
+### Phase 12 Decisions
+13. **Queue-based over pure interval**: Durable queue separates discovery from processing, enabling crash recovery and partial batch handling
+14. **Safe mode default**: Users never accidentally consume expensive LLM credits from automation
+15. **One-shot commands as scheduler primitives**: OS-specific schedulers are thin wrappers on idempotent commands, not the other way around
+16. **Exponential backoff for retries**: Prevents hammering failed endpoints while keeping retryable items alive
+17. **Daily enrichment caps**: Cost control for balanced/deep modes beyond per-run limits
+
 ## Phase 10 Execution Notes
 
 - The validation run should target the newest Raindrop bookmark only.
