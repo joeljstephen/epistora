@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from pathlib import Path
 
 import pytest
@@ -18,11 +19,13 @@ def populated_vault(tmp_vault: Path) -> Path:
 
     from app.models.source import SourceContent, SourceItem, SourceType
 
-    for i, (title, url) in enumerate([
-        ("Introduction to RAG", "https://example.com/rag-intro"),
-        ("LangChain Deep Dive", "https://example.com/langchain-deep"),
-        ("Vector Databases Explained", "https://example.com/vectordb"),
-    ]):
+    for i, (title, url) in enumerate(
+        [
+            ("Introduction to RAG", "https://example.com/rag-intro"),
+            ("LangChain Deep Dive", "https://example.com/langchain-deep"),
+            ("Vector Databases Explained", "https://example.com/vectordb"),
+        ]
+    ):
         item = SourceItem(url=url, title=title, source_type=SourceType.ARTICLE)
         content = SourceContent(
             source=item,
@@ -99,3 +102,22 @@ class TestQueryGraph:
         assert result["context"] != ""
         assert len(result["source_references"]) > 0
         assert all(ref.endswith(".md") for ref in result["source_references"])
+
+
+class TestQueryDeprecation:
+    def test_query_cli_shows_deprecation_warning(self):
+        from typer.testing import CliRunner
+
+        from app.cli.main import app
+
+        runner = CliRunner()
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            result = runner.invoke(app, ["query", "--help"])
+            assert result.exit_code == 0
+
+    def test_query_api_has_deprecation(self):
+        from app.api.routes_query import router
+
+        route = router.routes[0]
+        assert route.deprecated is True

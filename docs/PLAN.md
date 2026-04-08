@@ -109,33 +109,57 @@ Build a local-first personal knowledge compiler that turns saved links (from Rai
 11. **X API optional, mirrors default**: Official X API provides best quality but free mirrors (fxtwitter/vxtwitter) work well enough as default
 12. **Browser rendering opt-in**: Playwright adds significant weight; kept as optional install with config toggle
 
-### Phase 10: Knowledge Compiler Quality Upgrade
-- [ ] Resolve current branch instability in vault templates and keep all user-owned edits intact
-- [ ] Upgrade the source-analysis schema and prompts so source notes are richer, more grounded, and more cumulative
-- [ ] Strengthen query, lint, and maintenance prompts so the wiki behaves like a persistent compiled layer rather than a one-shot summarizer
-- [ ] Improve YouTube ingest:
-  - [ ] Preserve transcript/raw capture separately from compiled notes
-  - [ ] Clean transcript structure and record transcript availability / quality
-  - [ ] Generate article-style video notes with a 5-minute read and detailed reading version
-  - [ ] Make the note useful enough that the user can often skip the full watch on first pass
-- [ ] Improve article ingest for Raindrop items tagged `article`:
-  - [ ] Treat the tag as a strong signal to use article extraction
-  - [ ] Preserve a clean readable markdown archive in the raw layer
-  - [ ] Keep the compiled source note separate from the raw archive
-  - [ ] Preserve article metadata cleanly without mixing AI commentary into the raw archive body
-- [ ] Strengthen vault templates and conventions:
-  - [ ] Source note templates for video/article/generic sources
-  - [ ] Topic/entity/concept/synthesis templates with stronger navigation sections
-  - [ ] `knowledge_vault_template/AGENTS.md` as the operating manual for the vault
-- [ ] Improve maintenance surfaces:
-  - [ ] Query prompt and saved outputs for better grounded answers
-  - [ ] Lint prompt and structural checks for wiki health issues
-  - [ ] Index and ingest-log generation so the vault is easier to navigate
-- [ ] Keep raw captures immutable and avoid deleting or resetting existing generated vault artifacts during validation
-- [ ] Fetch and process only the latest Raindrop bookmark with the upgraded pipeline
-- [ ] Inspect the generated raw/wiki artifacts, fix workflow or quality issues discovered during validation, and rerun as needed
-- [ ] Expand tests for YouTube/article raw-vs-compiled separation and mixed-source ingest
-- [ ] Update README and architecture/development/roadmap docs with the new behavior, folder responsibilities, and validation notes
+### Phase 10: Knowledge Compiler Quality Upgrade ✅
+- [x] Resolve current branch instability in vault templates and keep all user-owned edits intact
+- [x] Upgrade the source-analysis schema and prompts so source notes are richer, more grounded, and more cumulative
+- [x] Strengthen query, lint, and maintenance prompts so the wiki behaves like a persistent compiled layer rather than a one-shot summarizer
+- [x] Improve YouTube ingest:
+  - [x] Preserve transcript/raw capture separately from compiled notes
+  - [x] Clean transcript structure and record transcript availability / quality
+  - [x] Generate article-style video notes with a 5-minute read and detailed reading version
+  - [x] Make the note useful enough that the user can often skip the full watch on first pass
+- [x] Improve article ingest for Raindrop items tagged `article`:
+  - [x] Treat the tag as a strong signal to use article extraction
+  - [x] Preserve a clean readable markdown archive in the raw layer
+  - [x] Keep the compiled source note separate from the raw archive
+  - [x] Preserve article metadata cleanly without mixing AI commentary into the raw archive body
+- [x] Strengthen vault templates and conventions:
+  - [x] Source note templates for video/article/generic sources
+  - [x] Topic/entity/concept/synthesis templates with stronger navigation sections
+  - [x] `knowledge_vault_template/AGENTS.md` as the operating manual for the vault
+- [x] Improve maintenance surfaces:
+  - [x] Query prompt and saved outputs for better grounded answers
+  - [x] Lint prompt and structural checks for wiki health issues
+  - [x] Index and ingest-log generation so the vault is easier to navigate
+- [x] Keep raw captures immutable and avoid deleting or resetting existing generated vault artifacts during validation
+- [x] Fetch and process only the latest Raindrop bookmark with the upgraded pipeline
+- [x] Inspect the generated raw/wiki artifacts, fix workflow or quality issues discovered during validation, and rerun as needed
+- [x] Expand tests for YouTube/article raw-vs-compiled separation and mixed-source ingest
+- [x] Update README and architecture/development/roadmap docs with the new behavior, folder responsibilities, and validation notes
+
+### Phase 11: Agent-First Query Migration ✅
+- [x] Deprecated `kb query` CLI command with deprecation warning
+- [x] Deprecated `/query` API endpoint with OpenAPI deprecation marker
+- [x] Rewrote `AGENTS.md` as comprehensive agent operating manual with:
+  - Three-layer model explanation
+  - Explicit navigation sequence (9 steps)
+  - Answer structure requirements
+  - Evidence trust hierarchy
+  - Extraction quality handling
+  - Wikilink graph navigation guidance
+- [x] Added `wiki/indexes/START_HERE.md` — auto-generated vault orientation map
+- [x] Added `wiki/indexes/QUERY_PROTOCOL.md` — auto-generated query procedure
+- [x] Updated `index_updater.py` to generate START_HERE and QUERY_PROTOCOL
+- [x] Added path helpers for new index files in `paths.py`
+- [x] Updated `kb init` to copy START_HERE and QUERY_PROTOCOL templates
+- [x] Added `.claude/skills/vault-query.md` — Claude Code query skill
+- [x] Added `.opencode/VAULT_QUERY.md` — OpenCode agent instructions
+- [x] Updated README.md for agent-first workflow
+- [x] Updated ARCHITECTURE.md with agent-first query architecture section
+- [x] Updated DEVELOPMENT.md with agent-first querying section
+- [x] Updated ROADMAP.md with v1.4 agent-first milestone
+- [x] Updated PLAN.md with Phase 11 completion notes
+- [x] Updated tests for new navigation files and deprecation warnings
 
 ## Phase 10 Execution Notes
 

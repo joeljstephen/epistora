@@ -51,8 +51,7 @@ def init(
         console.print(f"[yellow]Vault directory already exists at {target}[/yellow]")
         if _looks_like_epistora_vault(target):
             console.print(
-                "[blue]Existing Epistora vault detected; "
-                "ensuring required files exist.[/blue]"
+                "[blue]Existing Epistora vault detected; ensuring required files exist.[/blue]"
             )
         elif not typer.confirm("Reinitialize? (existing files will be kept)"):
             raise typer.Abort()
@@ -74,6 +73,13 @@ def init(
                 f"# {idx_name.replace('.md', '')}\n\n"
                 "_Empty — will be populated after first ingest._\n"
             )
+
+    for nav_name in ["START_HERE.md", "QUERY_PROTOCOL.md"]:
+        nav_path = target / "wiki" / "indexes" / nav_name
+        if not nav_path.exists():
+            template_nav = template_dir / "wiki" / "indexes" / nav_name
+            if template_nav.exists():
+                shutil.copy2(template_nav, nav_path)
 
     for log_name, log_title in [("ingest-log.md", "Ingest Log"), ("lint-log.md", "Lint Log")]:
         log_path = target / "wiki" / "logs" / log_name
@@ -202,12 +208,29 @@ def sync_inbox(
     )
 
 
-@app.command()
+@app.command(deprecated=True)
 def query(
     question: str = typer.Argument(..., help="Question to ask the vault"),
     save: bool = typer.Option(False, "--save", "-s", help="Save answer to outputs/"),
 ):
-    """Query the knowledge vault with a question."""
+    """[DEPRECATED] Query the knowledge vault with a question.
+
+    Prefer pointing Claude Code or OpenCode at the vault directory directly.
+    See AGENTS.md and wiki/indexes/START_HERE.md for the agent-first workflow.
+    """
+    import warnings
+
+    warnings.warn(
+        "`kb query` is deprecated. Use Claude Code or OpenCode directly on the "
+        "vault directory instead. See AGENTS.md for guidance.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    console.print(
+        "[yellow]Warning: `kb query` is deprecated. "
+        "Use Claude Code or OpenCode directly on the vault directory.[/yellow]\n"
+    )
+
     from app.services.query_service import query_vault
 
     console.print(f"[blue]Querying:[/blue] {question}\n")

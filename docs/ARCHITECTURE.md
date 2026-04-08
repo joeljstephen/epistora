@@ -2,7 +2,9 @@
 
 ## System Overview
 
-Epistora is a local-first personal knowledge compiler. It ingests content from saved links, compiles structured knowledge notes, and maintains a queryable Obsidian-compatible vault.
+Epistora is a local-first personal knowledge compiler. It ingests content from saved links, compiles structured knowledge notes, and maintains an agent-queryable Obsidian-compatible vault.
+
+**Query model:** Epistora is agent-first. The primary way to query the vault is to point Claude Code or OpenCode at the vault directory. The vault is structured so direct agents can navigate it effectively using `AGENTS.md`, index files, and the query protocol. The legacy `kb query` command is deprecated.
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
@@ -10,20 +12,20 @@ Epistora is a local-first personal knowledge compiler. It ingests content from s
 │              │────▶│  (LangGraph) │────▶│  (Markdown)  │
 │ Raindrop     │     │              │     │              │
 │ Direct URLs  │     │ Ingest Graph │     │ Source Notes │
-│              │     │ Query Graph  │     │ Topic Pages  │
-│              │     │ Lint Graph   │     │ Entity Pages │
+│              │     │ Lint Graph   │     │ Topic Pages  │
+│              │     │              │     │ Entity Pages │
 └──────────────┘     └──────┬───────┘     │ Concept Pages│
-                            │             │ Indexes/Logs │
-                     ┌──────▼───────┐     └──────────────┘
-                     │Backend Router│
-                     │              │
-                     │ API │OC│ CC  │
-                     └──────────────┘
-                            │
-                     ┌──────▼───────┐
-                     │   SQLite     │
-                     │ (state only) │
-                     └──────────────┘
+                             │             │ Indexes/Logs │
+                      ┌──────▼───────┐     └──────┬───────┘
+                      │Backend Router│            │
+                      │              │     ┌──────▼───────┐
+                      │ API │OC│ CC  │     │ Direct Agent │
+                      └──────────────┘     │ (Claude Code │
+                             │             │  / OpenCode) │
+                      ┌──────▼───────┐     └──────────────┘
+                      │   SQLite     │
+                      │ (state only) │
+                      └──────────────┘
 ```
 
 ## Layer Architecture
@@ -150,11 +152,13 @@ produces a richer wiki-ready schema:
 - consume recommendation, why-it-matters, open questions
 - topics, entities, and concepts
 
-#### Query Graph
+#### Query Graph (DEPRECATED)
 ```
 resolve_context → generate_answer → maybe_save
 ```
 Searches the vault for relevant notes, builds context, and generates a grounded answer via `run_text()` using the "query" task backend.
+
+**This workflow is deprecated.** The preferred query path is direct agent access to the vault. See `AGENTS.md` and `wiki/indexes/QUERY_PROTOCOL.md` for the agent-first query procedure. The query graph code is retained for backward compatibility but no longer recommended.
 
 #### Lint Graph
 ```
@@ -275,3 +279,46 @@ Adding a new source connector (e.g., Readwise Reader):
 2. Register in `app/connectors/fetchers/__init__.py` if it provides a content fetcher
 3. Add a sync command to CLI and API route
 4. All downstream processing (compile, write, index) works unchanged
+
+## Agent-First Query Architecture
+
+The vault is designed so that direct filesystem-capable agents (Claude Code,
+OpenCode, or any similar tool) can navigate and answer questions effectively
+without a custom query pipeline.
+
+### Navigation Layer
+
+The vault includes a layered navigation system:
+
+1. **`AGENTS.md`** — the operating manual (read first)
+2. **`wiki/indexes/START_HERE.md`** — orientation map with vault stats and routing
+3. **`wiki/indexes/QUERY_PROTOCOL.md`** — step-by-step query procedure
+4. **`wiki/indexes/INDEX.md`** — full vault index with stats and recent sources
+5. **`wiki/indexes/TOPICS.md`** — topic pages with source counts
+6. **`wiki/indexes/ENTITIES.md`** — entity pages with types and source counts
+7. **`wiki/indexes/CONCEPTS.md`** — concept pages with source counts
+
+### Agent Skills
+
+Optional skill files improve agent consistency:
+
+- **`.claude/skills/vault-query.md`** — Claude Code query skill
+- **`.opencode/VAULT_QUERY.md`** — OpenCode agent instructions
+
+These are loaded automatically when the agent operates on the vault directory.
+The vault works well even without these skills — the navigation files and
+`AGENTS.md` are sufficient for good results.
+
+### Why Agent-First
+
+The previous `kb query` command used a snippet-based search + LLM generation
+pipeline that was weaker than what a capable agent can do by directly reading
+vault files. Direct agent access allows:
+
+- Reading full source notes, not just snippets
+- Following wikilinks as a knowledge graph
+- Checking frontmatter for metadata before reading bodies
+- Escalating to raw captures when needed
+- Producing structured, source-grounded answers with note references
+
+The query graph code is retained for backward compatibility but deprecated.

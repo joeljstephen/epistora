@@ -123,6 +123,14 @@ def concepts_index_path(vault_path: Path) -> Path:
     return vault_path / "wiki" / "indexes" / "CONCEPTS.md"
 
 
+def start_here_path(vault_path: Path) -> Path:
+    return vault_path / "wiki" / "indexes" / "START_HERE.md"
+
+
+def query_protocol_path(vault_path: Path) -> Path:
+    return vault_path / "wiki" / "indexes" / "QUERY_PROTOCOL.md"
+
+
 def ingest_log_path(vault_path: Path) -> Path:
     return vault_path / "wiki" / "logs" / "ingest-log.md"
 

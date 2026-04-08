@@ -61,6 +61,19 @@
 - [x] Reset command for generated vault/state replay
 - [x] Expanded tests for raw/source separation, article-tag routing, and reset flow
 
+## v1.4 — Agent-First Query Model ✅
+
+- [x] Deprecated `kb query` CLI command and `/query` API endpoint
+- [x] Rewrote `AGENTS.md` as a comprehensive agent operating manual
+- [x] Added `wiki/indexes/START_HERE.md` — vault orientation map
+- [x] Added `wiki/indexes/QUERY_PROTOCOL.md` — standard agent query procedure
+- [x] Auto-generated START_HERE and QUERY_PROTOCOL during index rebuilds
+- [x] Added `.claude/skills/vault-query.md` — Claude Code query skill
+- [x] Added `.opencode/VAULT_QUERY.md` — OpenCode agent instructions
+- [x] Updated all documentation for agent-first workflow
+- [x] Updated README with Claude Code / OpenCode usage sections
+- [x] Updated tests for new navigation files and deprecation warnings
+
 ## v1.5 — Polish & Enrichment
 
 - [ ] Readwise Reader connector

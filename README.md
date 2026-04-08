@@ -1,6 +1,6 @@
 # Epistora
 
-**Local-first personal knowledge compiler** that turns saved links and documents into a persistent, markdown-based, queryable knowledge base.
+**Local-first personal knowledge compiler** that turns saved links and documents into a persistent, markdown-based, agent-queryable knowledge base.
 
 Epistora watches your saved bookmarks (starting with Raindrop.io), fetches the
 source content, preserves the raw source material, compiles structured
@@ -8,6 +8,45 @@ knowledge notes, extracts topics/entities/concepts, links everything together,
 and writes it all into an Obsidian-compatible vault. Over time, your vault
 compounds: raw evidence stays intact, wiki pages get richer, patterns emerge
 across sources, and grounded answers can be promoted back into durable notes.
+
+## Agent-First Query Model
+
+Epistora is designed for **direct agent access**. Point Claude Code or OpenCode
+at the vault directory and ask questions naturally. The vault is structured so
+agents can navigate it effectively:
+
+1. **`AGENTS.md`** — the operating manual for agents working with the vault
+2. **`wiki/indexes/START_HERE.md`** — vault orientation map
+3. **`wiki/indexes/QUERY_PROTOCOL.md`** — step-by-step query procedure
+4. **Index files** — TOPICS, ENTITIES, CONCEPTS, INDEX for routing
+5. **Source notes** — primary evidence, already compiled and structured
+6. **Hub pages** — topic/entity/concept pages that accumulate across sources
+7. **Raw captures** — immutable evidence, used only when needed
+
+### Quick Start with Claude Code / OpenCode
+
+```bash
+# Point your agent at the vault directory
+cd knowledge_vault
+
+# Then ask questions naturally:
+# "What do I know about AI agents?"
+# "What are the main components of RAG?"
+# "Compare what different sources say about fine-tuning vs RAG"
+```
+
+The agent will read `AGENTS.md`, orient using the index files, navigate to
+relevant source notes, and produce grounded answers with note references.
+
+### Optional: Vault Query Skill
+
+For even better results, a skill file is included:
+
+- **Claude Code**: `.claude/skills/vault-query.md` — loaded automatically
+- **OpenCode**: `.opencode/VAULT_QUERY.md` — reference instructions
+
+The skill provides explicit step-by-step query procedures. The vault works well
+even without the skill, but the skill improves consistency.
 
 ## Why Epistora?
 
@@ -17,7 +56,7 @@ Most "save for later" tools become link graveyards. Read-it-later apps let you h
 - **Preserves evidence** — raw article markdown, transcripts, thread captures, and PDF text stay separate from compiled notes
 - **Local-first** — your knowledge lives in markdown files you own and control
 - **Obsidian-native** — open your vault in Obsidian and browse/edit alongside the automated notes
-- **Queryable** — ask questions and get answers grounded in your actual saved sources
+- **Agent-first** — point Claude Code or OpenCode at the vault for grounded, source-backed answers
 - **Inspectable** — every note has frontmatter, every claim links to a source, every action is logged
 - **Readable** — YouTube videos become article-style notes with a `5-Minute Read` and a detailed reading version
 - **Multi-backend** — use OpenAI-compatible APIs, OpenCode, Claude Code, or Codex as reasoning engines
@@ -61,8 +100,9 @@ kb ingest-url "https://lilianweng.github.io/posts/2023-06-23-agent/"
 # 5. Check what was created
 kb status
 
-# 6. Query your vault
-kb query "What are the main components of an AI agent?"
+# 6. Query your vault using Claude Code or OpenCode
+cd knowledge_vault
+# Then ask: "What are the main components of an AI agent?"
 ```
 
 ## CLI Commands
@@ -73,7 +113,6 @@ kb query "What are the main components of an AI agent?"
 | `kb ingest-url <url>` | Ingest a single URL |
 | `kb sync-inbox` | Sync recent items from a configured inbox connector |
 | `kb sync-raindrop` | Sync recent items from Raindrop.io |
-| `kb query "<question>"` | Ask a question against your vault |
 | `kb lint` | Health-check the vault |
 | `kb status` | Show vault and system status |
 | `kb rebuild-indexes` | Rebuild all vault index files |
@@ -82,6 +121,7 @@ kb query "What are the main components of an AI agent?"
 | `kb run-sync` | Run a one-off Raindrop sync |
 | `kb run-lint` | Run a one-off lint check |
 | `kb reset-generated` | Archive and clear generated vault/state artifacts before a clean rerun |
+| `kb query` | ~~Query the vault~~ (deprecated — use a direct agent instead) |
 
 Use `--force` with `kb ingest-url`, `kb sync-inbox`, or `kb sync-raindrop` to
 re-run ingest for already-seen sources without deleting existing vault state.
@@ -208,7 +248,7 @@ uvicorn app.main:app --reload --port 8000
 | POST | `/ingest/url` | Ingest a URL |
 | POST | `/ingest/inbox/sync` | Sync from a configured inbox connector |
 | POST | `/ingest/raindrop/sync` | Sync from Raindrop |
-| POST | `/query` | Query the vault |
+| POST | `/query` | ~~Query the vault~~ (deprecated) |
 | POST | `/lint` | Run vault lint |
 | GET | `/status` | System status |
 | GET | `/indexes` | List index summaries |
@@ -248,6 +288,20 @@ See `.env.example` for the full list.
 4. Index files provide navigation starting points
 5. You can edit notes manually — the system will respect existing content on updates
 
+## Using with Claude Code
+
+1. Build your vault: `kb ingest-url <url>` or `kb sync-raindrop`
+2. Point Claude Code at the vault: `cd knowledge_vault`
+3. Ask questions naturally — Claude Code reads `AGENTS.md` and navigates
+4. The `.claude/skills/vault-query.md` skill improves query consistency
+
+## Using with OpenCode
+
+1. Build your vault: `kb ingest-url <url>` or `kb sync-raindrop`
+2. Point OpenCode at the vault: `cd knowledge_vault`
+3. Ask questions naturally — OpenCode reads `AGENTS.md` and the index files
+4. The `.opencode/VAULT_QUERY.md` file provides additional guidance
+
 ## Raindrop Integration
 
 1. Create a Raindrop.io account and get an API token from [app.raindrop.io/settings/integrations](https://app.raindrop.io/settings/integrations)
@@ -258,20 +312,28 @@ See `.env.example` for the full list.
 
 ```
 knowledge_vault/
-  AGENTS.md                    # Vault conventions
+  AGENTS.md                    # Agent operating manual
+  .claude/skills/vault-query.md # Claude Code query skill
+  .opencode/VAULT_QUERY.md     # OpenCode agent instructions
   inbox/raw/                   # Immutable raw captures
     articles/                  # Readable article archives
     videos/                    # Transcript captures + video metadata
     threads/                   # Raw thread captures
     pdfs/ misc/
   wiki/
-    sources/                   # Compiled source notes
+    sources/                   # Compiled source notes (primary evidence)
       articles/ videos/ threads/ pdfs/ misc/
-    topics/                    # Topic pages (auto-maintained)
+    topics/                    # Topic pages (auto-maintained hubs)
     entities/                  # Entity pages (people, companies, tools)
     concepts/                  # Concept pages
     synthesis/                 # Cross-source synthesis notes
-    indexes/                   # Auto-generated indexes
+    indexes/                   # Navigation files
+      START_HERE.md            # Vault orientation map
+      QUERY_PROTOCOL.md        # Standard query procedure
+      INDEX.md                 # Full vault index with stats
+      TOPICS.md                # Topic pages list
+      ENTITIES.md              # Entity pages list
+      CONCEPTS.md              # Concept pages list
     logs/                      # Ingest and lint logs
   outputs/
     answers/                   # Saved query answers

@@ -47,9 +47,6 @@ kb sync-raindrop --limit 10
 # Reset generated vault artifacts before a clean replay
 kb reset-generated --yes --archive
 
-# Query the vault
-kb query "What do I know about LangChain?"
-
 # Run lint
 kb lint
 
@@ -65,6 +62,25 @@ kb backend-status
 # Run the automation worker
 kb worker
 ```
+
+### Querying the Vault (Agent-First)
+
+The recommended way to query the vault is to use Claude Code or OpenCode
+directly on the vault directory:
+
+```bash
+cd knowledge_vault
+
+# Then ask questions naturally using your agent
+# "What do I know about LangChain?"
+# "What are the main takeaways from the AI agent video?"
+```
+
+The agent reads `AGENTS.md` and navigates the vault using the index files.
+See `wiki/indexes/START_HERE.md` and `wiki/indexes/QUERY_PROTOCOL.md` for
+the navigation procedure.
+
+The legacy `kb query` command is deprecated but still functional.
 
 ### API Server
 
