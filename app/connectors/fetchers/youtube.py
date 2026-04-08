@@ -20,8 +20,22 @@ from typing import Any
 import httpx
 
 from app.config import get_settings
+from app.connectors.fetchers.summarize_cli import (
+    extract_url as summarize_extract_url,
+)
+from app.connectors.fetchers.summarize_cli import (
+    is_available as summarize_is_available,
+)
+from app.connectors.fetchers.summarize_cli import (
+    summarize_result_to_source_content,
+)
 from app.models.source import ExtractionQuality, SourceContent, SourceItem
-from app.utils.extraction import normalize_whitespace, truncate_text
+from app.utils.extraction import (
+    assess_weak_extraction,
+    normalize_whitespace,
+    prefer_extraction_candidate,
+    truncate_text,
+)
 from app.utils.hashing import content_hash, url_hash
 
 logger = logging.getLogger(__name__)
@@ -58,29 +72,107 @@ async def fetch_youtube(item: SourceItem) -> SourceContent:
     transcript_text = ""
     method = ""
     is_auto_caption = False
-
-    transcript_text, method, is_auto_caption, note = await _try_transcript_api(video_id)
-    fallback_chain.append("youtube_transcript_api")
-    if note:
-        notes_parts.append(note)
+    caption_type = "none"
+    summarize_content: SourceContent | None = None
 
     if (
-        not transcript_text
-        and settings.youtube_use_ytdlp_fallback
-        and shutil.which("yt-dlp")
+        getattr(settings, "summarize_use_for_youtube_primary", False)
+        and summarize_is_available(settings)
     ):
-        transcript_text, method, is_auto_caption, note = _try_ytdlp(
-            video_id, timeout=settings.youtube_fetch_timeout_seconds
+        fallback_chain.append("summarize_cli")
+        summarize_result = await summarize_extract_url(
+            item.url,
+            source_kind="youtube",
+            prefer_markdown=getattr(settings, "summarize_prefer_markdown", True),
+            settings=settings,
         )
-        fallback_chain.append("yt_dlp")
+        if summarize_result.success:
+            summarize_content = summarize_result_to_source_content(
+                item,
+                summarize_result,
+                raw_capture_kind="summarize_youtube_extract",
+                fallback_chain=fallback_chain.copy(),
+                notes_prefix="summarize used as primary YouTube extractor.",
+            )
+            summarize_weakness = assess_weak_extraction(
+                summarize_content.cleaned_text,
+                title=summarize_content.source.title,
+                extraction_quality=summarize_content.extraction_quality,
+                source_kind="youtube",
+                min_chars=settings.summarize_weak_text_min_chars,
+                min_paragraphs=settings.summarize_weak_paragraph_min_count,
+                x_snippet_max_chars=settings.summarize_weak_x_snippet_max_chars,
+            )
+            if not summarize_weakness.is_weak:
+                transcript_text = summarize_content.cleaned_text
+                method = summarize_content.extraction_method
+                caption_type = (
+                    str(summarize_content.raw_metadata.get("transcript_source") or "summarize")
+                    .strip()
+                    .lower()
+                )
+                notes_parts.append("summarize primary extraction succeeded.")
+            else:
+                notes_parts.append(
+                    "summarize returned weak YouTube output: "
+                    + ", ".join(summarize_weakness.reasons)
+                    + "."
+                )
+        else:
+            notes_parts.append(
+                f"summarize primary extraction failed: {summarize_result.provider_notes}"
+            )
+
+    if not transcript_text:
+        transcript_text, method, is_auto_caption, note = await _try_transcript_api(video_id)
+        fallback_chain.append("youtube_transcript_api")
         if note:
             notes_parts.append(note)
+
+        if (
+            not transcript_text
+            and settings.youtube_use_ytdlp_fallback
+            and shutil.which("yt-dlp")
+        ):
+            transcript_text, method, is_auto_caption, note = _try_ytdlp(
+                video_id, timeout=settings.youtube_fetch_timeout_seconds
+            )
+            fallback_chain.append("yt_dlp")
+            if note:
+                notes_parts.append(note)
 
     title, channel, description, duration = await _fetch_video_metadata(
         video_id,
         item.title,
         timeout=settings.youtube_fetch_timeout_seconds,
     )
+
+    if summarize_content and (
+        not transcript_text
+        or prefer_extraction_candidate(
+            current_text=transcript_text,
+            current_quality=(
+                ExtractionQuality.MOSTLY_FULL.value
+                if transcript_text and is_auto_caption
+                else (
+                    ExtractionQuality.FULL.value
+                    if transcript_text
+                    else ExtractionQuality.METADATA_ONLY.value
+                )
+            ),
+            candidate_text=summarize_content.cleaned_text,
+            candidate_quality=summarize_content.extraction_quality,
+        )
+    ):
+        transcript_text = summarize_content.cleaned_text
+        method = summarize_content.extraction_method
+        caption_type = (
+            str(summarize_content.raw_metadata.get("transcript_source") or "summarize")
+            .strip()
+            .lower()
+        )
+        notes_parts.append("Kept summarize output after comparing with local YouTube fallbacks.")
+        is_auto_caption = caption_type == "auto"
 
     if not transcript_text:
         fallback_chain.append("metadata_only")
@@ -95,14 +187,22 @@ async def fetch_youtube(item: SourceItem) -> SourceContent:
         if was_truncated:
             notes_parts.append(f"Transcript truncated to {max_chars} chars.")
 
-    item.title = item.title or title or f"YouTube Video {video_id}"
+    item.title = (
+        item.title
+        or (summarize_content.source.title if summarize_content else "")
+        or title
+        or f"YouTube Video {video_id}"
+    )
+    channel = channel or (summarize_content.author if summarize_content else "")
 
-    caption_type = "none"
-    if transcript_text:
+    if transcript_text and caption_type == "none":
         caption_type = "auto" if is_auto_caption else "manual"
 
     if transcript_text:
-        quality = ExtractionQuality.MOSTLY_FULL if is_auto_caption else ExtractionQuality.FULL
+        if summarize_content and method == "summarize_cli":
+            quality = ExtractionQuality(summarize_content.extraction_quality)
+        else:
+            quality = ExtractionQuality.MOSTLY_FULL if is_auto_caption else ExtractionQuality.FULL
         cleaned_text = transcript_text
     else:
         quality = ExtractionQuality.METADATA_ONLY
@@ -148,14 +248,20 @@ async def fetch_youtube(item: SourceItem) -> SourceContent:
         "transcript_section_count": len(_transcript_sections(transcript_text)),
         "transcript_word_count": len(transcript_text.split()) if transcript_text else 0,
     }
+    if summarize_content:
+        raw_metadata["summarize"] = summarize_content.raw_metadata
 
     return SourceContent(
         source=item,
         raw_text="\n".join(raw_text_lines).strip(),
         cleaned_text=cleaned_text,
         archived_markdown=archived_markdown,
-        raw_capture_kind="youtube_transcript" if transcript_text else "youtube_metadata_note",
-        author=channel,
+        raw_capture_kind=(
+            summarize_content.raw_capture_kind
+            if summarize_content and method == "summarize_cli"
+            else ("youtube_transcript" if transcript_text else "youtube_metadata_note")
+        ),
+        author=channel or (summarize_content.author if summarize_content else ""),
         word_count=len(transcript_text.split()) if transcript_text else 0,
         extraction_quality=quality.value,
         extraction_method=method or "metadata_only",

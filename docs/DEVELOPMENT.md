@@ -5,6 +5,7 @@
 - Python 3.12+
 - At least one of: OpenAI API key, `opencode` binary, `claude` binary
 - (Optional) Raindrop.io API token
+- (Optional) `summarize` binary if you want summarize-backed extraction enabled
 
 ## Setup
 
@@ -165,6 +166,9 @@ pytest tests/test_queue_automation.py -v
 
 # Run integration tests
 pytest tests/test_backend_integration.py -v
+
+# Run summarize integration tests
+pytest tests/test_summarize_cli.py tests/test_youtube_summarize_integration.py -v
 ```
 
 ### Testing Without Real Backends
@@ -206,6 +210,52 @@ with patch("shutil.which", return_value=None):
     backend = OpenCodeCliBackend(enabled=True)
     assert backend.is_available() is False
 ```
+
+### Testing summarize Integration
+
+summarize-backed extraction is fully mockable; tests do not require the real
+binary or network access.
+
+- Wrapper tests patch `subprocess.run` in `app/connectors/fetchers/summarize_cli.py`
+- Fetcher integration tests patch `summarize_extract_url`, `summarize_is_available`, and `summarize_result_to_source_content`
+- Existing fetcher tests stay hermetic because summarize is disabled by default unless the test opts in
+
+Example:
+
+```python
+from unittest.mock import AsyncMock, patch
+
+with patch("app.connectors.fetchers.youtube.summarize_is_available", return_value=True), patch(
+    "app.connectors.fetchers.youtube.summarize_extract_url",
+    new_callable=AsyncMock,
+) as mock_extract:
+    mock_extract.return_value = SummarizeResult(success=False, provider_notes="mock failure")
+    result = await fetch_youtube(item)
+```
+
+### Local summarize Debugging
+
+To validate the live CLI path locally:
+
+```bash
+summarize --version
+kb ingest-url "https://www.youtube.com/watch?v=..."
+```
+
+Useful settings while debugging:
+
+```env
+SUMMARIZE_ENABLED=true
+SUMMARIZE_TIMEOUT_SECONDS=180
+SUMMARIZE_USE_FOR_YOUTUBE_PRIMARY=true
+SUMMARIZE_USE_FOR_ARTICLE_FALLBACK=true
+SUMMARIZE_USE_FOR_GENERIC_FALLBACK=true
+SUMMARIZE_USE_FOR_X_FALLBACK=true
+```
+
+Inspect `extraction_method`, `extraction_fallback_chain`, `extraction_notes`,
+and `raw_metadata["summarize"]` in the resulting `SourceContent` or raw note
+frontmatter to confirm which path won.
 
 **Testing the router's fallback behavior:**
 

@@ -74,6 +74,18 @@
 - [x] Updated README with Claude Code / OpenCode usage sections
 - [x] Updated tests for new navigation files and deprecation warnings
 
+## v1.4.1 — summarize.sh Extraction Integration ✅
+
+- [x] Dedicated `summarize_cli.py` wrapper with availability checks, timeout handling, and JSON parsing
+- [x] `SourceContent`-boundary normalization for summarize output
+- [x] YouTube summarize-first extraction with safe fallback to the existing local stack
+- [x] Article summarize fallback after Trafilatura/readability
+- [x] Generic summarize fallback after the generic extractor
+- [x] X summarize fallback only after X-specific API/mirror/oEmbed tiers
+- [x] Explicit weak-extraction heuristics and extraction-method/fallback reporting
+- [x] Focused wrapper and fetcher integration tests
+- [x] Documentation for setup, precedence order, and debugging
+
 ## v1.5 — Queue-Based Cross-Platform Automation ✅
 
 - [x] Durable SQLite queue separating discovery from processing
@@ -109,6 +121,9 @@
 - [ ] X thread stitching and article expansion quality improvements
 - [ ] Cron expression support for the scheduler
 - [ ] Ollama / local model backend
+- [ ] Reuse summarize first-pass summaries as additional `analyse` evidence without changing Epistora's schema
+- [ ] Optional summarize daemon support
+- [ ] More media-specific extraction paths beyond YouTube
 
 ## v2.0 — Productization
 

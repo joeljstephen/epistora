@@ -161,7 +161,18 @@ Build a local-first personal knowledge compiler that turns saved links (from Rai
 - [x] Updated PLAN.md with Phase 11 completion notes
 - [x] Updated tests for new navigation files and deprecation warnings
 
-### Phase 12: Queue-Based Cross-Platform Automation ✅
+### Phase 12: summarize.sh Source Extraction Integration ✅
+- [x] Add typed summarize settings and `.env.example`
+- [x] Add dedicated `summarize_cli` wrapper with availability checks, timeout handling, and JSON parsing
+- [x] Normalize summarize output into `SourceContent` without changing ingest graph / vault / state boundaries
+- [x] Add explicit weak-extraction heuristics for article, generic, YouTube, and X fallback decisions
+- [x] Use summarize as primary extraction for YouTube when enabled
+- [x] Use summarize as fallback for article and generic extraction
+- [x] Use summarize as fallback-only for X after X-specific tiers
+- [x] Add tests for wrapper success/failure/timeout plus source-specific integration behavior
+- [x] Update README, ARCHITECTURE, DEVELOPMENT, and ROADMAP docs
+
+### Phase 13: Queue-Based Cross-Platform Automation ✅
 - [x] Durable queue system with SQLite persistence
   - [x] `queued_items` table with full status lifecycle
   - [x] `automation_runs` history table
@@ -204,7 +215,7 @@ Build a local-first personal knowledge compiler that turns saved links (from Rai
 
 ## Key Decisions
 
-### Phase 12 Decisions
+### Phase 13 Decisions
 13. **Queue-based over pure interval**: Durable queue separates discovery from processing, enabling crash recovery and partial batch handling
 14. **Safe mode default**: Users never accidentally consume expensive LLM credits from automation
 15. **One-shot commands as scheduler primitives**: OS-specific schedulers are thin wrappers on idempotent commands, not the other way around

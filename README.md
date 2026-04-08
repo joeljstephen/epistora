@@ -422,6 +422,31 @@ pytest tests/test_backends.py -v          # Backend tests
 pytest tests/test_automation.py -v        # Automation tests
 ```
 
+## summarize.sh Integration
+
+Epistora can optionally use `summarize` as an extraction helper at the
+`SourceContent` boundary. It does **not** replace the ingest graph, SQLite
+dedup/state, vault writer, analysis schema, or query pipeline.
+
+- Install summarize separately and make sure `summarize --version` works on your `PATH`
+- Enable it explicitly in `.env`; the integration is disabled by default
+- Epistora shells out to the CLI directly today; daemon settings are reserved for a later phase
+
+```env
+SUMMARIZE_ENABLED=true
+SUMMARIZE_BINARY=summarize
+SUMMARIZE_TIMEOUT_SECONDS=180
+
+SUMMARIZE_USE_FOR_YOUTUBE_PRIMARY=true
+SUMMARIZE_USE_FOR_ARTICLE_FALLBACK=true
+SUMMARIZE_USE_FOR_GENERIC_FALLBACK=true
+SUMMARIZE_USE_FOR_X_FALLBACK=true
+
+SUMMARIZE_PREFER_MARKDOWN=true
+SUMMARIZE_ALLOW_DAEMON=false
+SUMMARIZE_DAEMON_URL=
+```
+
 ## Content Extraction
 
 Epistora uses multi-tier fallback chains for each source type to maximize extraction quality:
@@ -429,8 +454,9 @@ Epistora uses multi-tier fallback chains for each source type to maximize extrac
 ### Articles
 1. **Trafilatura** (primary) — best-in-class Python article extraction
 2. **readability-lxml** (fallback) — alternative extraction when trafilatura yields thin content
-3. **Browser rendering** (optional) — Playwright-based for JS-heavy pages
-4. **Metadata-only** — OG tags, title, description when all else fails
+3. **summarize CLI** (optional fallback) — only attempted when the local extraction is clearly weak
+4. **Browser rendering** (optional) — Playwright-based for JS-heavy pages
+5. **Metadata-only** — OG tags, title, description when all else fails
 
 For article sources, Epistora writes two separate artifacts:
 
@@ -443,17 +469,19 @@ top and without AI-written summary text mixed into the body.
 ### Generic Pages
 1. **Trafilatura** (primary) — best-effort main-content extraction
 2. **readability-lxml** (fallback) — useful for docs pages and mixed layouts
-3. **Browser rendering** (optional) — Playwright fallback for JS-heavy pages
-4. **Metadata-only** — OG tags, title, description when body extraction fails
+3. **summarize CLI** (optional fallback) — used only when the generic extractor stays weak
+4. **Browser rendering** (optional) — Playwright fallback for JS-heavy pages
+5. **Metadata-only** — OG tags, title, description when body extraction fails
 
 If a Raindrop bookmark is tagged `article`, Epistora treats that tag as a
 strong signal and routes the bookmark through the article-preservation path.
 
 ### YouTube
-1. **youtube-transcript-api** — prefers manual English, then auto, then any language
-2. **yt-dlp subtitles** — subtitle-only extraction (no video download)
-3. **Metadata/noembed** — title, channel, description when no transcript available
-4. **Local ASR hook** — extension point for Whisper (not active by default)
+1. **summarize CLI** (optional primary) — transcript/media extraction and first-pass markdown capture
+2. **youtube-transcript-api** — prefers manual English, then auto, then any language
+3. **yt-dlp subtitles** — subtitle-only extraction (no video download)
+4. **Metadata/noembed** — title, channel, description when no transcript available
+5. **Local ASR hook** — extension point for Whisper (not active by default)
 
 When a transcript is available, the raw transcript is preserved in
 `inbox/raw/videos/`, and the compiled source note in `wiki/sources/videos/`
@@ -473,13 +501,18 @@ update the compiled wiki layer and logs, not the evidence layer.
 1. **Official X API** — full post + thread reconstruction (optional, requires bearer token)
 2. **fxtwitter/vxtwitter** — free mirror APIs with thread and article expansion
 3. **oEmbed/noembed** — embedded tweet text extraction
-4. **Page scrape** — OG tags and visible text
-5. **Browser rendering** (optional) — Playwright fallback
+4. **summarize CLI** (optional fallback) — only after X-specific methods stay weak
+5. **Page scrape** — OG tags and visible text
+6. **Browser rendering** (optional) — Playwright fallback
 
 ### PDFs
 - **PyMuPDF** text extraction with metadata from PDF properties
 
 Every extraction result includes `extraction_quality` (`full`, `mostly_full`, `partial`, `metadata_only`, `failed`), the method used, the full fallback chain attempted, and detailed notes.
+
+Weak-extraction detection is explicit and test-covered. summarize is only
+invoked when the earlier extractor returns too little body text, too few
+paragraphs, teaser-like output, or metadata-only content.
 
 Epistora also normalizes extracted topic/entity/concept names against existing
 vault pages where possible so re-ingest runs are less likely to fragment the
@@ -526,6 +559,8 @@ BROWSER_FALLBACK_ENABLED=true
 
 ## Limitations
 
+- **summarize integration is CLI-only today** — `SUMMARIZE_ALLOW_DAEMON` and `SUMMARIZE_DAEMON_URL` are reserved for future support
+- **summarize is disabled by default** — enable it explicitly if you want it in the extraction path
 - **YouTube transcripts** require captions to be available on the video
 - **X/Twitter free extraction** may miss some thread continuity — configure X API for best results
 - **Browser fallback** requires separate Playwright installation

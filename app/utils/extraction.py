@@ -3,9 +3,16 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from urllib.parse import urlparse, urlunparse
 
 from app.models.source import ExtractionQuality
+
+
+@dataclass(slots=True)
+class WeakExtractionAssessment:
+    is_weak: bool
+    reasons: list[str]
 
 
 def score_extraction_quality(
@@ -59,6 +66,99 @@ def normalize_whitespace(text: str) -> str:
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def quality_rank(quality: str | ExtractionQuality | None) -> int:
+    value = quality.value if isinstance(quality, ExtractionQuality) else (quality or "")
+    ranks = {
+        ExtractionQuality.FAILED.value: 0,
+        ExtractionQuality.METADATA_ONLY.value: 1,
+        ExtractionQuality.PARTIAL.value: 2,
+        ExtractionQuality.MOSTLY_FULL.value: 3,
+        ExtractionQuality.FULL.value: 4,
+    }
+    return ranks.get(value, 0)
+
+
+def assess_weak_extraction(
+    text: str,
+    *,
+    title: str = "",
+    extraction_quality: str = "",
+    source_kind: str = "generic",
+    min_chars: int = 400,
+    min_paragraphs: int = 2,
+    x_snippet_max_chars: int = 320,
+) -> WeakExtractionAssessment:
+    min_chars = _coerce_int(min_chars, 200)
+    min_paragraphs = _coerce_int(min_paragraphs, 2)
+    x_snippet_max_chars = _coerce_int(x_snippet_max_chars, 320)
+
+    cleaned = normalize_whitespace(text)
+    reasons: list[str] = []
+
+    if extraction_quality in {
+        ExtractionQuality.FAILED.value,
+        ExtractionQuality.METADATA_ONLY.value,
+    }:
+        reasons.append(f"quality={extraction_quality or 'unknown'}")
+
+    if not cleaned:
+        reasons.append("empty_body")
+        return WeakExtractionAssessment(is_weak=True, reasons=reasons)
+
+    paragraphs = [p for p in re.split(r"\n\s*\n", cleaned) if p.strip()]
+    if len(cleaned) < max(min_chars, 1):
+        reasons.append(f"short_body<{min_chars}")
+    if len(paragraphs) < max(min_paragraphs, 1) and len(cleaned) < (min_chars * 2):
+        reasons.append(f"paragraphs<{min_paragraphs}")
+
+    normalized_title = normalize_whitespace(title).lower()
+    lowered = cleaned.lower()
+    if normalized_title and (
+        lowered == normalized_title
+        or (lowered.startswith(normalized_title) and len(cleaned.split()) <= 20)
+    ):
+        reasons.append("title_only")
+
+    trailing_window = cleaned[-160:]
+    if re.search(
+        r"(continue reading|read more|sign in to read|subscribe to continue)",
+        trailing_window,
+        re.I,
+    ):
+        reasons.append("truncated_teaser")
+    if trailing_window.endswith(("...", "…")):
+        reasons.append("truncated_tail")
+
+    if source_kind == "x" and len(cleaned) <= max(x_snippet_max_chars, 1) and len(paragraphs) <= 1:
+        reasons.append("x_preview_snippet")
+
+    return WeakExtractionAssessment(is_weak=bool(reasons), reasons=reasons)
+
+
+def prefer_extraction_candidate(
+    *,
+    current_text: str,
+    current_quality: str,
+    candidate_text: str,
+    candidate_quality: str,
+) -> bool:
+    current_rank = quality_rank(current_quality)
+    candidate_rank = quality_rank(candidate_quality)
+    if candidate_rank != current_rank:
+        return candidate_rank > current_rank
+    return len(normalize_whitespace(candidate_text)) > len(normalize_whitespace(current_text))
+
+
+def _coerce_int(value: object, default: int) -> int:
+    if isinstance(value, bool):
+        return default
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.strip().isdigit():
+        return int(value.strip())
+    return default
 
 
 def extract_og_metadata(html: str) -> dict:

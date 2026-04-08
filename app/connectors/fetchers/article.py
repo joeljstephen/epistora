@@ -18,10 +18,21 @@ import trafilatura
 from app.config import get_settings
 from app.connectors.fetchers.browser import fetch_rendered_html, is_browser_available
 from app.connectors.fetchers.readability import extract_with_readability
+from app.connectors.fetchers.summarize_cli import (
+    extract_url as summarize_extract_url,
+)
+from app.connectors.fetchers.summarize_cli import (
+    is_available as summarize_is_available,
+)
+from app.connectors.fetchers.summarize_cli import (
+    summarize_result_to_source_content,
+)
 from app.models.source import SourceContent, SourceItem
 from app.utils.extraction import (
+    assess_weak_extraction,
     extract_og_metadata,
     normalize_whitespace,
+    prefer_extraction_candidate,
     resolve_canonical_url,
     score_extraction_quality,
 )
@@ -64,8 +75,80 @@ async def fetch_article(item: SourceItem) -> SourceContent:
             if not item.title and readability_title:
                 item.title = readability_title
 
+    current_quality = score_extraction_quality(
+        cleaned,
+        has_title=bool(item.title or og_meta.get("og_title") or og_meta.get("page_title")),
+        is_metadata_only=(method == "metadata_only"),
+    )
+    weakness = assess_weak_extraction(
+        cleaned,
+        title=item.title or og_meta.get("og_title") or og_meta.get("page_title") or "",
+        extraction_quality=current_quality.value,
+        source_kind="article",
+        min_chars=settings.summarize_weak_text_min_chars,
+        min_paragraphs=settings.summarize_weak_paragraph_min_count,
+        x_snippet_max_chars=settings.summarize_weak_x_snippet_max_chars,
+    )
+
     if (
-        len(cleaned) < 200
+        weakness.is_weak
+        and getattr(settings, "summarize_use_for_article_fallback", False)
+        and summarize_is_available(settings)
+    ):
+        fallback_chain.append("summarize_cli")
+        summarize_result = await summarize_extract_url(
+            item.url,
+            source_kind="article",
+            prefer_markdown=getattr(settings, "summarize_prefer_markdown", True),
+            settings=settings,
+        )
+        if summarize_result.success:
+            summarize_content = summarize_result_to_source_content(
+                item,
+                summarize_result,
+                raw_capture_kind="summarize_article_extract",
+                fallback_chain=fallback_chain.copy(),
+                notes_prefix="summarize fallback for article extraction.",
+            )
+            if prefer_extraction_candidate(
+                current_text=cleaned,
+                current_quality=current_quality.value,
+                candidate_text=summarize_content.cleaned_text,
+                candidate_quality=summarize_content.extraction_quality,
+            ):
+                notes_parts.append(
+                    "summarize replaced weak local extraction: "
+                    + ", ".join(weakness.reasons)
+                    + "."
+                )
+                cleaned = summarize_content.cleaned_text
+                markdown_body = _coerce_summarize_markdown_body(
+                    summarize_content.archived_markdown,
+                    item.title or summarize_content.source.title,
+                ) or _plain_text_to_markdown(summarize_content.cleaned_text)
+                method = summarize_content.extraction_method
+                author = summarize_content.author or author
+                published = summarize_content.published_date or published
+                canonical = summarize_content.canonical_url or canonical
+            else:
+                notes_parts.append("summarize fallback did not improve article extraction.")
+        else:
+            notes_parts.append(f"summarize fallback failed: {summarize_result.provider_notes}")
+
+    if (
+        assess_weak_extraction(
+            cleaned,
+            title=item.title or og_meta.get("og_title") or og_meta.get("page_title") or "",
+            extraction_quality=score_extraction_quality(
+                cleaned,
+                has_title=bool(item.title or og_meta.get("og_title") or og_meta.get("page_title")),
+                is_metadata_only=(method == "metadata_only"),
+            ).value,
+            source_kind="article",
+            min_chars=settings.summarize_weak_text_min_chars,
+            min_paragraphs=settings.summarize_weak_paragraph_min_count,
+            x_snippet_max_chars=settings.summarize_weak_x_snippet_max_chars,
+        ).is_weak
         and settings.article_use_browser_fallback
         and settings.browser_fallback_enabled
         and is_browser_available()
@@ -242,6 +325,14 @@ def _strip_duplicate_heading(markdown_body: str, title: str) -> str:
     if first.lower() == title.strip().lower():
         return "\n".join(lines[1:]).strip()
     return markdown_body.strip()
+
+
+def _coerce_summarize_markdown_body(markdown_body: str, title: str) -> str:
+    body = _strip_duplicate_heading(markdown_body, title)
+    lines = body.splitlines()
+    while lines and (not lines[0].strip() or lines[0].lstrip().startswith(">")):
+        lines.pop(0)
+    return "\n".join(lines).strip()
 
 
 def _build_article_archive_markdown(
