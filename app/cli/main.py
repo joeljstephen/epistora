@@ -99,6 +99,11 @@ def init(
 @app.command("ingest-url")
 def ingest_url(
     url: str = typer.Argument(..., help="URL to ingest"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Re-run ingest even if the URL was already compiled before",
+    ),
 ):
     """Ingest a single URL into the knowledge vault."""
     from app.services.ingest_service import ingest_url as _ingest
@@ -106,7 +111,7 @@ def ingest_url(
     console.print(f"[blue]Ingesting:[/blue] {url}")
 
     try:
-        result = _run(_ingest(url))
+        result = _run(_ingest(url, force=force))
     except Exception as e:
         console.print(f"[red]Error:[/red] {e}")
         raise typer.Exit(1)
@@ -135,6 +140,11 @@ def ingest_url(
 @app.command("sync-raindrop")
 def sync_raindrop(
     limit: int = typer.Option(25, "--limit", "-n", help="Max items to sync"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Re-run ingest for fetched items even if they were already compiled",
+    ),
 ):
     """Sync recent items from Raindrop.io and ingest them."""
     from app.services.ingest_service import sync_inbox as _sync
@@ -142,7 +152,7 @@ def sync_raindrop(
     console.print("[blue]Syncing from Raindrop...[/blue]")
 
     try:
-        results = _run(_sync(connector_id="raindrop", limit=limit))
+        results = _run(_sync(connector_id="raindrop", limit=limit, force=force))
     except ValueError as e:
         console.print(f"[red]Configuration error:[/red] {e}")
         raise typer.Exit(1)
@@ -163,6 +173,11 @@ def sync_raindrop(
 def sync_inbox(
     connector: str = typer.Option("raindrop", "--connector", "-c", help="Inbox connector ID"),
     limit: int = typer.Option(25, "--limit", "-n", help="Max items to sync"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Re-run ingest for fetched items even if they were already compiled",
+    ),
 ):
     """Sync recent items from a configured inbox connector and ingest them."""
     from app.services.ingest_service import sync_inbox as _sync
@@ -170,7 +185,7 @@ def sync_inbox(
     console.print(f"[blue]Syncing inbox connector:[/blue] {connector}")
 
     try:
-        results = _run(_sync(connector_id=connector, limit=limit))
+        results = _run(_sync(connector_id=connector, limit=limit, force=force))
     except ValueError as e:
         console.print(f"[red]Configuration error:[/red] {e}")
         raise typer.Exit(1)

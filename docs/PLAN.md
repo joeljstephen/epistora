@@ -112,14 +112,17 @@ Build a local-first personal knowledge compiler that turns saved links (from Rai
 ### Phase 10: Knowledge Compiler Quality Upgrade
 - [ ] Resolve current branch instability in vault templates and keep all user-owned edits intact
 - [ ] Upgrade the source-analysis schema and prompts so source notes are richer, more grounded, and more cumulative
+- [ ] Strengthen query, lint, and maintenance prompts so the wiki behaves like a persistent compiled layer rather than a one-shot summarizer
 - [ ] Improve YouTube ingest:
   - [ ] Preserve transcript/raw capture separately from compiled notes
   - [ ] Clean transcript structure and record transcript availability / quality
   - [ ] Generate article-style video notes with a 5-minute read and detailed reading version
+  - [ ] Make the note useful enough that the user can often skip the full watch on first pass
 - [ ] Improve article ingest for Raindrop items tagged `article`:
   - [ ] Treat the tag as a strong signal to use article extraction
   - [ ] Preserve a clean readable markdown archive in the raw layer
   - [ ] Keep the compiled source note separate from the raw archive
+  - [ ] Preserve article metadata cleanly without mixing AI commentary into the raw archive body
 - [ ] Strengthen vault templates and conventions:
   - [ ] Source note templates for video/article/generic sources
   - [ ] Topic/entity/concept/synthesis templates with stronger navigation sections
@@ -128,8 +131,16 @@ Build a local-first personal knowledge compiler that turns saved links (from Rai
   - [ ] Query prompt and saved outputs for better grounded answers
   - [ ] Lint prompt and structural checks for wiki health issues
   - [ ] Index and ingest-log generation so the vault is easier to navigate
-- [ ] Add a clean reset path for generated vault artifacts and internal generated state
-- [ ] Re-run the upgraded pipeline against the latest 30 Raindrop bookmarks from a clean state
-- [ ] Inspect generated results, fix workflow or quality issues discovered during the rerun, and rerun as needed
+- [ ] Keep raw captures immutable and avoid deleting or resetting existing generated vault artifacts during validation
+- [ ] Fetch and process only the latest Raindrop bookmark with the upgraded pipeline
+- [ ] Inspect the generated raw/wiki artifacts, fix workflow or quality issues discovered during validation, and rerun as needed
 - [ ] Expand tests for YouTube/article raw-vs-compiled separation and mixed-source ingest
-- [ ] Update README and architecture/development/roadmap docs with the new behavior and validation notes
+- [ ] Update README and architecture/development/roadmap docs with the new behavior, folder responsibilities, and validation notes
+
+## Phase 10 Execution Notes
+
+- The validation run should target the newest Raindrop bookmark only.
+- Existing generated vault artifacts, indexes, logs, and outputs must not be deleted or reset as part of this upgrade.
+- The raw layer remains evidence-first and immutable after capture.
+- The wiki layer is the maintained compiled layer that should accumulate better topic/entity/concept/synthesis structure over time.
+- Valuable query answers should remain promotable into durable synthesis notes instead of staying as ephemeral chat output.

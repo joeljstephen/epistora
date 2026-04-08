@@ -83,6 +83,27 @@ async def _structural_lint(state: LintState) -> dict:
                         suggestion="Recreate the raw capture or re-run ingest for this source.",
                     )
                 )
+            link_fields = (
+                note.meta.get("topics", []) or [],
+                note.meta.get("entities", []) or [],
+                note.meta.get("concepts", []) or [],
+            )
+            linked_pages = sum(len(values) for values in link_fields)
+            if linked_pages == 0:
+                issues.append(
+                    LintIssue(
+                        severity="info",
+                        category="unlinked_source_note",
+                        message=(
+                            f"'{note.title}' has no topic, entity, or concept links in frontmatter."
+                        ),
+                        file_path=note.rel_path,
+                        suggestion=(
+                            "Link the source into the compiled wiki so it does not "
+                            "stay isolated."
+                        ),
+                    )
+                )
 
         if note.title not in inbound and note.note_type != "source":
             issues.append(
@@ -255,6 +276,17 @@ async def _llm_lint(state: LintState) -> dict:
                         f"{gap.get('reason', '')}"
                     ),
                     suggestion="Improve backlinks, index entries, or topic/source cross-links.",
+                )
+            )
+
+        for thin in analysis.get("thin_pages", []):
+            notes_label = ", ".join(thin.get("notes", []))
+            issues.append(
+                LintIssue(
+                    severity="info",
+                    category="thin_page",
+                    message=f"Thin page candidate: {notes_label}",
+                    suggestion=thin.get("reason", ""),
                 )
             )
 

@@ -47,6 +47,7 @@ def source_note_md(
         "raw_capture_path": raw_capture_path,
         "raw_capture_kind": content.raw_capture_kind,
     }
+    meta.update(_source_frontmatter_extras(content))
     if content.canonical_url and content.canonical_url != content.source.url:
         meta["canonical_url"] = content.canonical_url
 
@@ -67,6 +68,10 @@ def source_note_md(
             f"> **Source:** {content.source.url}",
             f"> **Type:** {content.source.source_type.value}",
             f"> **Ingested:** {friendly_date()}",
+            (
+                f"> **Evidence quality:** `{content.extraction_quality}` via "
+                f"`{content.extraction_method or 'unknown'}`"
+            ),
             f"> **Raw archive:** {raw_link}",
             f"> **Saved tags:** {tags}",
             "",
@@ -114,6 +119,7 @@ def _source_specific_body(
     concept_links: str,
 ) -> str:
     common_sections = [
+        "## Coverage & Limits\n\n" + _coverage_and_limits_md(content),
         "## Key Ideas\n\n" + key_ideas,
         "## Detailed Outline\n\n" + detailed_outline,
         "## Important Examples\n\n" + important_examples,
@@ -146,6 +152,9 @@ def _source_specific_body(
 
     if content.source.source_type.value == "article":
         sections = [
+            "## Raw Readable Article\n\n"
+            + "The preserved article body lives in the raw archive linked above. "
+            + "This note is the compiled interpretation layer.",
             "## Concise Summary\n\n" + summary,
             "## 5-Minute Read\n\n" + five_minute_read,
             "## Detailed Reading Note\n\n" + detailed_reading_note,
@@ -170,12 +179,18 @@ def _youtube_transcript_status(content: SourceContent) -> str:
     source = content.raw_metadata.get("transcript_source", content.extraction_method or "unknown")
     channel = content.author or content.raw_metadata.get("channel", "")
     duration = content.raw_metadata.get("duration", "")
+    transcript_quality = content.raw_metadata.get("transcript_quality", "")
+    section_count = content.raw_metadata.get("transcript_section_count", "")
 
     lines = [
         f"- Transcript available: {'yes' if transcript_available else 'no'}",
         f"- Caption type: {caption_type}",
         f"- Extraction source: {source}",
     ]
+    if transcript_quality:
+        lines.append(f"- Transcript quality: {transcript_quality}")
+    if section_count:
+        lines.append(f"- Structured sections captured: {section_count}")
     if channel:
         lines.append(f"- Channel: {channel}")
     if duration:
@@ -198,6 +213,54 @@ def _capture_notes_md(content: SourceContent) -> str:
     if content.extraction_notes:
         lines.append(f"- Notes: {content.extraction_notes}")
     return "\n".join(lines)
+
+
+def _coverage_and_limits_md(content: SourceContent) -> str:
+    lines = [
+        f"- Raw evidence kind: `{content.raw_capture_kind or 'unknown'}`",
+        f"- Extraction quality: `{content.extraction_quality}`",
+    ]
+
+    if content.source.source_type.value == "article":
+        archived = bool(content.raw_metadata.get("article_archive_available"))
+        lines.append(f"- Readable article archive preserved: {'yes' if archived else 'no'}")
+    elif content.source.source_type.value == "youtube":
+        lines.append(
+            "- Transcript captured: "
+            + ("yes" if content.raw_metadata.get("transcript_available") else "no")
+        )
+
+    if content.extraction_quality in {"metadata_only", "partial", "failed"}:
+        lines.append(
+            "- Limitation: this note should be read as a partial compilation, "
+            "not a complete capture."
+        )
+    else:
+        lines.append(
+            "- Coverage: the vault captured enough evidence for a substantive "
+            "compiled note."
+        )
+
+    return "\n".join(lines)
+
+
+def _source_frontmatter_extras(content: SourceContent) -> dict[str, object]:
+    extra: dict[str, object] = {
+        "archive_separation": "raw_evidence_and_compiled_note",
+    }
+
+    if content.source.source_type.value == "youtube":
+        extra["transcript_available"] = bool(content.raw_metadata.get("transcript_available"))
+        if content.raw_metadata.get("caption_type"):
+            extra["caption_type"] = content.raw_metadata.get("caption_type")
+        if content.raw_metadata.get("transcript_quality"):
+            extra["transcript_quality"] = content.raw_metadata.get("transcript_quality")
+    if content.source.source_type.value == "article":
+        extra["article_archive_available"] = bool(
+            content.raw_metadata.get("article_archive_available")
+        )
+
+    return extra
 
 
 def topic_note_md(
@@ -263,6 +326,13 @@ def topic_note_md(
 
 {sections.get("Gaps In My Understanding", "_Identify what still feels thin or under-explained._")}
 
+## Active Questions
+
+{sections.get(
+    "Active Questions",
+    "_Record live questions that should shape future ingest or synthesis._",
+)}
+
 ## Suggested Next Reading / Watching
 
 {sections.get("Suggested Next Reading / Watching", suggested_next)}
@@ -281,6 +351,7 @@ def entity_note_md(
     )
     why_it_shows_up = f"Referenced in {len(source_titles)} source(s) in this vault."
     recurring_contexts = "_Capture the recurring roles or contexts this entity appears in._"
+    why_it_matters = "_State why this entity matters to the wider wiki, not just this source._"
     open_questions = "_Track ambiguities, missing details, or follow-up questions here._"
     meta = {
         "title": entity.name,
@@ -314,6 +385,10 @@ def entity_note_md(
 ## Recurring Contexts
 
 {sections.get("Recurring Contexts", recurring_contexts)}
+
+## Why It Matters
+
+{sections.get("Why It Matters", why_it_matters)}
 
 ## Related Concepts
 
@@ -380,6 +455,13 @@ def concept_note_md(
 
 {sections.get("Examples From Saved Sources", "_Examples will be extracted as the vault grows._")}
 
+## Competing Definitions / Edge Cases
+
+{sections.get(
+    "Competing Definitions / Edge Cases",
+    "_Capture disagreements, boundary cases, or overloaded meanings here._",
+)}
+
 ## Open Questions
 
 {sections.get("Open Questions", open_questions)}
@@ -403,7 +485,7 @@ def synthesis_note_md(note: SynthesisNote) -> str:
 
     body = f"""# {note.title}
 
-## Summary
+## Durable Claim
 
 {note.summary}
 
@@ -419,7 +501,7 @@ def synthesis_note_md(note: SynthesisNote) -> str:
 
 {note.conflicts or "_No conflicts detected._"}
 
-## Reusable Takeaways
+## Reusable Takeaways / Next Moves
 
 {note.next_steps or "_No reusable takeaways recorded yet._"}
 """

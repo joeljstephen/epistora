@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+from pathlib import Path
 from typing import Any, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -30,6 +31,7 @@ from app.utils.hashing import url_hash as compute_url_hash
 from app.utils.slugify import slugify
 from app.vault.index_updater import rebuild_indexes
 from app.vault.log_updater import append_ingest_log
+from app.vault.parser import scan_vault
 from app.vault.writer import VaultWriter
 
 logger = logging.getLogger(__name__)
@@ -42,6 +44,10 @@ _YOUTUBE_SECTION_RE = re.compile(r"^##\s+(\d{2}:\d{2}-\d{2}:\d{2})\s*$", re.MULT
 
 def _collapse_whitespace(text: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text.strip())
+
+
+def _canonical_name_key(text: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
 
 
 def _paragraphs(text: str) -> list[str]:
@@ -370,6 +376,7 @@ class IngestState(TypedDict, total=False):
     item: SourceItem
     content: SourceContent
     slug: str
+    force_reingest: bool
     analysis: dict[str, Any]
     topics: list[Topic]
     entities: list[Entity]
@@ -385,6 +392,10 @@ def _source_specific_guidance(content: SourceContent) -> str:
     guidance: list[str] = [
         "Prefer concrete mechanisms, examples, and tensions over generic summary phrasing.",
         "Assume the note should remain useful months later as part of a growing wiki.",
+        (
+            "Write with the expectation that future sources will update this wiki "
+            "rather than replace it."
+        ),
     ]
 
     source_type = content.source.source_type.value
@@ -397,22 +408,87 @@ def _source_specific_guidance(content: SourceContent) -> str:
                     "(not transcript echo)."
                 ),
                 "Help the reader decide whether they still need to watch the full video.",
+                (
+                    "If the transcript feels noisy, promote the speaker's real argument "
+                    "and compress filler."
+                ),
             ]
         )
     elif source_type == "article":
-        guidance.append("Preserve the article's argument, structure, and why it matters.")
+        guidance.extend(
+            [
+                "Preserve the article's argument, structure, and why it matters.",
+                (
+                    "Treat the raw readable article archive as the evidence layer and "
+                    "this note as the compiled layer."
+                ),
+            ]
+        )
     elif source_type == "x_thread":
-        guidance.append("Capture the sequence of claims and missing context if the thread is thin.")
+        guidance.extend(
+            [
+                "Capture the sequence of claims and missing context if the thread is thin.",
+                (
+                    "Differentiate between what the thread directly states and what "
+                    "remains implied or unsupported."
+                ),
+            ]
+        )
     elif source_type == "pdf":
-        guidance.append("Preserve definitions, evidence, and structural cues from the document.")
+        guidance.extend(
+            [
+                "Preserve definitions, evidence, and structural cues from the document.",
+                (
+                    "Keep terminology crisp enough that the note can serve as a "
+                    "durable reference page later."
+                ),
+            ]
+        )
 
     if content.extraction_quality in {"metadata_only", "failed"}:
         guidance.append(
             "This extraction is incomplete. Be explicit about missing coverage "
             "and avoid overclaiming."
         )
+    else:
+        guidance.append(
+            "Assume the reader wants to learn efficiently from this note before "
+            "deciding whether to open the original."
+        )
 
     return "\n".join(f"- {line}" for line in guidance)
+
+
+def _existing_knowledge_lookup(vault_path: Path) -> dict[str, dict[str, str]]:
+    lookup = {"topic": {}, "entity": {}, "concept": {}}
+    for note in scan_vault(vault_path):
+        if note.note_type not in lookup:
+            continue
+        title = note.title.strip()
+        if not title:
+            continue
+        lookup[note.note_type].setdefault(slugify(title), title)
+        lookup[note.note_type].setdefault(_canonical_name_key(title), title)
+    return lookup
+
+
+def _existing_knowledge_prompt(lookup: dict[str, dict[str, str]]) -> str:
+    lines: list[str] = []
+    for note_type, label in (
+        ("topic", "Topics"),
+        ("entity", "Entities"),
+        ("concept", "Concepts"),
+    ):
+        names = sorted({title for title in lookup[note_type].values()})
+        if names:
+            lines.append(f"- {label}: {', '.join(names[:40])}")
+        else:
+            lines.append(f"- {label}: none yet")
+    return "\n".join(lines)
+
+
+def _resolve_existing_name(existing: dict[str, str], name: str) -> str:
+    return existing.get(slugify(name)) or existing.get(_canonical_name_key(name)) or name
 
 
 def _fallback_analysis(
@@ -499,6 +575,8 @@ async def _check_dedup(state: IngestState) -> dict:
     from app.config import get_settings
 
     content: SourceContent = state["content"]
+    if state.get("force_reingest"):
+        return {}
     settings = get_settings()
     db = Database(settings.db_path)
     db.connect()
@@ -529,8 +607,12 @@ async def _check_dedup(state: IngestState) -> dict:
 
 
 async def _analyse_content(state: IngestState) -> dict:
+    from app.config import get_settings
+
     content: SourceContent = state["content"]
     text = content.cleaned_text or content.raw_text
+    settings = get_settings()
+    existing_lookup = _existing_knowledge_lookup(Path(settings.vault_path))
 
     if content.extraction_quality == "metadata_only":
         extraction_note = content.extraction_notes or "Only metadata was captured for this source."
@@ -636,6 +718,7 @@ async def _analyse_content(state: IngestState) -> dict:
         extraction_method=content.extraction_method or "unknown",
         extraction_notes=extraction_notes_prompt,
         source_specific_guidance=_source_specific_guidance(content),
+        existing_knowledge=_existing_knowledge_prompt(existing_lookup),
         content=evidence_text,
         youtube_rules=YOUTUBE_ANALYSIS_RULES if is_youtube else "",
     )
@@ -659,9 +742,6 @@ async def _analyse_content(state: IngestState) -> dict:
             raise RuntimeError(resp.error)
     except Exception as exc:
         logger.warning("LLM analysis failed: %s", exc)
-        from app.config import get_settings
-
-        settings = get_settings()
         source_type = content.source.source_type.value
         fb_cap = (
             settings.ingest_youtube_evidence_max_chars or settings.ingest_evidence_max_chars
@@ -726,24 +806,39 @@ async def _analyse_content(state: IngestState) -> dict:
 
 
 async def _extract_knowledge(state: IngestState) -> dict:
+    from app.config import get_settings
+
     analysis = state["analysis"]
     slug = state["slug"]
+    topic_summary = analysis.get("summary", "").strip()
+    settings = get_settings()
+    existing_lookup = _existing_knowledge_lookup(Path(settings.vault_path))
 
     entity_names = [
-        entity["name"] if isinstance(entity, dict) else str(entity)
+        (
+            _resolve_existing_name(existing_lookup["entity"], entity["name"])
+            if isinstance(entity, dict)
+            else _resolve_existing_name(existing_lookup["entity"], str(entity))
+        )
         for entity in analysis.get("entities", [])
     ]
     concept_names = [
-        concept["name"] if isinstance(concept, dict) else str(concept)
+        (
+            _resolve_existing_name(existing_lookup["concept"], concept["name"])
+            if isinstance(concept, dict)
+            else _resolve_existing_name(existing_lookup["concept"], str(concept))
+        )
         for concept in analysis.get("concepts", [])
     ]
 
     topics = []
     for topic_name in analysis.get("topics", []):
+        resolved_topic_name = _resolve_existing_name(existing_lookup["topic"], topic_name)
         topics.append(
             Topic(
-                name=topic_name,
-                slug=slugify(topic_name),
+                name=resolved_topic_name,
+                slug=slugify(resolved_topic_name),
+                summary=topic_summary,
                 source_ids=[slug],
                 related_entities=entity_names,
                 related_concepts=concept_names,
@@ -754,10 +849,13 @@ async def _extract_knowledge(state: IngestState) -> dict:
     for entity_data in analysis.get("entities", []):
         if isinstance(entity_data, str):
             entity_data = {"name": entity_data, "type": "unknown", "description": ""}
+        resolved_entity_name = _resolve_existing_name(
+            existing_lookup["entity"], entity_data["name"]
+        )
         entities.append(
             Entity(
-                name=entity_data["name"],
-                slug=slugify(entity_data["name"]),
+                name=resolved_entity_name,
+                slug=slugify(resolved_entity_name),
                 entity_type=entity_data.get("type", "unknown"),
                 description=entity_data.get("description", ""),
                 source_ids=[slug],
@@ -769,7 +867,7 @@ async def _extract_knowledge(state: IngestState) -> dict:
     for concept_data in analysis.get("concepts", []):
         if isinstance(concept_data, str):
             concept_data = {"name": concept_data, "definition": ""}
-        concept_name = concept_data["name"]
+        concept_name = _resolve_existing_name(existing_lookup["concept"], concept_data["name"])
         concepts.append(
             Concept(
                 name=concept_name,

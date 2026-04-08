@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 
 _BACKEND_ALIASES = {
     "api": BackendType.API.value,
+    "codex": BackendType.CODEX.value,
     "opencode": BackendType.OPENCODE.value,
     "open_code": BackendType.OPENCODE.value,
     "claude_code": BackendType.CLAUDE_CODE.value,

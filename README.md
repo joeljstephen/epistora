@@ -20,7 +20,7 @@ Most "save for later" tools become link graveyards. Read-it-later apps let you h
 - **Queryable** — ask questions and get answers grounded in your actual saved sources
 - **Inspectable** — every note has frontmatter, every claim links to a source, every action is logged
 - **Readable** — YouTube videos become article-style notes with a `5-Minute Read` and a detailed reading version
-- **Multi-backend** — use OpenAI-compatible APIs, OpenCode, or Claude Code as reasoning engines
+- **Multi-backend** — use OpenAI-compatible APIs, OpenCode, Claude Code, or Codex as reasoning engines
 - **Automated** — run `kb worker` for hands-free background sync and maintenance
 
 ## Architecture Overview
@@ -30,7 +30,7 @@ Raindrop / URLs → Connectors → Compiler (LangGraph) → Vault (Markdown)
                                     ↕
                           Backend Router
                     ┌───────┼───────────┐
-                    API   OpenCode   Claude Code
+                    API   OpenCode   Claude Code   Codex
                                     ↕
                           SQLite (internal state)
 ```
@@ -50,7 +50,7 @@ pip install -e ".[dev]"
 
 # 2. Configure
 cp .env.example .env
-# Edit .env — set at least one backend (API key, or have opencode/claude installed)
+# Edit .env — set at least one backend (API key, or have opencode/claude/codex installed)
 
 # 3. Initialize vault
 kb init
@@ -83,6 +83,9 @@ kb query "What are the main components of an AI agent?"
 | `kb run-lint` | Run a one-off lint check |
 | `kb reset-generated` | Archive and clear generated vault/state artifacts before a clean rerun |
 
+Use `--force` with `kb ingest-url`, `kb sync-inbox`, or `kb sync-raindrop` to
+re-run ingest for already-seen sources without deleting existing vault state.
+
 ## Background Worker
 
 The `kb worker` command starts a long-running process that automatically:
@@ -106,7 +109,7 @@ safely after individual job failures.
 
 ## Multi-Backend Execution
 
-Epistora supports three execution backends, and you can mix them per task:
+Epistora supports four execution backends, and you can mix them per task:
 
 ### 1. Direct API Backend
 
@@ -140,10 +143,19 @@ CLAUDE_CODE_ENABLED=true
 CLAUDE_CODE_MODEL=claude-sonnet-4-20250514
 ```
 
+### 4. Codex CLI Backend
+
+Shells out to `codex exec` in non-interactive mode:
+
+```env
+CODEX_ENABLED=true
+CODEX_MODEL=gpt-5
+```
+
 ### Fallback Behavior
 
 By default, for each task (ingest, query, lint) the system tries backends in order:
-API → OpenCode → Claude Code.
+API → OpenCode → Claude Code → Codex.
 
 If the first is unavailable or fails, it automatically falls back to the next.
 Every fallback is logged clearly.
@@ -152,8 +164,8 @@ You can customize the order per task:
 
 ```env
 BACKEND_ORDER_INGEST=opencode,api,claude_code
-BACKEND_ORDER_QUERY=api,claude_code
-BACKEND_ORDER_LINT=claude_code,api
+BACKEND_ORDER_QUERY=api,claude_code,codex
+BACKEND_ORDER_LINT=claude_code,codex,api
 ```
 
 Unknown backend tokens are ignored with a warning by default. Set
@@ -168,6 +180,9 @@ Use different backends/models for different tasks:
 API_MODEL_INGEST=gpt-4o
 # Query with Claude Code
 BACKEND_ORDER_QUERY=claude_code,api
+# Or switch query to Codex
+BACKEND_ORDER_QUERY=codex,claude_code,api
+CODEX_MODEL_QUERY=gpt-5
 # Lint via OpenCode
 BACKEND_ORDER_LINT=opencode,api
 OPENCODE_MODEL_LINT=glm-4
@@ -215,10 +230,11 @@ If `EPISTORA_API_KEY` is set, the sensitive routes above require
 | `OPENAI_MODEL` | No | `gpt-4o-mini` | Default model (also used via `API_MODEL`) |
 | `EPISTORA_API_KEY` | No | — | Optional bearer token for sensitive API routes |
 | `RAINDROP_API_TOKEN` | For sync | — | Raindrop.io API token |
-| `BACKEND_ORDER_*` | No | `api,opencode,claude_code` | Fallback order per task |
+| `BACKEND_ORDER_*` | No | `api,opencode,claude_code,codex` | Fallback order per task |
 | `BACKEND_ORDER_STRICT` | No | `false` | Fail on unknown backend tokens instead of warning |
 | `OPENCODE_ENABLED` | No | `true` | Enable OpenCode CLI backend |
 | `CLAUDE_CODE_ENABLED` | No | `true` | Enable Claude Code CLI backend |
+| `CODEX_ENABLED` | No | `true` | Enable Codex CLI backend |
 | `SYNC_ENABLED` | No | `false` | Enable background inbox sync |
 | `SYNC_INTERVAL_SECONDS` | No | `1200` | Sync interval |
 
@@ -299,6 +315,9 @@ For article sources, Epistora writes two separate artifacts:
 - a clean readable markdown archive in `inbox/raw/articles/`
 - a compiled source note in `wiki/sources/articles/`
 
+Raw article archives are preserved as readable markdown with metadata at the
+top and without AI-written summary text mixed into the body.
+
 ### Generic Pages
 1. **Trafilatura** (primary) — best-effort main-content extraction
 2. **readability-lxml** (fallback) — useful for docs pages and mixed layouts
@@ -321,8 +340,12 @@ includes:
 - a short summary
 - a `5-Minute Read`
 - a detailed article-style reading note
+- transcript status, caption type, extraction source, and transcript quality
 - key ideas, examples, takeaways, quotes, and follow-up questions
 - an explicit recommendation on whether the full video is still worth watching
+
+The raw transcript capture stays immutable once written; later force-reruns
+update the compiled wiki layer and logs, not the evidence layer.
 
 ### X/Twitter
 1. **Official X API** — full post + thread reconstruction (optional, requires bearer token)
@@ -335,6 +358,28 @@ includes:
 - **PyMuPDF** text extraction with metadata from PDF properties
 
 Every extraction result includes `extraction_quality` (`full`, `mostly_full`, `partial`, `metadata_only`, `failed`), the method used, the full fallback chain attempted, and detailed notes.
+
+Epistora also normalizes extracted topic/entity/concept names against existing
+vault pages where possible so re-ingest runs are less likely to fragment the
+wiki with obvious spelling or formatting variants.
+
+## Validation Notes
+
+The latest-bookmark validation for this upgrade was run on **April 8, 2026**
+against the newest Raindrop item at the time:
+
+- `https://youtube.com/watch?v=aFcVKzfkJPk&si=0X3V7ZbXMl5m-3ib`
+- title: `Claude Mythos and the end of software`
+- source type: `youtube`
+
+The validation run used a force re-ingest of that single bookmark and produced:
+
+- an updated raw transcript capture in `inbox/raw/videos/`
+- a richer compiled source note with transcript status, `5-Minute Read`, and
+  article-style detail in `wiki/sources/videos/`
+- updated topic/entity/concept pages, indexes, and ingest logs
+
+No generated vault documents were deleted or reset during this validation.
 
 ### Optional X API Support
 
@@ -366,6 +411,9 @@ BROWSER_FALLBACK_ENABLED=true
 - **No semantic/vector search** — uses FTS5 keyword search. Semantic search is planned for v2
 - **Single-user** — designed for personal use, no multi-tenancy
 - **CLI backends** depend on the external binaries (`opencode`, `claude`) being installed
+- **LLM-generated ontology** can still need manual cleanup for semantically similar
+  but not obviously identical topics (for example, two different phrasings that
+  do not collapse to the same slug)
 
 ## Future Connectors (Planned)
 

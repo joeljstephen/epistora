@@ -16,6 +16,8 @@ def append_ingest_log(vault_path: Path, result: IngestResult) -> None:
     if not log_path.exists():
         log_path.write_text("# Ingest Log\n\nAppend-only log of all ingest operations.\n\n---\n\n")
 
+    changed_notes = [f"`{u.note_type}` → `{u.path}` ({u.action})" for u in result.vault_updates]
+
     entry = f"""### {friendly_date(result.timestamp)}
 
 - **Title:** {result.source_title or "unknown"}
@@ -30,6 +32,7 @@ def append_ingest_log(vault_path: Path, result: IngestResult) -> None:
 - **Entities:** {", ".join(result.entities_updated) or "none"}
 - **Concepts:** {", ".join(result.concepts_updated) or "none"}
 - **Deduplicated:** {"yes" if result.deduplicated else "no"}
+- **Vault updates:** {", ".join(changed_notes) or "none"}
 """
     if result.errors:
         entry += f"- **Errors:** {'; '.join(result.errors)}\n"

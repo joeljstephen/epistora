@@ -194,7 +194,7 @@ class TestVaultWriter:
     def test_overwrite_updates_action(self, writer: VaultWriter, content: SourceContent):
         writer.write_raw_capture(content, "test-slug")
         update = writer.write_raw_capture(content, "test-slug")
-        assert update.action == "updated"
+        assert update.action == "unchanged"
 
     def test_update_topic_preserves_manual_sections(self, writer: VaultWriter):
         topic = Topic(name="Machine Learning", slug="machine-learning", summary="ML is cool")
@@ -213,3 +213,51 @@ class TestVaultWriter:
         assert "Manual pattern notes about recurring architecture tradeoffs." in text
         assert "[[Source A]]" in text
         assert "[[Source B]]" in text
+
+    def test_update_topic_preserves_multiple_related_links(self, writer: VaultWriter):
+        topic = Topic(
+            name="Agents",
+            slug="agents",
+            summary="Agent systems",
+            related_concepts=["Planning", "Tool Use"],
+            related_entities=["OpenAI", "LangGraph"],
+        )
+        update = writer.write_topic(topic, ["Source A"])
+        path = writer.vault_path / update.path
+
+        writer.write_topic(
+            Topic(
+                name="Agents",
+                slug="agents",
+                summary="",
+                related_concepts=["Memory"],
+                related_entities=["Anthropic"],
+            ),
+            ["Source B"],
+        )
+
+        text = path.read_text(encoding="utf-8")
+        assert "[[Planning]]" in text
+        assert "[[Tool Use]]" in text
+        assert "[[Memory]]" in text
+        assert "[[OpenAI]]" in text
+        assert "[[LangGraph]]" in text
+        assert "[[Anthropic]]" in text
+
+    def test_update_topic_replaces_placeholder_summary(self, writer: VaultWriter):
+        topic = Topic(name="AI Safety", slug="ai-safety", summary="")
+        update = writer.write_topic(topic, ["Source A"])
+        path = writer.vault_path / update.path
+
+        writer.write_topic(
+            Topic(
+                name="AI Safety",
+                slug="ai-safety",
+                summary="This topic tracks model risk, safeguards, and deployment tradeoffs.",
+            ),
+            ["Source B"],
+        )
+
+        text = path.read_text(encoding="utf-8")
+        assert "This topic tracks model risk, safeguards, and deployment tradeoffs." in text
+        assert "_This topic page will strengthen as more sources accumulate._" not in text

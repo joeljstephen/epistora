@@ -32,6 +32,9 @@ def _write_main_index(vault_path: Path, notes: list[VaultNote]) -> str:
     synthesis = [note for note in notes if note.note_type == "synthesis"]
 
     source_type_counts = Counter(note.meta.get("source_type", "unknown") for note in sources)
+    raw_kind_counts = Counter(
+        (note.meta.get("raw_capture_kind") or "untyped_raw_capture") for note in raw_notes
+    )
     topic_counts = _reference_counts(sources, "topics")
 
     lines = [
@@ -58,6 +61,12 @@ def _write_main_index(vault_path: Path, notes: list[VaultNote]) -> str:
         f"- {path_wikilink('wiki/logs/ingest-log.md', 'Ingest Log')}",
         f"- {path_wikilink('wiki/logs/lint-log.md', 'Lint Log')}",
         "",
+        "## Layer Responsibilities",
+        "",
+        "- `inbox/raw/` stores immutable evidence captures.",
+        "- `wiki/` stores compiled notes, maintained pages, indexes, and logs.",
+        "- `outputs/` stores temporary or user-requested artifacts until promoted.",
+        "",
         "## Source Breakdown",
         "",
     ]
@@ -67,6 +76,13 @@ def _write_main_index(vault_path: Path, notes: list[VaultNote]) -> str:
             lines.append(f"- `{source_type}`: {count}")
     else:
         lines.append("- _No source notes yet_")
+
+    lines.extend(["", "## Raw Evidence Breakdown", ""])
+    if raw_kind_counts:
+        for raw_kind, count in sorted(raw_kind_counts.items()):
+            lines.append(f"- `{raw_kind}`: {count}")
+    else:
+        lines.append("- _No raw captures yet_")
 
     lines.extend(["", "## Strongest Topic Areas", ""])
     if topic_counts:
@@ -85,7 +101,11 @@ def _write_main_index(vault_path: Path, notes: list[VaultNote]) -> str:
         for note in recent_sources:
             source_type = note.meta.get("source_type", "unknown")
             quality = note.meta.get("extraction_quality", "unknown")
-            lines.append(f"- {wikilink(note.title)} — `{source_type}` / `{quality}`")
+            raw_kind = note.meta.get("raw_capture_kind") or "untyped_raw_capture"
+            lines.append(
+                f"- {wikilink(note.title)} — `{source_type}` / `{quality}` / "
+                f"raw `{raw_kind}`"
+            )
     else:
         lines.append("- _No recent sources yet_")
 

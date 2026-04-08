@@ -167,6 +167,7 @@ Combines rule-based checks (orphans, backlinks, weak pages) with LLM-powered sem
 - **`paths.py`** — All vault path conventions in one place
 - **`templates.py`** — Markdown + YAML frontmatter generators for raw captures, source notes, topics, entities, concepts, and synthesis
 - **`writer.py`** — `VaultWriter` handles create-or-update logic, including merging source lists
+  while keeping raw captures immutable after first write
 - **`parser.py`** — `VaultNote` class for reading and introspecting existing notes
 - **`index_updater.py`** — Rebuilds INDEX, TOPICS, ENTITIES, CONCEPTS indexes
 - **`log_updater.py`** — Appends to ingest log, writes lint reports
@@ -206,7 +207,9 @@ The automation subsystem enables hands-free operation:
 3. Dedup check against URL hash / content hash in SQLite
 4. Backend router selects best available backend for "ingest" task
 5. LLM generates structured analysis (summary, `5-Minute Read`, detailed note, ideas, examples, recommendations, topics, entities, concepts)
+   - prompt includes the current vault topic/entity/concept titles to reduce duplicate naming drift
 6. Knowledge extraction produces `Topic`, `Entity`, `Concept` models
+   - extracted names are normalized back onto existing vault page titles when obvious variants already exist
 7. VaultWriter creates/updates:
    - Raw capture → `inbox/raw/{type}/`
    - Source note → `wiki/sources/{type}/`
@@ -214,6 +217,18 @@ The automation subsystem enables hands-free operation:
    - Entity pages → `wiki/entities/`
    - Concept pages → `wiki/concepts/`
 8. Indexes rebuilt, ingest log appended, SQLite state updated
+
+## Force Re-run Path
+
+The ingest service and CLI now support force re-runs without deleting vault
+state:
+
+- `kb ingest-url --force <url>`
+- `kb sync-inbox --force`
+- `kb sync-raindrop --force`
+
+Internally this bypasses URL/content dedup so the compiled layer can be
+regenerated while the raw evidence file remains immutable if it already exists.
 
 ## Reset And Re-run Path
 
@@ -224,6 +239,9 @@ validation and replay:
 - clears generated raw/wiki/output/state directories
 - resets processed-source, vault-note, and sync-cursor tables
 - recreates index and log placeholders for a clean rerun
+
+The Phase 10 validation for this repository intentionally did **not** use this
+reset path; it reprocessed only the latest Raindrop bookmark in place.
 
 ## Data Flow: Backend Routing
 

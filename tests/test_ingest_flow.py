@@ -11,7 +11,9 @@ from app.backends.models import BackendResponse
 from app.compiler.ingest_graph import (
     IngestState,
     _analyse_content,
+    _check_dedup,
     _extract_knowledge,
+    _persist_state,
     _prepare_ingest_evidence,
     _write_vault,
     _youtube_transcript_chunks,
@@ -164,6 +166,7 @@ class TestExtractKnowledge:
         result = await _extract_knowledge(state)
         assert len(result["topics"]) == 2
         assert result["topics"][0].name == "LangChain"
+        assert result["topics"][0].summary == mock_analysis["summary"]
 
     @pytest.mark.asyncio
     async def test_extract_entities(self, mock_analysis: dict):
@@ -177,6 +180,50 @@ class TestExtractKnowledge:
         state: IngestState = {"item": None, "slug": "test", "analysis": mock_analysis}
         result = await _extract_knowledge(state)
         assert len(result["concepts"]) == 2
+
+    @pytest.mark.asyncio
+    async def test_extract_knowledge_reuses_existing_titles(
+        self,
+        tmp_vault: Path,
+        mock_analysis: dict,
+    ):
+        from app.models.knowledge import Concept, Entity, Topic
+        from app.vault.writer import VaultWriter
+
+        writer = VaultWriter(tmp_vault)
+        writer.write_topic(Topic(name="AI cybersecurity", slug="ai-cybersecurity"), ["Source A"])
+        writer.write_entity(
+            Entity(name="Project Glass Wing", slug="project-glass-wing", entity_type="tool"),
+            ["Source A"],
+        )
+        writer.write_concept(
+            Concept(
+                name="Scarcity of elite attention",
+                slug="scarcity-of-elite-attention",
+                definition="Existing concept",
+            ),
+            ["Source A"],
+        )
+
+        analysis = {
+            **mock_analysis,
+            "topics": ["AI cybersecurity"],
+            "entities": [
+                {"name": "Project GlassWing", "type": "tool", "description": "security project"}
+            ],
+            "concepts": [
+                {"name": "Scarcity of elite attention", "definition": "variant spelling"}
+            ],
+        }
+        state: IngestState = {"item": None, "slug": "test", "analysis": analysis}
+
+        with patch("app.config.get_settings") as mock_settings:
+            mock_settings.return_value.vault_path = tmp_vault
+            result = await _extract_knowledge(state)
+
+        assert result["topics"][0].name == "AI cybersecurity"
+        assert result["entities"][0].name == "Project Glass Wing"
+        assert result["concepts"][0].name == "Scarcity of elite attention"
 
 
 class TestWriteVault:
@@ -372,6 +419,44 @@ class TestDeduplication:
         assert result["deduplicated"] is True
         assert result["result"].source_note_path == "wiki/sources/articles/existing-source.md"
 
+    @pytest.mark.asyncio
+    async def test_force_reingest_skips_dedup(
+        self,
+        tmp_path: Path,
+        mock_content: SourceContent,
+    ):
+        from app.storage.repositories import SourceRepository
+        from app.storage.sqlite import Database
+
+        db_path = tmp_path / "app.db"
+        db = Database(db_path)
+        db.connect()
+        SourceRepository(db).upsert(
+            ProcessedSource(
+                url=mock_content.source.url,
+                url_hash=mock_content.url_hash,
+                content_hash=mock_content.content_hash,
+                source_type=mock_content.source.source_type.value,
+                title=mock_content.source.title,
+                source_note_path="wiki/sources/articles/existing-source.md",
+                raw_capture_path="inbox/raw/articles/existing-source.md",
+            )
+        )
+        db.close()
+
+        state: IngestState = {
+            "item": mock_content.source,
+            "content": mock_content,
+            "slug": "complete-guide-to-langchain",
+            "force_reingest": True,
+        }
+
+        with patch("app.config.get_settings") as mock_settings:
+            mock_settings.return_value.db_path = db_path
+            result = await _check_dedup(state)
+
+        assert result == {}
+
 
 class TestYoutubeIngestEvidence:
     def test_youtube_transcript_chunks_splits_at_section_headers(self):
@@ -414,3 +499,83 @@ class TestYoutubeIngestEvidence:
         assert "segment digests" in evidence.lower()
         assert "digest" in note.lower()
         assert rt.await_count >= 1
+
+
+class TestPersistedMixedSourceIntegration:
+    @pytest.mark.asyncio
+    async def test_persist_state_updates_indexes_and_logs_for_mixed_sources(
+        self,
+        tmp_vault: Path,
+        tmp_path: Path,
+        mock_analysis: dict,
+    ):
+        article_item = SourceItem(
+            url="https://example.com/article-one",
+            title="Article One",
+            source_type=SourceType.ARTICLE,
+            tags=["article"],
+        )
+        article_content = SourceContent(
+            source=article_item,
+            cleaned_text="Article body about agents and tooling.",
+            archived_markdown="# Article One\n\nReadable article body.",
+            raw_capture_kind="readable_article_markdown",
+            extraction_quality="full",
+            extraction_method="trafilatura",
+            raw_metadata={"article_archive_available": True},
+            content_hash="article-hash",
+            url_hash="article-url",
+        )
+
+        video_item = SourceItem(
+            url="https://www.youtube.com/watch?v=testvideo01a",
+            title="Video One",
+            source_type=SourceType.YOUTUBE,
+        )
+        video_content = SourceContent(
+            source=video_item,
+            cleaned_text="## 00:00-05:00\n\nTranscript section.",
+            archived_markdown="# Video One\n\n## Transcript\n\nTranscript section.",
+            raw_capture_kind="youtube_transcript",
+            extraction_quality="full",
+            extraction_method="youtube_transcript_api",
+            raw_metadata={
+                "transcript_available": True,
+                "caption_type": "manual",
+                "transcript_source": "youtube_transcript_api",
+                "transcript_quality": "manual_captions/full",
+            },
+            content_hash="video-hash",
+            url_hash="video-url",
+        )
+
+        db_path = tmp_path / "app.db"
+        for slug, content in [
+            ("article-one", article_content),
+            ("video-one", video_content),
+        ]:
+            state: IngestState = {
+                "item": content.source,
+                "content": content,
+                "slug": slug,
+                "analysis": mock_analysis,
+                "topics": [],
+                "entities": [],
+                "concepts": [],
+            }
+
+            with patch("app.config.get_settings") as mock_settings:
+                mock_settings.return_value.vault_path = tmp_vault
+                mock_settings.return_value.db_path = db_path
+                state = {**state, **await _write_vault(state)}
+                await _persist_state(state)
+
+        index_text = (tmp_vault / "wiki" / "indexes" / "INDEX.md").read_text(encoding="utf-8")
+        log_text = (tmp_vault / "wiki" / "logs" / "ingest-log.md").read_text(encoding="utf-8")
+
+        assert "Raw Evidence Breakdown" in index_text
+        assert "readable_article_markdown" in index_text
+        assert "youtube_transcript" in index_text
+        assert "Vault updates" in log_text
+        assert "Article One" in log_text
+        assert "Video One" in log_text

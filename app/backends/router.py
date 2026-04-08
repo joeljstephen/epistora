@@ -20,6 +20,7 @@ DEFAULT_FALLBACK_ORDER: list[str] = [
     "api",
     "opencode",
     "claude_code",
+    "codex",
 ]
 
 

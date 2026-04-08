@@ -38,6 +38,9 @@ kb init --vault ./my-vault
 # Ingest a URL
 kb ingest-url "https://example.com/article"
 
+# Re-run ingest without clearing prior vault state
+kb ingest-url --force "https://example.com/article"
+
 # Sync from Raindrop
 kb sync-raindrop --limit 10
 
@@ -174,6 +177,26 @@ Use `kb reset-generated --yes --archive` when you want to:
 - rerun the latest Raindrop items from a clean generated vault
 
 This does not touch application source code or the vault operating manual.
+
+Use `--force` on ingest commands when you want to recompile an existing source
+in place without deleting generated vault content first. This is the preferred
+workflow for validating prompt/template upgrades against a single known source.
+
+## Latest-Bookmark Validation
+
+The Phase 10 knowledge-quality upgrade was validated on **April 8, 2026** by:
+
+1. Fetching the latest Raindrop bookmark directly from the configured inbox.
+2. Running the ingest graph on that single item with `force_reingest=True`.
+3. Inspecting the generated raw capture, source note, topic pages, indexes,
+   and ingest log.
+4. Fixing workflow issues found during that run:
+   - Codex structured-output schema normalization
+   - topic/entity/concept placeholder replacement on update
+   - multi-link merge preservation in topic/entity/concept pages
+   - topic/entity/concept name normalization against existing vault pages
+
+This validation intentionally did **not** reset or delete the existing vault.
 
 ## Project Structure
 

@@ -6,10 +6,12 @@ import json
 
 SYSTEM_ROLE = (
     "You are Epistora, the maintenance model for a persistent personal wiki. "
-    "Treat raw captures as immutable evidence, treat wiki notes as cumulative compiled knowledge, "
-    "and optimize for future usefulness rather than one-off summarization. "
-    "Be precise, grounded, explicit about uncertainty, and conservative about claims not directly "
-    "supported by the source material."
+    "Operate like a careful editor of a long-lived LLM-maintained knowledge base: raw captures are "
+    "immutable evidence, wiki notes are cumulative compiled knowledge, and outputs are temporary "
+    "unless promoted. Optimize for future usefulness, internal coherence, and navigability rather "
+    "than one-off summarization. Write clearly, link where justified, surface contradictions and "
+    "missing context, and be conservative about any claim not directly supported by the captured "
+    "evidence."
 )
 
 YOUTUBE_ANALYSIS_RULES = """
@@ -35,6 +37,11 @@ YOUTUBE_ANALYSIS_RULES = """
       with nested bullets for sub-points. Mirror the structure of the video.
     - **`important_examples`:** Name specific products, people, stories, numbers, demos,
       or case studies the speaker uses (not generic restatements).
+    - **`actionable_takeaways`:** Prefer concrete heuristics, decision rules, workflows,
+      or caution flags the viewer could apply immediately.
+    - **`consume_recommendation`:** Tell the user whether this note is probably sufficient on its
+      own, or whether the original video is still worth watching for demos, visuals, delivery,
+      or missing nuance.
     - **Anti-paraphrase:** Compress repetition; elevate the speaker's conclusions and
       mechanisms. If two paragraphs of transcript say the same thing, merge them into
       one clear paragraph in the analysis.
@@ -80,6 +87,9 @@ Source profile:
 Source-specific guidance:
 {source_specific_guidance}
 
+Existing vault pages to reuse when they already fit:
+{existing_knowledge}
+
 Evidence excerpt:
 ---
 {content}
@@ -90,7 +100,7 @@ Rules:
 2. If extraction is partial or metadata-only, say so plainly and do not imply full coverage.
 3. Write for a future human or model revisiting this vault months later.
 4. Prefer concrete facts, mechanisms, examples, and tensions over generic summary language.
-5. Use `[[wikilink]]`-friendly names for topics/entities/concepts.
+5. Use stable, reusable `[[wikilink]]`-friendly names for topics/entities/concepts.
 6. `five_minute_read` should be a dense but readable briefing.
 7. `detailed_reading_note` should read like a high-quality article note, not a transcript dump.
 8. `key_ideas`, `important_examples`, `actionable_takeaways`, `notable_quotes`, `best_for`,
@@ -100,6 +110,18 @@ Rules:
     If none are available, return `- None captured verbatim.`
 11. `consume_recommendation` should say whether the original source is still
     worth reading or watching.
+12. Optimize for vault usefulness:
+    - explain why the source matters, not just what it says
+    - preserve structure and argument flow
+    - call out contradictions, caveats, and open loops
+    - avoid generic filler such as "this article discusses"
+13. `topics` should be broad durable subject pages, usually 1-5 items.
+14. `entities` should be named people, companies, tools, publications, or projects that
+    clearly deserve their own pages. Do not emit near-duplicates.
+15. `concepts` should be reusable ideas, methods, or definitions that would compound across
+    multiple future sources. Favor stable concepts over source-specific jargon.
+16. Reuse existing topic/entity/concept titles from the provided vault-page list when they already
+    fit. Avoid near-duplicate variants that would fragment the wiki.
 {youtube_rules}
 
 Respond in the following JSON format (no markdown fences):
@@ -147,10 +169,13 @@ Rules:
 4. Separate what the vault directly supports from your synthesis.
 5. Surface contradictions, uncertainty, and missing information instead of smoothing them over.
 6. Keep the answer useful for future filing back into the wiki.
+7. Prefer claims that could survive being copied into a durable synthesis note.
+8. If the vault context is thin, say exactly what is missing instead of padding.
 
 Write the answer with these sections:
 ## Direct Findings
 ## Cross-Source Synthesis
+## Contradictions / Uncertainty
 ## Gaps / Open Questions
 ## Useful Next Notes
 """
@@ -166,6 +191,8 @@ Identify:
 3. Frequently referenced concepts/entities/topics that still lack strong dedicated pages
 4. Merge candidates where navigation would improve if pages were consolidated
 5. Navigation gaps where indexes, backlinks, or source-to-topic bridges seem weak
+6. Pages that look structurally present but semantically thin
+7. Places where raw evidence exists but the compiled layer is still underdeveloped
 
 Respond in JSON format (no markdown fences):
 {{
@@ -183,6 +210,9 @@ Respond in JSON format (no markdown fences):
   ],
   "navigation_gaps": [
     {{"notes": ["note1", "note2"], "reason": "why navigation or linking is weak"}}
+  ],
+  "thin_pages": [
+    {{"notes": ["note1"], "reason": "why the page looks too shallow to be useful yet"}}
   ]
 }}
 """
@@ -260,6 +290,7 @@ LINT_ANALYSIS_JSON_SCHEMA = json.dumps(
             "missing_pages",
             "merge_candidates",
             "navigation_gaps",
+            "thin_pages",
         ],
         "properties": {
             "duplicate_candidates": {
@@ -279,6 +310,10 @@ LINT_ANALYSIS_JSON_SCHEMA = json.dumps(
                 "items": {"type": "object", "additionalProperties": True},
             },
             "navigation_gaps": {
+                "type": "array",
+                "items": {"type": "object", "additionalProperties": True},
+            },
+            "thin_pages": {
                 "type": "array",
                 "items": {"type": "object", "additionalProperties": True},
             },

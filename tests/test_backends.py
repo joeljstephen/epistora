@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from app.backends.base import ReasoningBackend, _extract_json
 from app.backends.claude_code_cli import ClaudeCodeCliBackend
+from app.backends.codex_cli import CodexCliBackend
 from app.backends.direct_api import DirectApiBackend
 from app.backends.models import (
     BackendDescriptor,
@@ -216,6 +218,115 @@ class TestClaudeCodeCliBackend:
 
 
 # ---------------------------------------------------------------------------
+# Codex CLI backend
+# ---------------------------------------------------------------------------
+
+
+class TestCodexCliBackend:
+    def test_unavailable_when_disabled(self):
+        backend = CodexCliBackend(enabled=False)
+        assert backend.is_available() is False
+
+    @patch("shutil.which", return_value=None)
+    def test_unavailable_when_binary_missing(self, _mock):
+        backend = CodexCliBackend(enabled=True)
+        assert backend.is_available() is False
+        desc = backend.describe()
+        assert "not found" in desc.reason
+
+    @patch("shutil.which", return_value="/usr/local/bin/codex")
+    def test_available_when_binary_exists(self, _mock):
+        backend = CodexCliBackend(enabled=True)
+        assert backend.is_available() is True
+
+    def test_task_model_resolution(self):
+        backend = CodexCliBackend(
+            model="default-model",
+            task_models={TaskName.QUERY: "query-model"},
+        )
+        assert backend._resolve_model(TaskName.QUERY) == "query-model"
+        assert backend._resolve_model(TaskName.INGEST) == "default-model"
+
+    @patch("shutil.which", return_value="/usr/local/bin/codex")
+    @pytest.mark.asyncio
+    async def test_generate_uses_exec_output_file(self, _mock):
+        proc = AsyncMock()
+        proc.communicate.return_value = (b"", b"")
+        proc.returncode = 0
+
+        async def _fake_exec(*args, **kwargs):
+            output_path = Path(args[args.index("--output-last-message") + 1])
+            output_path.write_text("ok", encoding="utf-8")
+            return proc
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            side_effect=_fake_exec,
+        ) as mock_exec:
+            backend = CodexCliBackend(enabled=True, model="gpt-5")
+            request = BackendRequest(task=TaskName.QUERY, user_prompt="hello")
+            resp = await backend.generate(request)
+
+        assert resp.success is True
+        args = mock_exec.await_args.args
+        assert args[:2] == ("/usr/local/bin/codex", "exec")
+        assert "--output-last-message" in args
+        assert "--sandbox" in args
+        assert "read-only" in args
+
+    @patch("shutil.which", return_value="/usr/local/bin/codex")
+    @pytest.mark.asyncio
+    async def test_generate_structured_uses_output_schema(self, _mock):
+        proc = AsyncMock()
+        proc.communicate.return_value = (b"", b"")
+        proc.returncode = 0
+
+        async def _fake_exec(*args, **kwargs):
+            output_path = Path(args[args.index("--output-last-message") + 1])
+            output_path.write_text('{"ok": true}', encoding="utf-8")
+            return proc
+
+        with patch(
+            "asyncio.create_subprocess_exec",
+            new_callable=AsyncMock,
+            side_effect=_fake_exec,
+        ) as mock_exec:
+            backend = CodexCliBackend(enabled=True, model="gpt-5")
+            request = BackendRequest(
+                task=TaskName.LINT,
+                user_prompt="Return ok=true",
+                json_schema_hint='{"type":"object","properties":{"ok":{"type":"boolean"}}}',
+            )
+            resp = await backend.generate_structured(request)
+
+        assert resp.success is True
+        args = mock_exec.await_args.args
+        assert "--output-schema" in args
+
+    def test_generate_structured_normalizes_schema_for_codex(self):
+        backend = CodexCliBackend(enabled=True, model="gpt-5")
+        normalized = json.loads(
+            backend._normalized_schema_hint(
+                json.dumps(
+                    {
+                        "type": "object",
+                        "properties": {
+                            "outer": {
+                                "type": "object",
+                                "properties": {"ok": {"type": "boolean"}},
+                            }
+                        },
+                    }
+                )
+            )
+        )
+
+        assert normalized["additionalProperties"] is False
+        assert normalized["properties"]["outer"]["additionalProperties"] is False
+
+
+# ---------------------------------------------------------------------------
 # Backend Router
 # ---------------------------------------------------------------------------
 
@@ -354,7 +465,7 @@ class TestBackendOrderParsing:
     def test_ignores_unknown_tokens_when_not_strict(self, caplog):
         order = _parse_order(
             "api,unknown,claude",
-            known_backend_ids={"api", "opencode", "claude_code"},
+            known_backend_ids={"api", "opencode", "claude_code", "codex"},
             strict=False,
         )
 
@@ -365,6 +476,6 @@ class TestBackendOrderParsing:
         with pytest.raises(ValueError):
             _parse_order(
                 "api,unknown",
-                known_backend_ids={"api", "opencode", "claude_code"},
+                known_backend_ids={"api", "opencode", "claude_code", "codex"},
                 strict=True,
             )

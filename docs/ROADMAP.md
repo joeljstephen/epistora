@@ -55,6 +55,9 @@
 - [x] Explicit raw-vs-compiled separation in source note templates
 - [x] Stronger topic/entity/concept templates and vault operating manual
 - [x] More navigable indexes and richer ingest logs
+- [x] Force re-ingest path without deleting existing vault state
+- [x] Name normalization against existing topic/entity/concept pages
+- [x] Validation on the latest Raindrop bookmark without resetting generated documents
 - [x] Reset command for generated vault/state replay
 - [x] Expanded tests for raw/source separation, article-tag routing, and reset flow
 
@@ -65,6 +68,7 @@
 - [ ] Local folder watcher (ingest markdown/PDF files dropped into a folder)
 - [ ] Weekly digest command (`kb digest`)
 - [ ] Improved topic page synthesis (deeper multi-source writing, contradictions, and learning paths)
+- [ ] Stronger semantic dedup for near-duplicate topics that are related but not simple spelling variants
 - [ ] Git integration for vault versioning
 - [ ] Simple HTML status dashboard
 - [ ] Configurable prompt templates

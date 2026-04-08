@@ -29,10 +29,10 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     epistora_api_key: str = ""
 
-    # --- Backend fallback order (comma-separated: api,opencode,claude_code) ---
-    backend_order_ingest: str = "api,opencode,claude_code"
-    backend_order_query: str = "api,opencode,claude_code"
-    backend_order_lint: str = "api,opencode,claude_code"
+    # --- Backend fallback order (comma-separated: api,opencode,claude_code,codex) ---
+    backend_order_ingest: str = "api,opencode,claude_code,codex"
+    backend_order_query: str = "api,opencode,claude_code,codex"
+    backend_order_lint: str = "api,opencode,claude_code,codex"
     backend_order_strict: bool = False
 
     # --- Direct API backend (global defaults) ---
@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     claude_code_model_query: str = ""
     claude_code_model_lint: str = ""
     claude_code_timeout_seconds: int = 180
+
+    # --- Codex CLI backend ---
+    codex_enabled: bool = True
+    codex_binary: str = "codex"
+    codex_model: str = ""
+    codex_model_ingest: str = ""
+    codex_model_query: str = ""
+    codex_model_lint: str = ""
+    codex_timeout_seconds: int = 300
 
     # --- Extraction: Article ---
     article_fetch_timeout_seconds: int = 30

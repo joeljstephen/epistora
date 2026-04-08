@@ -8,7 +8,7 @@ from pathlib import Path
 from app.models.knowledge import Concept, Entity, SynthesisNote, Topic
 from app.models.results import VaultUpdate
 from app.models.source import SourceContent
-from app.utils.markdown import parse_frontmatter
+from app.utils.markdown import parse_frontmatter, wikilink
 from app.vault import paths, templates
 
 
@@ -21,6 +21,9 @@ class VaultWriter:
 
     def write_raw_capture(self, content: SourceContent, slug: str) -> VaultUpdate:
         p = paths.raw_capture_path(self.vault_path, content.source.source_type, slug)
+        if p.exists():
+            rel = str(p.relative_to(self.vault_path))
+            return VaultUpdate(path=rel, action="unchanged", note_type="raw_capture")
         md = templates.raw_capture_md(content)
         return self._write(p, md, "raw_capture")
 
@@ -109,12 +112,16 @@ class VaultWriter:
         existing_entities = self._extract_section_list(body, "Important Entities")
         merged_topic = topic.model_copy(
             update={
-                "summary": topic.summary
-                or self._clean_section_text(sections.get("Topic Summary", "")),
+                "summary": self._clean_section_text(sections.get("Topic Summary", ""))
+                or topic.summary,
                 "related_concepts": list(dict.fromkeys(existing_concepts + topic.related_concepts)),
                 "related_entities": list(dict.fromkeys(existing_entities + topic.related_entities)),
             }
         )
+        if merged_topic.summary:
+            sections["Topic Summary"] = merged_topic.summary
+        sections["Related Concepts"] = self._render_wikilink_list(merged_topic.related_concepts)
+        sections["Important Entities"] = self._render_wikilink_list(merged_topic.related_entities)
         md = templates.topic_note_md(merged_topic, all_sources, sections=sections)
         return self._write(path, md, "topic")
 
@@ -133,6 +140,9 @@ class VaultWriter:
                 ),
             }
         )
+        if merged_entity.description:
+            sections["What It Is"] = merged_entity.description
+        sections["Related Concepts"] = self._render_wikilink_list(merged_entity.related_concepts)
         md = templates.entity_note_md(merged_entity, all_sources, sections=sections)
         return self._write(path, md, "entity")
 
@@ -153,6 +163,9 @@ class VaultWriter:
                 ),
             }
         )
+        if merged_concept.definition:
+            sections["Definition"] = merged_concept.definition
+        sections["Related Concepts"] = self._render_wikilink_list(merged_concept.related_concepts)
         md = templates.concept_note_md(merged_concept, all_sources, sections=sections)
         return self._write(path, md, "concept")
 
@@ -169,9 +182,9 @@ class VaultWriter:
             if in_section:
                 if line.strip().startswith("## "):
                     break
-                match = re.search(r"\[\[([^\]]+)\]\]", line)
-                if match:
-                    items.append(match.group(1))
+                matches = re.findall(r"\[\[([^\]|]+)(?:\|[^\]]+)?\]\]", line)
+                if matches:
+                    items.extend(matches)
         return items
 
     @staticmethod
@@ -197,3 +210,7 @@ class VaultWriter:
         if re.fullmatch(r"_.*_", cleaned, flags=re.DOTALL):
             return ""
         return cleaned
+
+    @staticmethod
+    def _render_wikilink_list(items: list[str]) -> str:
+        return ", ".join(wikilink(item) for item in items) if items else "_None yet_"

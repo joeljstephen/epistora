@@ -75,10 +75,16 @@ async def _generate_answer(state: QueryState) -> dict:
     """Use the LLM to generate a grounded answer."""
     if not state.get("relevant_notes"):
         answer = (
-            "Direct findings:\n"
+            "## Direct Findings\n"
             "- I could not find relevant notes in the vault for this question.\n\n"
-            "Synthesis:\n"
+            "## Cross-Source Synthesis\n"
+            "- No supported synthesis is possible yet from the current vault context.\n\n"
+            "## Contradictions / Uncertainty\n"
+            "- The main limitation is missing relevant source material.\n\n"
+            "## Gaps / Open Questions\n"
             "- Ingest more sources or broaden the query terms."
+            "\n\n## Useful Next Notes\n"
+            "- Add or ingest sources directly related to the question."
         )
         return {"answer": answer}
 
@@ -112,12 +118,21 @@ async def _generate_answer(state: QueryState) -> dict:
         )
         refs = "\n".join(f"- {ref}" for ref in references[:8]) or "- No source note paths available"
         answer = (
-            "Direct findings:\n"
+            "## Direct Findings\n"
             f"{bullets}\n\n"
-            "Synthesis:\n"
+            "## Cross-Source Synthesis\n"
             f"- Automatic answer generation was unavailable: {e}\n"
             "- Review the referenced notes directly for grounded details.\n\n"
-            "Note paths:\n"
+            "## Contradictions / Uncertainty\n"
+            "- This fallback answer is incomplete because the reasoning backend "
+            "was unavailable.\n\n"
+            "## Gaps / Open Questions\n"
+            "- Which of the referenced notes best answers the question?\n"
+            "- Do those notes agree, or do they need a synthesis pass?\n\n"
+            "## Useful Next Notes\n"
+            "- Review or promote the strongest relevant source notes.\n"
+            "- If the answer matters long term, save a synthesis note after review.\n\n"
+            "Referenced note paths:\n"
             f"{refs}"
         )
 
@@ -141,6 +156,8 @@ async def _maybe_save(state: QueryState) -> dict:
         content = f"""# Query: {state["question"]}
 
 > Generated: {friendly_date()}
+> This file is an output-layer artifact.
+> Promote durable material into `wiki/synthesis/` if it becomes generally useful.
 
 {state["answer"]}
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from app.backends.claude_code_cli import ClaudeCodeCliBackend
+from app.backends.codex_cli import CodexCliBackend
 from app.backends.direct_api import DirectApiBackend
 from app.backends.models import BackendType, TaskName
 from app.backends.opencode_cli import OpenCodeCliBackend
@@ -17,6 +18,7 @@ _BUILTIN_BACKEND_ORDER = [
     BackendType.API.value,
     BackendType.OPENCODE.value,
     BackendType.CLAUDE_CODE.value,
+    BackendType.CODEX.value,
 ]
 
 
@@ -44,6 +46,7 @@ def _register_builtin_backends() -> None:
     register_backend(BackendType.API.value, _build_api_backend)
     register_backend(BackendType.OPENCODE.value, _build_opencode_backend)
     register_backend(BackendType.CLAUDE_CODE.value, _build_claude_code_backend)
+    register_backend(BackendType.CODEX.value, _build_codex_backend)
 
 
 def _build_api_backend(settings: Settings) -> DirectApiBackend:
@@ -109,5 +112,23 @@ def _build_claude_code_backend(settings: Settings) -> ClaudeCodeCliBackend:
         binary=settings.claude_code_binary,
         model=settings.claude_code_model,
         timeout_seconds=settings.claude_code_timeout_seconds,
+        task_models=task_models,
+    )
+
+
+def _build_codex_backend(settings: Settings) -> CodexCliBackend:
+    task_models: dict[TaskName, str] = {}
+    if settings.codex_model_ingest:
+        task_models[TaskName.INGEST] = settings.codex_model_ingest
+    if settings.codex_model_query:
+        task_models[TaskName.QUERY] = settings.codex_model_query
+    if settings.codex_model_lint:
+        task_models[TaskName.LINT] = settings.codex_model_lint
+
+    return CodexCliBackend(
+        enabled=settings.codex_enabled,
+        binary=settings.codex_binary,
+        model=settings.codex_model,
+        timeout_seconds=settings.codex_timeout_seconds,
         task_models=task_models,
     )

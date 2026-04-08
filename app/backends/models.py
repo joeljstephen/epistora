@@ -15,6 +15,7 @@ class TaskName(str, Enum):
 
 class BackendType(str, Enum):
     API = "api"
+    CODEX = "codex"
     OPENCODE = "opencode"
     CLAUDE_CODE = "claude_code"
 

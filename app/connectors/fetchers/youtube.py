@@ -140,6 +140,13 @@ async def fetch_youtube(item: SourceItem) -> SourceContent:
         "transcript_available": bool(transcript_text),
         "caption_type": caption_type,
         "transcript_source": method or "metadata_only",
+        "transcript_quality": _transcript_quality_label(
+            transcript_available=bool(transcript_text),
+            is_auto_caption=is_auto_caption,
+            quality=quality.value,
+        ),
+        "transcript_section_count": len(_transcript_sections(transcript_text)),
+        "transcript_word_count": len(transcript_text.split()) if transcript_text else 0,
     }
 
     return SourceContent(
@@ -260,7 +267,6 @@ def _parse_vtt(vtt_content: str) -> str:
 def _parse_vtt_segments(vtt_content: str) -> list[dict[str, Any]]:
     segments: list[dict[str, Any]] = []
     current_timing: tuple[float, float] | None = None
-    seen_text: set[str] = set()
 
     for raw_line in vtt_content.splitlines():
         line = raw_line.strip()
@@ -277,14 +283,13 @@ def _parse_vtt_segments(vtt_content: str) -> list[dict[str, Any]]:
         clean = re.sub(r"<[^>]+>", "", line).strip()
         if not clean or clean == "[Music]":
             continue
-        if clean in seen_text:
+        clean = _normalize_transcript_line(clean)
+        if not clean:
             continue
-        seen_text.add(clean)
 
         start = current_timing[0] if current_timing else 0.0
         duration = (current_timing[1] - current_timing[0]) if current_timing else 0.0
-
-        segments.append({"start": start, "duration": duration, "text": clean})
+        _append_transcript_segment(segments, start, duration, clean)
 
     return segments
 
@@ -296,14 +301,12 @@ def _transcript_snippets_to_sectioned_text(snippets: Any) -> str:
         text = _snippet_value(snippet, "text")
         if not text:
             continue
-        clean = normalize_whitespace(str(text))
+        clean = _normalize_transcript_line(str(text))
         if not clean or clean == "[Music]":
             continue
         start = float(_snippet_value(snippet, "start", default=0.0) or 0.0)
         duration = float(_snippet_value(snippet, "duration", default=0.0) or 0.0)
-        if segments and segments[-1]["text"] == clean:
-            continue
-        segments.append({"start": start, "duration": duration, "text": clean})
+        _append_transcript_segment(segments, start, duration, clean)
 
     return _transcript_segments_to_sectioned_text(segments)
 
@@ -358,14 +361,107 @@ def _transcript_segments_to_sectioned_text(segments: list[dict[str, Any]]) -> st
 
 
 def _paragraphize_transcript_lines(lines: list[str]) -> str:
-    words: list[str] = []
-    for line in lines:
-        words.extend(line.split())
+    merged_lines = _merge_transcript_lines(lines)
+    combined = " ".join(merged_lines).strip()
+    if not combined:
+        return ""
 
+    sentences = re.split(r"(?<=[.!?])\s+", combined)
     paragraphs: list[str] = []
-    for index in range(0, len(words), 120):
-        paragraphs.append(" ".join(words[index : index + 120]))
+    current: list[str] = []
+    current_words = 0
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        words = len(sentence.split())
+        if current and current_words + words > 110:
+            paragraphs.append(" ".join(current).strip())
+            current = [sentence]
+            current_words = words
+        else:
+            current.append(sentence)
+            current_words += words
+    if current:
+        paragraphs.append(" ".join(current).strip())
     return "\n\n".join(paragraphs)
+
+
+def _normalize_transcript_line(text: str) -> str:
+    clean = normalize_whitespace(text)
+    clean = re.sub(r"\[(?:Music|Applause|Laughter)\]", "", clean, flags=re.I).strip()
+    clean = re.sub(r"\s+([,.;!?])", r"\1", clean)
+    return clean
+
+
+def _append_transcript_segment(
+    segments: list[dict[str, Any]],
+    start: float,
+    duration: float,
+    text: str,
+) -> None:
+    clean = _normalize_transcript_line(text)
+    if not clean:
+        return
+    if segments:
+        previous = str(segments[-1]["text"])
+        if clean == previous:
+            return
+        for prior in reversed(segments[-6:]):
+            if str(prior["text"]) == clean and abs(float(prior.get("start", 0.0)) - start) <= 30:
+                return
+        overlap = _suffix_prefix_overlap(previous, clean)
+        if overlap >= 4:
+            clean = " ".join(clean.split()[overlap:]).strip()
+            if not clean:
+                return
+    segments.append({"start": start, "duration": duration, "text": clean})
+
+
+def _merge_transcript_lines(lines: list[str]) -> list[str]:
+    merged: list[str] = []
+    for raw_line in lines:
+        line = _normalize_transcript_line(raw_line)
+        if not line:
+            continue
+        if merged:
+            previous = merged[-1]
+            if line == previous:
+                continue
+            overlap = _suffix_prefix_overlap(previous, line)
+            if overlap >= 4:
+                line = " ".join(line.split()[overlap:])
+                if not line:
+                    continue
+        merged.append(line)
+    return merged
+
+
+def _suffix_prefix_overlap(left: str, right: str) -> int:
+    left_words = left.split()
+    right_words = right.split()
+    max_overlap = min(len(left_words), len(right_words), 12)
+    for size in range(max_overlap, 0, -1):
+        if left_words[-size:] == right_words[:size]:
+            return size
+    return 0
+
+
+def _transcript_sections(transcript_text: str) -> list[str]:
+    return re.findall(r"^##\s+.+$", transcript_text, flags=re.MULTILINE)
+
+
+def _transcript_quality_label(
+    *,
+    transcript_available: bool,
+    is_auto_caption: bool,
+    quality: str,
+) -> str:
+    if not transcript_available:
+        return "unavailable"
+    if is_auto_caption:
+        return f"auto_captions/{quality}"
+    return f"manual_captions/{quality}"
 
 
 def _format_seconds(total_seconds: int | float) -> str:

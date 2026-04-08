@@ -20,7 +20,7 @@ from app.utils.http import assert_safe_http_url
 logger = logging.getLogger(__name__)
 
 
-async def ingest_url(url: str) -> IngestResult:
+async def ingest_url(url: str, force: bool = False) -> IngestResult:
     """Ingest a single URL into the vault."""
     settings = get_settings()
     assert_safe_http_url(url)
@@ -30,7 +30,7 @@ async def ingest_url(url: str) -> IngestResult:
     source_repo = SourceRepository(db)
 
     existing = source_repo.find_by_url_hash(url_hash(url))
-    if existing and existing.status == "completed":
+    if existing and existing.status == "completed" and not force:
         logger.info("URL already ingested: %s", url)
         db.close()
         return IngestResult(
@@ -45,7 +45,7 @@ async def ingest_url(url: str) -> IngestResult:
     item = SourceItem(url=url, source_type=source_type)
 
     graph = get_ingest_graph()
-    final_state = await graph.ainvoke({"item": item})
+    final_state = await graph.ainvoke({"item": item, "force_reingest": force})
 
     result = final_state.get("result")
     if result:
@@ -57,7 +57,11 @@ async def ingest_url(url: str) -> IngestResult:
     )
 
 
-async def sync_inbox(connector_id: str = "raindrop", limit: int = 25) -> list[IngestResult]:
+async def sync_inbox(
+    connector_id: str = "raindrop",
+    limit: int = 25,
+    force: bool = False,
+) -> list[IngestResult]:
     """Sync recent items from a saved-link inbox connector and ingest them."""
     settings = get_settings()
     connector = get_inbox_connector(connector_id, settings)
@@ -80,13 +84,13 @@ async def sync_inbox(connector_id: str = "raindrop", limit: int = 25) -> list[In
     results: list[IngestResult] = []
     for item in items:
         existing = source_repo.find_by_url_hash(url_hash(item.url))
-        if existing and existing.status == "completed":
+        if existing and existing.status == "completed" and not force:
             results.append(IngestResult(source_url=item.url, deduplicated=True))
             continue
 
         try:
             graph = get_ingest_graph()
-            final_state = await graph.ainvoke({"item": item})
+            final_state = await graph.ainvoke({"item": item, "force_reingest": force})
             result = final_state.get(
                 "result", IngestResult(source_url=item.url, errors=["No result"])
             )
@@ -101,6 +105,6 @@ async def sync_inbox(connector_id: str = "raindrop", limit: int = 25) -> list[In
     return results
 
 
-async def sync_raindrop(limit: int = 25) -> list[IngestResult]:
+async def sync_raindrop(limit: int = 25, force: bool = False) -> list[IngestResult]:
     """Backward-compatible alias for the generic inbox sync path."""
-    return await sync_inbox(connector_id="raindrop", limit=limit)
+    return await sync_inbox(connector_id="raindrop", limit=limit, force=force)
