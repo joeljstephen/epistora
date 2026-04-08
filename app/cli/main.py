@@ -658,8 +658,7 @@ def automation_list_pending(
     try:
         queue_repo = QueueRepository(db)
         if status_filter:
-            items = queue_repo.get_pending(limit=limit, include_retryable=True)
-            items = [i for i in items if i.status == status_filter]
+            items = queue_repo.list_items(limit=limit, statuses=[status_filter])
         else:
             items = queue_repo.get_pending(limit=limit, include_retryable=True)
 
@@ -714,6 +713,9 @@ def automation_generate_scheduler(
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
+
+    repo_logs_dir = Path(__file__).resolve().parents[2] / "logs"
+    repo_logs_dir.mkdir(parents=True, exist_ok=True)
 
     platforms = [platform] if platform != "all" else ["macos", "linux", "windows"]
 

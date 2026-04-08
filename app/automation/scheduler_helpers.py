@@ -8,6 +8,29 @@ from pathlib import Path
 from textwrap import dedent
 
 
+def _launchd_environment_entries() -> str:
+    """Return launchd EnvironmentVariables entries for CLI backend discovery."""
+    env: dict[str, str] = {}
+
+    path_value = os.environ.get("PATH")
+    if path_value:
+        env["PATH"] = path_value
+
+    home_value = os.environ.get("HOME")
+    if home_value:
+        env["HOME"] = home_value
+
+    if not env:
+        return ""
+
+    lines = ["    <key>EnvironmentVariables</key>", "    <dict>"]
+    for key, value in env.items():
+        lines.append(f"        <key>{key}</key>")
+        lines.append(f"        <string>{value}</string>")
+    lines.append("    </dict>")
+    return "\n".join(lines)
+
+
 def generate_launchd_plist(
     mode: str = "safe",
     interval_minutes: int = 30,
@@ -18,6 +41,8 @@ def generate_launchd_plist(
     kb_path = Path(__file__).parent.parent.parent
     working_dir = str(kb_path)
     interval_seconds = interval_minutes * 60
+    environment_entries = _launchd_environment_entries()
+    environment_block = f"\n{environment_entries}\n" if environment_entries else "\n"
 
     return dedent(f"""\
         <?xml version="1.0" encoding="UTF-8"?>
@@ -41,6 +66,7 @@ def generate_launchd_plist(
 
             <key>WorkingDirectory</key>
             <string>{working_dir}</string>
+{environment_block}
 
             <key>StartInterval</key>
             <integer>{interval_seconds}</integer>
@@ -118,12 +144,16 @@ def generate_windows_task_xml(
     kb_path = Path(__file__).parent.parent.parent
     working_dir = str(kb_path).replace("/", "\\")
     python_win = python.replace("/", "\\")
+    description = (
+        "Epistora automation runner "
+        f"({mode} mode every {interval_minutes} min)"
+    )
 
     return dedent(f"""\
         <?xml version="1.0" encoding="UTF-16"?>
         <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
           <RegistrationInfo>
-            <Description>Epistora automation runner ({mode} mode every {interval_minutes} min)</Description>
+            <Description>{description}</Description>
           </RegistrationInfo>
           <Triggers>
             <TimeTrigger>
@@ -168,6 +198,28 @@ def generate_scheduler_instructions(
     python = sys.executable
     kb_path = Path(__file__).parent.parent.parent
     working_dir = str(kb_path)
+    macos_generate = (
+        "kb automation generate-scheduler "
+        f"--platform macos --mode {mode} --interval {interval_minutes}"
+    )
+    linux_generate = (
+        "kb automation generate-scheduler "
+        f"--platform linux --mode {mode} --interval {interval_minutes}"
+    )
+    windows_generate = (
+        "kb automation generate-scheduler "
+        f"--platform windows --mode {mode} --interval {interval_minutes}"
+    )
+    windows_register = (
+        "Register-ScheduledTask -Xml "
+        "(Get-Content epistora-automation.xml | Out-String) "
+        '-TaskName "EpistoraAutomation"'
+    )
+    cron_line = (
+        f"*/{interval_minutes} * * * * cd {working_dir} && "
+        f"{python} -m app.cli.main automation run-pending --mode {mode} "
+        ">> logs/automation.log 2>&1"
+    )
 
     return dedent(f"""\
         # Epistora Cross-Platform Scheduling Guide
@@ -197,23 +249,29 @@ def generate_scheduler_instructions(
         ## macOS (launchd)
 
         1. Generate the plist:
-           kb automation generate-scheduler --platform macos --mode {mode} --interval {interval_minutes}
+           {macos_generate}
 
-        2. Copy to LaunchAgents:
+        2. Ensure the repo log directory exists:
+           mkdir -p {working_dir}/logs
+
+        3. Copy to LaunchAgents:
            cp epistora-automation.plist ~/Library/LaunchAgents/com.epistora.automation.plist
 
-        3. Load it:
-           launchctl load ~/Library/LaunchAgents/com.epistora.automation.plist
+        4. Load it for the current GUI session:
+           launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.epistora.automation.plist
 
-        4. To unload:
-           launchctl unload ~/Library/LaunchAgents/com.epistora.automation.plist
+        5. Start one run immediately:
+           launchctl kickstart -k gui/$(id -u)/com.epistora.automation
+
+        6. To unload:
+           launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.epistora.automation.plist
 
         ---
 
         ## Linux (systemd)
 
         1. Generate the units:
-           kb automation generate-scheduler --platform linux --mode {mode} --interval {interval_minutes}
+           {linux_generate}
 
         2. Copy the files:
            sudo cp epistora-automation.service /etc/systemd/system/
@@ -232,10 +290,10 @@ def generate_scheduler_instructions(
         ## Windows (Task Scheduler)
 
         1. Generate the XML:
-           kb automation generate-scheduler --platform windows --mode {mode} --interval {interval_minutes}
+           {windows_generate}
 
         2. Import via PowerShell:
-           Register-ScheduledTask -Xml (Get-Content epistora-automation.xml | Out-String) -TaskName "EpistoraAutomation"
+           {windows_register}
 
         3. Or import via Task Scheduler GUI:
            Open Task Scheduler → Import Task → Select the XML file
@@ -248,7 +306,7 @@ def generate_scheduler_instructions(
            crontab -e
 
         Add this line (every {interval_minutes} minutes):
-           */{interval_minutes} * * * * cd {working_dir} && {python} -m app.cli.main automation run-pending --mode {mode} >> logs/automation.log 2>&1
+           {cron_line}
 
         ---
 

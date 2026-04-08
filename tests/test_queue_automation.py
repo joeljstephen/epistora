@@ -28,7 +28,6 @@ from app.automation.queue_store import (
     QueueRepository,
 )
 
-
 # ---------------------------------------------------------------------------
 # QueueRepository
 # ---------------------------------------------------------------------------
@@ -183,6 +182,16 @@ class TestQueueRepository:
         failed = repo.get_retryable_failed()
         assert len(failed) == 1
         assert failed[0].url == "https://fail.com"
+
+    def test_list_items_filters_by_status(self, tmp_db):
+        repo = QueueRepository(tmp_db)
+        repo.insert(QueuedItem(url="https://a.com", url_hash="a1", status="completed"))
+        repo.insert(QueuedItem(url="https://b.com", url_hash="b1", status="discovered"))
+
+        items = repo.list_items(limit=10, statuses=[QueueItemStatus.COMPLETED])
+
+        assert len(items) == 1
+        assert items[0].status == QueueItemStatus.COMPLETED
 
 
 # ---------------------------------------------------------------------------
@@ -471,7 +480,11 @@ class TestProcessing:
         with (
             patch("app.automation.processing.get_settings") as mock_settings,
             patch("app.automation.processing.Database") as MockDB,
-            patch("app.connectors.fetchers.fetch_content", new_callable=AsyncMock, return_value=mock_content),
+            patch(
+                "app.connectors.fetchers.fetch_content",
+                new_callable=AsyncMock,
+                return_value=mock_content,
+            ),
             patch("app.vault.writer.VaultWriter") as MockWriter,
             patch("app.vault.index_updater.rebuild_indexes"),
         ):
@@ -485,8 +498,12 @@ class TestProcessing:
             MockDB.return_value = tmp_db
 
             mock_writer_instance = MagicMock()
-            mock_writer_instance.write_raw_capture.return_value = MagicMock(path="inbox/raw/articles/safe-test.md")
-            mock_writer_instance.write_source_note.return_value = MagicMock(path="wiki/sources/articles/safe-test.md")
+            mock_writer_instance.write_raw_capture.return_value = MagicMock(
+                path="inbox/raw/articles/safe-test.md"
+            )
+            mock_writer_instance.write_source_note.return_value = MagicMock(
+                path="wiki/sources/articles/safe-test.md"
+            )
             MockWriter.return_value = mock_writer_instance
 
             results = await process_pending_items(mode="safe", limit=10)
@@ -630,7 +647,7 @@ class TestProcessing:
             mock_settings.return_value.db_path = tmp_db._path
             MockDB.return_value = tmp_db
 
-            results = await process_pending_items(mode="safe", limit=10)
+            await process_pending_items(mode="safe", limit=10)
 
         item = queue_repo.find_by_url_hash("perm1")
         assert item.status == QueueItemStatus.PERMANENT_FAILED
@@ -649,8 +666,14 @@ class TestAutomationRunner:
 
         with (
             patch("app.automation.runner.run_discover", new_callable=AsyncMock) as mock_discover,
-            patch("app.automation.runner.run_process_pending", new_callable=AsyncMock) as mock_process,
-            patch("app.automation.runner.run_maintenance", new_callable=AsyncMock) as mock_maintain,
+            patch(
+                "app.automation.runner.run_process_pending",
+                new_callable=AsyncMock,
+            ) as mock_process,
+            patch(
+                "app.automation.runner.run_maintenance",
+                new_callable=AsyncMock,
+            ) as mock_maintain,
             patch("app.automation.runner.get_settings") as mock_settings,
             patch("app.automation.runner.Database") as MockDB,
         ):
@@ -690,7 +713,11 @@ class TestAutomationRunner:
         with (
             patch("app.automation.runner.run_discover", side_effect=mock_discover),
             patch("app.automation.runner.run_process_pending", side_effect=mock_process),
-            patch("app.automation.runner.run_maintenance", new_callable=AsyncMock, return_value={"status": "ok"}),
+            patch(
+                "app.automation.runner.run_maintenance",
+                new_callable=AsyncMock,
+                return_value={"status": "ok"},
+            ),
             patch("app.automation.runner.get_settings") as mock_settings,
             patch("app.automation.runner.Database") as MockDB,
         ):
@@ -767,6 +794,7 @@ class TestSchedulerHelpers:
         assert "com.epistora.automation" in plist
         assert "safe" in plist
         assert "<integer>1800</integer>" in plist
+        assert "<key>EnvironmentVariables</key>" in plist
 
     def test_generate_systemd_timer(self):
         from app.automation.scheduler_helpers import generate_systemd_timer

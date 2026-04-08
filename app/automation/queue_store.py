@@ -188,6 +188,36 @@ class QueueRepository:
         ).fetchall()
         return [self._row_to_item(r) for r in rows]
 
+    def list_items(
+        self,
+        limit: int = 50,
+        *,
+        statuses: list[str] | None = None,
+        connector_id: str | None = None,
+    ) -> list[QueuedItem]:
+        """List queue items, optionally filtering by status and connector."""
+        query = "SELECT * FROM queued_items"
+        clauses: list[str] = []
+        params: list[str | int] = []
+
+        if statuses:
+            placeholders = ",".join("?" for _ in statuses)
+            clauses.append(f"status IN ({placeholders})")
+            params.extend(statuses)
+
+        if connector_id:
+            clauses.append("connector_id = ?")
+            params.append(connector_id)
+
+        if clauses:
+            query += " WHERE " + " AND ".join(clauses)
+
+        query += " ORDER BY saved_at DESC, id DESC LIMIT ?"
+        params.append(limit)
+
+        rows = self._db.conn.execute(query, params).fetchall()
+        return [self._row_to_item(r) for r in rows]
+
     def update_status(
         self,
         item_id: int,

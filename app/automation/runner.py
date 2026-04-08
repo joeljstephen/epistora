@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 from app.automation.discovery import discover_new_items
 from app.automation.models import AutomationMode, AutomationRun
@@ -153,7 +152,11 @@ async def run_automation(
 
     # Update the run record
     run_record.finished_at = utcnow()
-    run_record.summary = f"discover={run_record.items_discovered} process={run_record.items_processed} failed={run_record.items_failed}"
+    run_record.summary = (
+        f"discover={run_record.items_discovered} "
+        f"process={run_record.items_processed} "
+        f"failed={run_record.items_failed}"
+    )
 
     db = Database(settings.db_path)
     db.connect()

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 from app.automation.models import (
     AutomationMode,
@@ -28,7 +28,6 @@ logger = logging.getLogger(__name__)
 def classify_failure(error: Exception) -> FailureType:
     """Classify an exception into a failure type for retry decisions."""
     error_str = str(error).lower()
-    error_type = type(error).__name__.lower()
 
     if any(kw in error_str for kw in ("timeout", "timed out", "deadline")):
         return FailureType.TIMEOUT
@@ -273,7 +272,7 @@ async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:
     """Safe mode: fetch, archive, minimal note, no expensive LLM enrichment."""
     from app.connectors.classifier import classify_url
     from app.connectors.fetchers import fetch_content
-    from app.models.source import SourceItem, SourceType
+    from app.models.source import SourceItem
     from app.storage.repositories import SourceRepository
     from app.storage.sqlite import Database
     from app.utils.hashing import url_hash as compute_url_hash
@@ -331,9 +330,17 @@ async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:
             f"Title: {content.source.title or item.url}"
         ),
         five_minute_read=excerpt or "Content captured; see raw archive.",
-        detailed_reading_note=_fallback_reading_note(content, text) if text else "No text extracted.",
+        detailed_reading_note=(
+            _fallback_reading_note(content, text)
+            if text
+            else "No text extracted."
+        ),
         key_ideas=_bullet_list(key_points[:5], "- See raw archive for details."),
-        detailed_outline=_fallback_outline(text) if text else "## Capture Status\n- Safe mode capture",
+        detailed_outline=(
+            _fallback_outline(text)
+            if text
+            else "## Capture Status\n- Safe mode capture"
+        ),
         important_examples="- Review the raw archive for concrete examples.",
         actionable_takeaways=(
             "- Re-run in balanced or deep mode for richer AI analysis.\n"
