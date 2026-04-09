@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, Callable
 
 from app.automation.discovery import discover_new_items
 from app.automation.models import AutomationMode, AutomationRun
@@ -14,13 +15,33 @@ from app.utils.dates import utcnow
 
 logger = logging.getLogger(__name__)
 
+ProgressCallback = Callable[[str, dict[str, Any]], None]
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    stage: str,
+    **payload: Any,
+) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(stage, payload)
+    except Exception:
+        logger.debug("Automation progress callback failed for stage=%s", stage, exc_info=True)
+
 
 async def run_discover(
     connector_id: str = "raindrop",
     limit: int | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
     """Discover and queue new bookmarks from configured connectors."""
-    result = await discover_new_items(connector_id=connector_id, limit=limit)
+    result = await discover_new_items(
+        connector_id=connector_id,
+        limit=limit,
+        progress_callback=progress_callback,
+    )
     return result.model_dump()
 
 
@@ -29,6 +50,7 @@ async def run_process_pending(
     limit: int | None = None,
     retry_failed: bool = False,
     connector_id: str | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
     """Process pending items in the queue."""
     results = await process_pending_items(
@@ -36,6 +58,7 @@ async def run_process_pending(
         limit=limit,
         retry_failed=retry_failed,
         connector_id=connector_id,
+        progress_callback=progress_callback,
     )
 
     succeeded = sum(1 for r in results if r.success)
@@ -84,6 +107,7 @@ async def run_automation(
     connector_id: str = "raindrop",
     run_maintenance_tasks: bool = True,
     retry_failed: bool = False,
+    progress_callback: ProgressCallback | None = None,
 ) -> dict:
     """One-shot end-to-end automation: discover + process + optional maintenance.
 
@@ -117,19 +141,22 @@ async def run_automation(
     try:
         # Step 1: Discover
         logger.info("Automation run: discover (connector=%s)", connector_id)
+        _emit_progress(progress_callback, "automation_stage", stage_name="discover")
         discover_result = await run_discover(
-            connector_id=connector_id, limit=limit
+            connector_id=connector_id, limit=limit, progress_callback=progress_callback
         )
         summary["discover"] = discover_result
         run_record.items_discovered = discover_result.get("items_discovered", 0)
 
         # Step 2: Process pending
         logger.info("Automation run: process (mode=%s)", effective_mode)
+        _emit_progress(progress_callback, "automation_stage", stage_name="process")
         process_result = await run_process_pending(
             mode=effective_mode,
             limit=limit,
             retry_failed=retry_failed,
             connector_id=None,  # Process all connectors
+            progress_callback=progress_callback,
         )
         summary["process"] = process_result
         run_record.items_processed = process_result.get("succeeded", 0)
@@ -138,17 +165,20 @@ async def run_automation(
         # Step 3: Maintenance
         if run_maintenance_tasks:
             logger.info("Automation run: maintenance")
+            _emit_progress(progress_callback, "automation_stage", stage_name="maintenance")
             maint_result = await run_maintenance()
             summary["maintenance"] = maint_result
             run_record.maintenance_ran = True
 
         summary["status"] = "ok"
+        _emit_progress(progress_callback, "automation_done", mode=effective_mode)
 
     except Exception as exc:
         logger.error("Automation run failed: %s", exc)
         summary["error"] = str(exc)
         summary["status"] = "error"
         run_record.error = str(exc)[:500]
+        _emit_progress(progress_callback, "automation_failed", error=str(exc))
 
     # Update the run record
     run_record.finished_at = utcnow()

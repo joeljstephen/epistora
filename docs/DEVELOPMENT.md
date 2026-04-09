@@ -119,7 +119,7 @@ epistora automation generate-scheduler --platform macos --mode safe --interval 3
 ```
 
 Note: If running from source, prefix commands with `uv run` (e.g., `uv run epistora setup`).
-The `kb` command is still available as a backward-compatible alias.
+The short alias is `eps`.
 
 ### Automation Modes
 

@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import shutil
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from pathlib import Path
+from typing import Any
 
 import typer
 from rich.console import Console
@@ -14,7 +16,8 @@ from rich.table import Table
 app = typer.Typer(
     name="epistora",
     help="Epistora — local-first personal knowledge compiler.\n\n"
-    "Turn saved bookmarks into a persistent, agent-queryable knowledge base.",
+    "Turn saved bookmarks into a persistent, agent-queryable knowledge base.\n\n"
+    "Short alias: eps",
     add_completion=False,
     no_args_is_help=True,
 )
@@ -63,6 +66,157 @@ def _looks_like_epistora_vault(path: Path) -> bool:
     )
 
 
+def _short_label(value: str, max_len: int = 72) -> str:
+    if len(value) <= max_len:
+        return value
+    return value[: max_len - 3].rstrip() + "..."
+
+
+def _progress_prefix(payload: dict[str, Any]) -> str:
+    index = payload.get("index")
+    total = payload.get("total")
+    if isinstance(index, int) and isinstance(total, int) and total > 0:
+        return f"[{index}/{total}] "
+    return ""
+
+
+def _progress_label(payload: dict[str, Any]) -> str:
+    return _short_label(str(payload.get("title") or payload.get("url") or "item"))
+
+
+def _print_cli_guide() -> None:
+    essentials = Table(title="Most Used Commands")
+    essentials.add_column("Command", style="bold cyan")
+    essentials.add_column("What it does")
+    essentials.add_row("epistora setup", "First-time guided setup")
+    essentials.add_row("epistora doctor", "Verify config, backend, and vault health")
+    essentials.add_row("epistora ingest latest --limit 1", "Try a small ingest run")
+    essentials.add_row("epistora ingest url <url>", "Ingest one specific source")
+    essentials.add_row("epistora vault use <path>", "Switch to a different vault directory")
+    essentials.add_row("epistora status", "Show current vault path and system status")
+    console.print(essentials)
+
+    advanced = Table(title="Advanced Commands")
+    advanced.add_column("Command", style="bold cyan")
+    advanced.add_column("What it does")
+    advanced.add_row("epistora connect raindrop", "Update Raindrop token and collection")
+    advanced.add_row("epistora backend setup", "Change backend configuration")
+    advanced.add_row("epistora automation --help", "See automation commands")
+    advanced.add_row("epistora rebuild-indexes", "Rebuild wiki index files")
+    advanced.add_row("epistora reset-generated", "Clear generated state while keeping the vault")
+    console.print(advanced)
+
+    console.print("[bold]Tips[/bold]")
+    console.print("  - Run [cyan]epistora --help[/cyan] for the full command tree.")
+    console.print("  - Run [cyan]epistora <command> --help[/cyan] for options on one command.")
+    console.print("  - Use [cyan]eps[/cyan] as the short alias for [cyan]epistora[/cyan].")
+
+
+def _error_help_lines(message: str) -> list[str]:
+    text = message.lower()
+    hints: list[str] = []
+
+    if "connector" in text and "not configured" in text:
+        hints.append("Run `epistora connect raindrop` to configure your connector.")
+    if "raindrop authentication failed" in text:
+        hints.append("Run `epistora connect raindrop` and save a valid token.")
+    if "raindrop collection not found" in text:
+        hints.append("Check the Raindrop collection ID in your config or rerun `epistora connect raindrop`.")
+    if "could not reach the raindrop api" in text:
+        hints.append("Check your network connection and try again.")
+    if "api key not configured" in text or "no backends failed" in text:
+        hints.append("Run `epistora backend setup` or `epistora backend status` to configure an ingest backend.")
+    if "backend unavailable" in text or "all backends failed" in text:
+        hints.append("Run `epistora backend status` to see which backend is missing or disabled.")
+    if "opencode" in text and ("not found" in text or "disabled" in text):
+        hints.append("Install OpenCode or disable it in backend config.")
+    if "claude code" in text and ("not found" in text or "disabled" in text):
+        hints.append("Install Claude Code or disable it in backend config.")
+    if "codex" in text and ("not found" in text or "disabled" in text):
+        hints.append("Install Codex or disable it in backend config.")
+    if "timed out" in text or "timeout" in text:
+        hints.append("Retry the command. If it keeps happening, reduce the batch size or switch backend.")
+    if "network" in text or "connection" in text:
+        hints.append("Check your network connection and retry.")
+
+    seen: set[str] = set()
+    unique: list[str] = []
+    for hint in hints:
+        if hint not in seen:
+            seen.add(hint)
+            unique.append(hint)
+    return unique
+
+
+def _print_actionable_error(prefix: str, message: str) -> None:
+    console.print(f"[red]{prefix}:[/red] {message}")
+    for hint in _error_help_lines(message):
+        console.print(f"[dim]  hint: {hint}[/dim]")
+
+
+def _print_recent_item_issues(results: list[Any], *, field: str) -> None:
+    issues = [r for r in results if getattr(r, field, None)]
+    if not issues:
+        return
+
+    label = "Recent warnings" if field == "warnings" else "Recent failures"
+    console.print(f"[yellow]{label}:[/yellow]")
+    for result in issues[:3]:
+        messages = getattr(result, field)
+        if not messages:
+            continue
+        title = _short_label(getattr(result, "source_title", "") or getattr(result, "source_url", "item"))
+        console.print(f"  - {title}: {messages[0]}")
+        if field != "warnings":
+            for hint in _error_help_lines(messages[0])[:1]:
+                console.print(f"    [dim]{hint}[/dim]")
+
+
+def _automation_progress_callback(status, *, mode: str | None = None):
+    def _progress(stage: str, payload: dict[str, Any]) -> None:
+        prefix = _progress_prefix(payload)
+        label = _progress_label(payload)
+
+        if stage == "automation_stage":
+            status.update(f"{str(payload.get('stage_name', 'working')).capitalize()}...")
+        elif stage == "discover_fetching":
+            status.update("Fetching latest bookmarks...")
+        elif stage == "discover_fetched":
+            count = int(payload.get("count") or 0)
+            noun = "item" if count == 1 else "items"
+            status.update(f"Fetched {count} {noun} from the connector...")
+        elif stage == "discover_queued":
+            status.update(f"Queueing {label}...")
+            console.print(f"  [green]queued[/green] {label}")
+        elif stage == "discover_skipped":
+            status.update(f"Skipping {label}...")
+            console.print(f"  [yellow]skip[/yellow] {label}")
+        elif stage == "process_loaded":
+            count = int(payload.get("count") or 0)
+            status.update(f"Loaded {count} queued items for processing...")
+        elif stage == "process_item_start":
+            current_mode = payload.get("mode") or mode or "safe"
+            status.update(f"{prefix}Processing {label} ({current_mode})...")
+        elif stage == "process_item_done":
+            status.update(f"{prefix}Finished {label}")
+            console.print(f"  [green]done[/green] {prefix}{label}")
+        elif stage == "process_item_failed":
+            status.update(f"{prefix}Failed {label}")
+            console.print(f"  [red]fail[/red] {prefix}{label}")
+        elif stage == "process_budget_reached":
+            limit = payload.get("limit")
+            status.update("Reached the enrichment budget for this run.")
+            if limit:
+                console.print(f"  [yellow]stop[/yellow] Reached enrichment limit for this run ({limit}).")
+        elif stage == "automation_done":
+            current_mode = payload.get("mode") or mode or "safe"
+            status.update(f"Automation complete ({current_mode})")
+        elif stage == "automation_failed":
+            status.update("Automation failed")
+
+    return _progress
+
+
 # ---------------------------------------------------------------------------
 # Core commands
 # ---------------------------------------------------------------------------
@@ -94,6 +248,12 @@ def doctor():
 
     exit_code = run_doctor()
     raise typer.Exit(exit_code)
+
+
+@app.command("help")
+def help_cmd():
+    """Show a concise guide to the most important CLI commands."""
+    _print_cli_guide()
 
 
 @app.command()
@@ -200,12 +360,26 @@ def _ingest_url_impl(
     """Ingest a single URL into the knowledge vault."""
     from app.services.ingest_service import ingest_url as _ingest
 
-    console.print(f"[blue]Ingesting:[/blue] {url}")
+    console.print(f"[blue]Starting ingest:[/blue] {url}")
 
     try:
-        result = _run(_ingest(url, force=force))
+        with console.status("Preparing ingest...", spinner="dots") as status:
+            def _progress(stage: str, payload: dict[str, Any]) -> None:
+                label = _progress_label(payload)
+                if stage == "fetching":
+                    status.update(f"Fetching {label}...")
+                elif stage == "analysing":
+                    status.update(f"Analyzing {label}...")
+                elif stage == "writing":
+                    status.update(f"Writing notes for {label}...")
+                elif stage == "done":
+                    status.update(f"Finished {label}")
+                elif stage == "skipped":
+                    status.update(f"Already ingested: {label}")
+
+            result = _run(_ingest(url, force=force, progress_callback=_progress))
     except Exception as e:
-        console.print(f"[red]Error:[/red] {e}")
+        _print_actionable_error("Ingest failed", str(e))
         raise typer.Exit(1)
 
     if result.deduplicated:
@@ -213,9 +387,11 @@ def _ingest_url_impl(
         return
 
     if result.errors:
-        console.print(f"[red]Completed with errors:[/red] {'; '.join(result.errors)}")
+        _print_actionable_error("Completed with errors", "; ".join(result.errors))
     else:
         console.print("[green]✓ Ingest complete[/green]")
+    if result.warnings:
+        console.print(f"[yellow]Note:[/yellow] {result.warnings[0]}")
 
     table = Table(title="Ingest Result")
     table.add_column("Field", style="bold")
@@ -275,25 +451,137 @@ def _ingest_latest_impl(
     """
     from app.services.ingest_service import sync_inbox as _sync
 
-    console.print(f"[blue]Ingesting latest {limit} items from {connector}...[/blue]")
-
     try:
-        results = _run(_sync(connector_id=connector, limit=limit, force=force))
+        console.print(f"[blue]Starting ingest:[/blue] latest {limit} items from {connector}")
+        with console.status("Fetching saved items...", spinner="dots") as status:
+
+            def _progress(stage: str, payload: dict[str, Any]) -> None:
+                prefix = _progress_prefix(payload)
+                label = _progress_label(payload)
+                if stage == "sync_fetching":
+                    status.update(f"Fetching latest items from {connector}...")
+                elif stage == "sync_fetched":
+                    count = int(payload.get("count") or 0)
+                    noun = "item" if count == 1 else "items"
+                    if count == 0:
+                        status.update("No new items found.")
+                    else:
+                        status.update(f"Found {count} {noun}; starting ingest...")
+                elif stage == "fetching":
+                    status.update(f"{prefix}Fetching {label}...")
+                elif stage == "analysing":
+                    status.update(f"{prefix}Analyzing {label}...")
+                elif stage == "writing":
+                    status.update(f"{prefix}Writing notes for {label}...")
+                elif stage == "done":
+                    status.update(f"{prefix}Finished {label}")
+                    console.print(f"  [green]done[/green] {prefix}{label}")
+                elif stage == "skipped":
+                    status.update(f"{prefix}Already ingested: {label}")
+                    console.print(f"  [yellow]skip[/yellow] {prefix}{label}")
+                elif stage == "failed":
+                    status.update(f"{prefix}Failed {label}")
+                    console.print(f"  [red]fail[/red] {prefix}{label}")
+
+            results = _run(
+                _sync(
+                    connector_id=connector,
+                    limit=limit,
+                    force=force,
+                    progress_callback=_progress,
+                )
+            )
     except ValueError as e:
-        console.print(f"[red]Configuration error:[/red] {e}")
-        console.print("[dim]Run 'epistora connect raindrop' to set up your connector.[/dim]")
+        _print_actionable_error("Configuration error", str(e))
         raise typer.Exit(1)
     except Exception as e:
-        console.print(f"[red]Ingest failed:[/red] {e}")
+        _print_actionable_error("Ingest failed", str(e))
         raise typer.Exit(1)
 
     ingested = sum(1 for r in results if not r.deduplicated and not r.errors)
     skipped = sum(1 for r in results if r.deduplicated)
     failed = sum(1 for r in results if r.errors)
 
+    if not results:
+        console.print("[yellow]No new items found to ingest.[/yellow]")
+        return
+
     console.print(
         f"[green]✓ Ingest complete:[/green] {ingested} ingested, {skipped} skipped, {failed} failed"
     )
+    _print_recent_item_issues(results, field="warnings")
+    _print_recent_item_issues(results, field="errors")
+
+
+def _sync_inbox_impl(
+    *,
+    connector: str,
+    limit: int,
+    force: bool,
+    label: str,
+) -> None:
+    from app.services.ingest_service import sync_inbox as _sync
+
+    try:
+        console.print(f"[blue]Starting {label}:[/blue] latest {limit} items from {connector}")
+        with console.status("Fetching saved items...", spinner="dots") as status:
+
+            def _progress(stage: str, payload: dict[str, Any]) -> None:
+                prefix = _progress_prefix(payload)
+                item_label = _progress_label(payload)
+                if stage == "sync_fetching":
+                    status.update(f"Fetching latest items from {connector}...")
+                elif stage == "sync_fetched":
+                    count = int(payload.get("count") or 0)
+                    if count == 0:
+                        status.update("No new items found.")
+                    else:
+                        noun = "item" if count == 1 else "items"
+                        status.update(f"Found {count} {noun}; starting sync...")
+                elif stage == "fetching":
+                    status.update(f"{prefix}Fetching {item_label}...")
+                elif stage == "analysing":
+                    status.update(f"{prefix}Analyzing {item_label}...")
+                elif stage == "writing":
+                    status.update(f"{prefix}Writing notes for {item_label}...")
+                elif stage == "done":
+                    status.update(f"{prefix}Finished {item_label}")
+                    console.print(f"  [green]done[/green] {prefix}{item_label}")
+                elif stage == "skipped":
+                    status.update(f"{prefix}Already ingested: {item_label}")
+                    console.print(f"  [yellow]skip[/yellow] {prefix}{item_label}")
+                elif stage == "failed":
+                    status.update(f"{prefix}Failed {item_label}")
+                    console.print(f"  [red]fail[/red] {prefix}{item_label}")
+
+            results = _run(
+                _sync(
+                    connector_id=connector,
+                    limit=limit,
+                    force=force,
+                    progress_callback=_progress,
+                )
+            )
+    except ValueError as e:
+        _print_actionable_error(f"{label.capitalize()} failed", str(e))
+        raise typer.Exit(1)
+    except Exception as e:
+        _print_actionable_error(f"{label.capitalize()} failed", str(e))
+        raise typer.Exit(1)
+
+    if not results:
+        console.print("[yellow]No new items found to sync.[/yellow]")
+        return
+
+    ingested = sum(1 for r in results if not r.deduplicated and not r.errors)
+    skipped = sum(1 for r in results if r.deduplicated)
+    failed = sum(1 for r in results if r.errors)
+    console.print(
+        f"[green]✓ {label.capitalize()} complete:[/green] "
+        f"{ingested} ingested, {skipped} skipped, {failed} failed"
+    )
+    _print_recent_item_issues(results, field="warnings")
+    _print_recent_item_issues(results, field="errors")
 
 
 @ingest_app.command("latest")
@@ -316,26 +604,7 @@ def sync_raindrop(
     ),
 ):
     """Sync recent items from Raindrop.io and ingest them."""
-    from app.services.ingest_service import sync_inbox as _sync
-
-    console.print("[blue]Syncing from Raindrop...[/blue]")
-
-    try:
-        results = _run(_sync(connector_id="raindrop", limit=limit, force=force))
-    except ValueError as e:
-        console.print(f"[red]Configuration error:[/red] {e}")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Sync failed:[/red] {e}")
-        raise typer.Exit(1)
-
-    ingested = sum(1 for r in results if not r.deduplicated and not r.errors)
-    skipped = sum(1 for r in results if r.deduplicated)
-    failed = sum(1 for r in results if r.errors)
-
-    console.print(
-        f"[green]✓ Sync complete:[/green] {ingested} ingested, {skipped} skipped, {failed} failed"
-    )
+    _sync_inbox_impl(connector="raindrop", limit=limit, force=force, label="sync")
 
 
 @app.command("sync-inbox")
@@ -349,26 +618,7 @@ def sync_inbox(
     ),
 ):
     """Sync recent items from a configured inbox connector and ingest them."""
-    from app.services.ingest_service import sync_inbox as _sync
-
-    console.print(f"[blue]Syncing inbox connector:[/blue] {connector}")
-
-    try:
-        results = _run(_sync(connector_id=connector, limit=limit, force=force))
-    except ValueError as e:
-        console.print(f"[red]Configuration error:[/red] {e}")
-        raise typer.Exit(1)
-    except Exception as e:
-        console.print(f"[red]Sync failed:[/red] {e}")
-        raise typer.Exit(1)
-
-    ingested = sum(1 for r in results if not r.deduplicated and not r.errors)
-    skipped = sum(1 for r in results if r.deduplicated)
-    failed = sum(1 for r in results if r.errors)
-
-    console.print(
-        f"[green]✓ Sync complete:[/green] {ingested} ingested, {skipped} skipped, {failed} failed"
-    )
+    _sync_inbox_impl(connector=connector, limit=limit, force=force, label="sync")
 
 
 # ---------------------------------------------------------------------------
@@ -509,6 +759,94 @@ def reset_generated(
     if isinstance(cleared, list):
         for relative in cleared:
             console.print(f"  - cleared {relative}")
+
+
+# ---------------------------------------------------------------------------
+# Vault commands
+# ---------------------------------------------------------------------------
+
+vault_app = typer.Typer(
+    name="vault",
+    help="Show or change the active vault directory.",
+    add_completion=False,
+)
+app.add_typer(vault_app, name="vault")
+
+
+@vault_app.command("show")
+def vault_show():
+    """Show the vault path currently configured in Epistora."""
+    from app.config import existing_env_file, get_settings
+
+    settings = get_settings()
+    env_path = existing_env_file()
+    console.print(f"[bold]Current vault:[/bold] {settings.vault_path}")
+    if env_path:
+        console.print(f"[dim]Config file: {env_path}[/dim]")
+
+
+@vault_app.command("use")
+def vault_use(
+    path: str = typer.Argument(..., help="Directory to use as the active vault"),
+    copy_current: bool = typer.Option(
+        False,
+        "--copy-current",
+        help="Copy the current vault contents into the new directory before switching",
+    ),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        "-y",
+        help="Skip confirmation prompts when initializing or copying",
+    ),
+):
+    """Switch Epistora to a different vault directory without rerunning setup."""
+    from app.cli.setup_wizard import _initialize_vault, _vault_env_config, _write_env_file
+    from app.config import get_settings, preferred_env_file, reset_settings
+    from app.storage.sqlite import Database
+
+    settings = get_settings()
+    current_vault = Path(settings.vault_path).expanduser().resolve()
+    target = Path(path).expanduser().resolve()
+
+    if target == current_vault:
+        console.print(f"[yellow]Already using vault:[/yellow] {target}")
+        return
+
+    if copy_current and current_vault.exists():
+        if target.exists() and any(target.iterdir()) and not yes:
+            confirmed = typer.confirm(
+                f"{target} already has files. Copy the current vault into it and keep existing files?"
+            )
+            if not confirmed:
+                raise typer.Abort()
+        console.print(f"[blue]Copying current vault to:[/blue] {target}")
+        shutil.copytree(current_vault, target, dirs_exist_ok=True)
+
+    if target.exists() and any(target.iterdir()) and not _looks_like_epistora_vault(target):
+        if not yes:
+            confirmed = typer.confirm(
+                f"{target} is not an Epistora vault yet. Initialize Epistora files there and keep existing files?"
+            )
+            if not confirmed:
+                raise typer.Abort()
+
+    console.print(f"[blue]Switching active vault to:[/blue] {target}")
+    _initialize_vault(target)
+
+    env_path = preferred_env_file()
+    _write_env_file(env_path, _vault_env_config(target))
+
+    reset_settings()
+    db_path = target / ".system" / "epistora.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db = Database(db_path)
+    db.connect()
+    db.close()
+
+    console.print(f"[green]✓ Vault path updated[/green] {target}")
+    console.print(f"[green]✓ Database ready[/green] {db_path}")
+    console.print(f"[dim]Config updated: {env_path}[/dim]")
 
 
 # ---------------------------------------------------------------------------
@@ -678,7 +1016,7 @@ def run_sync_now(
             f"{result.get('failed', 0)} failed"
         )
     else:
-        console.print(f"[red]Sync failed:[/red] {result.get('error', 'unknown')}")
+        _print_actionable_error("Sync failed", str(result.get("error", "unknown")))
         raise typer.Exit(1)
 
 
@@ -695,7 +1033,7 @@ def run_lint_now():
             f"{result.get('total_notes', 0)} notes, {result.get('issues', 0)} issues"
         )
     else:
-        console.print(f"[red]Lint failed:[/red] {result.get('error', 'unknown')}")
+        _print_actionable_error("Lint failed", str(result.get("error", "unknown")))
         raise typer.Exit(1)
 
 
@@ -777,11 +1115,22 @@ def automation_discover(
     """Discover and queue new bookmarks from configured inbox connectors."""
     from app.automation.runner import run_discover
 
-    console.print(f"[blue]Discovering items from connector:[/blue] {connector}")
-    result = _run(run_discover(connector_id=connector, limit=limit))
+    console.print(f"[blue]Starting discovery:[/blue] {connector}")
+    try:
+        with console.status("Fetching latest bookmarks...", spinner="dots") as status:
+            result = _run(
+                run_discover(
+                    connector_id=connector,
+                    limit=limit,
+                    progress_callback=_automation_progress_callback(status),
+                )
+            )
+    except Exception as e:
+        _print_actionable_error("Discovery failed", str(e))
+        raise typer.Exit(1)
 
     if result.get("error"):
-        console.print(f"[red]Discovery failed:[/red] {result['error']}")
+        _print_actionable_error("Discovery failed", result["error"])
         raise typer.Exit(1)
 
     console.print(
@@ -801,15 +1150,21 @@ def automation_process_pending(
     """Process pending queued items with mode-aware enrichment."""
     from app.automation.runner import run_process_pending
 
-    console.print(f"[blue]Processing pending items in {mode} mode...[/blue]")
-    result = _run(
-        run_process_pending(
-            mode=mode,
-            limit=limit,
-            retry_failed=retry_failed,
-            connector_id=connector,
-        )
-    )
+    console.print(f"[blue]Starting processing:[/blue] {mode} mode")
+    try:
+        with console.status("Loading queue...", spinner="dots") as status:
+            result = _run(
+                run_process_pending(
+                    mode=mode,
+                    limit=limit,
+                    retry_failed=retry_failed,
+                    connector_id=connector,
+                    progress_callback=_automation_progress_callback(status, mode=mode),
+                )
+            )
+    except Exception as e:
+        _print_actionable_error("Processing failed", str(e))
+        raise typer.Exit(1)
 
     if result.get("status") == "ok":
         console.print(
@@ -817,8 +1172,15 @@ def automation_process_pending(
             f"{result.get('succeeded', 0)} succeeded, "
             f"{result.get('failed', 0)} failed"
         )
+        failed_results = [r for r in result.get("results", []) if not r.get("success")]
+        if failed_results:
+            console.print("[yellow]Recent failures:[/yellow]")
+            for failed_item in failed_results[:3]:
+                console.print(f"  - {failed_item.get('error', 'unknown error')}")
+                for hint in _error_help_lines(failed_item.get("error", ""))[:1]:
+                    console.print(f"    [dim]{hint}[/dim]")
     else:
-        console.print(f"[red]Processing failed:[/red] {result}")
+        _print_actionable_error("Processing failed", str(result.get("error") or result))
         raise typer.Exit(1)
 
 
@@ -831,7 +1193,12 @@ def automation_maintain(
     from app.automation.runner import run_maintenance
 
     console.print("[blue]Running maintenance tasks...[/blue]")
-    result = _run(run_maintenance(run_lint=lint, run_rebuild=rebuild))
+    try:
+        with console.status("Running maintenance...", spinner="dots"):
+            result = _run(run_maintenance(run_lint=lint, run_rebuild=rebuild))
+    except Exception as e:
+        _print_actionable_error("Maintenance failed", str(e))
+        raise typer.Exit(1)
 
     if result.get("lint"):
         lint_r = result["lint"]
@@ -839,11 +1206,17 @@ def automation_maintain(
             console.print(
                 f"  Lint: {lint_r.get('total_notes', 0)} notes, {lint_r.get('issues', 0)} issues"
             )
+        else:
+            _print_actionable_error("Lint failed", str(lint_r.get("error", "unknown error")))
 
     if result.get("rebuild_indexes"):
         rebuild_r = result["rebuild_indexes"]
         if rebuild_r.get("status") == "ok":
             console.print(f"  Indexes: {rebuild_r.get('indexes_updated', 0)} rebuilt")
+        else:
+            _print_actionable_error(
+                "Index rebuild failed", str(rebuild_r.get("error", "unknown error"))
+            )
 
     console.print("[green]Maintenance complete[/green]")
 
@@ -868,16 +1241,22 @@ def automation_run_pending(
 
         effective_mode = get_settings().automation_default_mode
 
-    console.print(f"[blue]Running automation ({effective_mode} mode)...[/blue]")
-    result = _run(
-        run_automation(
-            mode=effective_mode,
-            limit=limit,
-            connector_id=connector,
-            run_maintenance_tasks=not no_maintenance,
-            retry_failed=retry_failed,
-        )
-    )
+    console.print(f"[blue]Starting automation:[/blue] {effective_mode} mode")
+    try:
+        with console.status("Preparing automation run...", spinner="dots") as status:
+            result = _run(
+                run_automation(
+                    mode=effective_mode,
+                    limit=limit,
+                    connector_id=connector,
+                    run_maintenance_tasks=not no_maintenance,
+                    retry_failed=retry_failed,
+                    progress_callback=_automation_progress_callback(status, mode=effective_mode),
+                )
+            )
+    except Exception as e:
+        _print_actionable_error("Automation failed", str(e))
+        raise typer.Exit(1)
 
     discover = result.get("discover", {})
     process = result.get("process", {})
@@ -891,8 +1270,16 @@ def automation_run_pending(
     )
 
     if result.get("error"):
-        console.print(f"[red]Error:[/red] {result['error']}")
+        _print_actionable_error("Automation failed", result["error"])
         raise typer.Exit(1)
+
+    failed_results = [r for r in process.get("results", []) if not r.get("success")]
+    if failed_results:
+        console.print("[yellow]Recent failures:[/yellow]")
+        for failed_item in failed_results[:3]:
+            console.print(f"  - {failed_item.get('error', 'unknown error')}")
+            for hint in _error_help_lines(failed_item.get("error", ""))[:1]:
+                console.print(f"    [dim]{hint}[/dim]")
 
     console.print("[green]Automation run complete[/green]")
 
@@ -946,20 +1333,33 @@ def automation_retry_failed(
     """Retry items with retryable failures."""
     from app.automation.runner import run_process_pending
 
-    console.print(f"[blue]Retrying failed items in {mode} mode...[/blue]")
-    result = _run(
-        run_process_pending(
-            mode=mode,
-            limit=limit,
-            retry_failed=True,
-        )
-    )
+    console.print(f"[blue]Retrying failed items:[/blue] {mode} mode")
+    try:
+        with console.status("Loading retry queue...", spinner="dots") as status:
+            result = _run(
+                run_process_pending(
+                    mode=mode,
+                    limit=limit,
+                    retry_failed=True,
+                    progress_callback=_automation_progress_callback(status, mode=mode),
+                )
+            )
+    except Exception as e:
+        _print_actionable_error("Retry failed", str(e))
+        raise typer.Exit(1)
 
     console.print(
         f"[green]Retry complete:[/green] "
         f"{result.get('succeeded', 0)} succeeded, "
         f"{result.get('failed', 0)} failed"
     )
+    failed_results = [r for r in result.get("results", []) if not r.get("success")]
+    if failed_results:
+        console.print("[yellow]Recent failures:[/yellow]")
+        for failed_item in failed_results[:3]:
+            console.print(f"  - {failed_item.get('error', 'unknown error')}")
+            for hint in _error_help_lines(failed_item.get("error", ""))[:1]:
+                console.print(f"    [dim]{hint}[/dim]")
 
 
 @automation_app.command("list-pending")

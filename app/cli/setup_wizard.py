@@ -29,6 +29,15 @@ AUTOMATION_MODES = {
 }
 
 
+def _vault_env_config(vault_path: Path) -> dict[str, str]:
+    """Return the env settings required to point Epistora at *vault_path*."""
+    resolved = vault_path.expanduser().resolve()
+    return {
+        "vault_path": str(resolved),
+        "database_url": f"sqlite:///{resolved / '.system' / 'epistora.db'}",
+    }
+
+
 def _prompt_vault_path() -> Path:
     """Ask the user where to create the vault."""
     console.print()
@@ -389,10 +398,7 @@ def run_setup_wizard(
     generate_scheduler = _prompt_scheduler()
 
     # Build the config
-    env_config: dict[str, str] = {
-        "vault_path": str(vault_path),
-        "database_url": f"sqlite:///{vault_path / '.system' / 'epistora.db'}",
-    }
+    env_config: dict[str, str] = _vault_env_config(vault_path)
 
     if raindrop_token:
         env_config["raindrop_api_token"] = raindrop_token
@@ -424,9 +430,7 @@ def run_setup_wizard(
 
         reset_settings()
         os.environ["VAULT_PATH"] = str(vault_path)
-        os.environ["DATABASE_URL"] = env_config.get(
-            "database_url", f"sqlite:///{vault_path / '.system' / 'epistora.db'}"
-        )
+        os.environ["DATABASE_URL"] = env_config["database_url"]
 
         db_path = vault_path / ".system" / "epistora.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)

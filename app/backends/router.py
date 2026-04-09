@@ -91,7 +91,7 @@ class BackendRouter:
                 return response
 
             all_reasons.append(f"{backend_id}: execution failed - {response.error}")
-            logger.warning(
+            logger.info(
                 "Backend %s failed for task=%s: %s — trying next",
                 backend_id,
                 request.task.value,
@@ -138,7 +138,7 @@ class BackendRouter:
                 return response
 
             all_reasons.append(f"{backend_id}: {response.error}")
-            logger.warning(
+            logger.info(
                 "Backend %s structured output failed for task=%s: %s",
                 backend_id,
                 request.task.value,

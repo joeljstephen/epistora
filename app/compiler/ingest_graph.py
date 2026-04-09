@@ -6,7 +6,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Callable, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
@@ -385,10 +385,47 @@ class IngestState(TypedDict, total=False):
     entities: list[Entity]
     concepts: list[Concept]
     vault_updates: list[VaultUpdate]
+    analysis_warnings: list[str]
     result: IngestResult
     deduplicated: bool
     duplicate_of: ProcessedSource
+    progress_callback: Callable[[str, dict[str, Any]], None] | None
+    progress_index: int
+    progress_total: int
     error: str
+
+
+def _progress_title(state: IngestState) -> str:
+    content = state.get("content")
+    if content and content.source.title:
+        return content.source.title
+    item = state.get("item")
+    if item and item.title:
+        return item.title
+    if item:
+        return item.url
+    return "source"
+
+
+def _emit_progress(state: IngestState, stage: str, **payload: Any) -> None:
+    callback = state.get("progress_callback")
+    if callback is None:
+        return
+
+    event = {
+        "index": state.get("progress_index"),
+        "total": state.get("progress_total"),
+        "title": _progress_title(state),
+    }
+    item = state.get("item")
+    if item is not None:
+        event["url"] = item.url
+    event.update(payload)
+
+    try:
+        callback(stage, event)
+    except Exception:
+        logger.debug("Ingest progress callback failed for stage=%s", stage, exc_info=True)
 
 
 def _source_specific_guidance(content: SourceContent) -> str:
@@ -520,8 +557,16 @@ def _normalize_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
 
 async def _fetch_content(state: IngestState) -> dict:
     item = state["item"]
+    _emit_progress(state, "fetching", title=item.title or item.url)
     content = await fetch_content(item)
     slug = slugify(content.source.title or item.url)
+    _emit_progress(
+        state,
+        "fetched",
+        title=content.source.title or item.url,
+        source_type=content.source.source_type.value,
+        extraction_quality=content.extraction_quality,
+    )
     return {"content": content, "slug": slug}
 
 
@@ -553,6 +598,7 @@ async def _check_dedup(state: IngestState) -> dict:
                 raw_capture_path=existing.raw_capture_path,
                 deduplicated=True,
             )
+            _emit_progress(state, "skipped", title=content.source.title or content.source.url)
             return {"deduplicated": True, "duplicate_of": existing, "result": result}
 
         return {}
@@ -564,6 +610,7 @@ async def _analyse_content(state: IngestState) -> dict:
     from app.config import get_settings
 
     content: SourceContent = state["content"]
+    _emit_progress(state, "analysing", title=content.source.title or content.source.url)
     text = content.cleaned_text or content.raw_text
     settings = get_settings()
     existing_lookup = _existing_knowledge_lookup(Path(settings.vault_path))
@@ -695,7 +742,7 @@ async def _analyse_content(state: IngestState) -> dict:
         else:
             raise RuntimeError(resp.error)
     except Exception as exc:
-        logger.warning("LLM analysis failed: %s", exc)
+        logger.info("LLM analysis failed; using fallback note generation: %s", exc)
         source_type = content.source.source_type.value
         fb_cap = (
             settings.ingest_youtube_evidence_max_chars or settings.ingest_evidence_max_chars
@@ -755,6 +802,13 @@ async def _analyse_content(state: IngestState) -> dict:
                 "- What context might still be missing from the captured text alone?"
             ),
         )
+        return {
+            "analysis": analysis,
+            "analysis_warnings": [
+                "AI analysis was unavailable for this source, so Epistora saved a provisional note "
+                "from the captured text instead."
+            ],
+        }
 
     return {"analysis": analysis}
 
@@ -846,6 +900,7 @@ async def _write_vault(state: IngestState) -> dict:
     writer.ensure_structure()
 
     content: SourceContent = state["content"]
+    _emit_progress(state, "writing", title=content.source.title or content.source.url)
     slug = state["slug"]
     analysis = state["analysis"]
     topics: list[Topic] = state.get("topics", [])
@@ -927,6 +982,7 @@ async def _persist_duplicate(state: IngestState) -> dict:
         )
 
         append_ingest_log(vault_path, result)
+        _emit_progress(state, "done", title=content.source.title or content.source.url)
         return {}
     finally:
         db.close()
@@ -1004,9 +1060,11 @@ async def _persist_state(state: IngestState) -> dict:
         concepts_updated=[concept.name for concept in concepts],
         vault_updates=updates,
         deduplicated=state.get("deduplicated", False),
+        warnings=state.get("analysis_warnings", []),
     )
 
     append_ingest_log(vault_path, result)
+    _emit_progress(state, "done", title=content.source.title or content.source.url)
 
     db.close()
     return {"result": result}

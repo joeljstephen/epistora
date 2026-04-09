@@ -27,6 +27,7 @@ class IngestResult(BaseModel):
     concepts_updated: list[str] = Field(default_factory=list)
     vault_updates: list[VaultUpdate] = Field(default_factory=list)
     deduplicated: bool = False
+    warnings: list[str] = Field(default_factory=list)
     errors: list[str] = Field(default_factory=list)
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

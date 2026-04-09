@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any, Callable
 
 from app.automation.models import DiscoverResult, QueuedItem, QueueItemStatus
 from app.automation.queue_store import QueueRepository
@@ -16,10 +17,26 @@ from app.utils.hashing import url_hash
 
 logger = logging.getLogger(__name__)
 
+ProgressCallback = Callable[[str, dict[str, Any]], None]
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    stage: str,
+    **payload: Any,
+) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(stage, payload)
+    except Exception:
+        logger.debug("Discovery progress callback failed for stage=%s", stage, exc_info=True)
+
 
 async def discover_new_items(
     connector_id: str = "raindrop",
     limit: int | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> DiscoverResult:
     """Discover new bookmarks and stage them in the durable queue.
 
@@ -55,7 +72,14 @@ async def discover_new_items(
             batch_limit,
         )
 
+        _emit_progress(progress_callback, "discover_fetching", connector=connector_id, limit=batch_limit)
         items = connector.fetch_since(since, limit=batch_limit)
+        _emit_progress(
+            progress_callback,
+            "discover_fetched",
+            connector=connector_id,
+            count=len(items),
+        )
         logger.info("Fetched %d items from connector=%s", len(items), connector_id)
 
         discovered = 0
@@ -69,6 +93,12 @@ async def discover_new_items(
             existing_queued = queue_repo.find_by_url_hash(uhash)
             if existing_queued:
                 skipped += 1
+                _emit_progress(
+                    progress_callback,
+                    "discover_skipped",
+                    title=item.title or item.url,
+                    url=item.url,
+                )
                 if item.saved_at > latest_saved_at:
                     latest_saved_at = item.saved_at
                 continue
@@ -92,6 +122,12 @@ async def discover_new_items(
                     )
                 )
                 skipped += 1
+                _emit_progress(
+                    progress_callback,
+                    "discover_skipped",
+                    title=item.title or item.url,
+                    url=item.url,
+                )
                 if item.saved_at > latest_saved_at:
                     latest_saved_at = item.saved_at
                 continue
@@ -112,6 +148,12 @@ async def discover_new_items(
                 )
             )
             discovered += 1
+            _emit_progress(
+                progress_callback,
+                "discover_queued",
+                title=item.title or item.url,
+                url=item.url,
+            )
             if item.saved_at > latest_saved_at:
                 latest_saved_at = item.saved_at
 
@@ -135,6 +177,13 @@ async def discover_new_items(
             items_discovered=discovered,
             items_skipped_duplicate=skipped,
             connector_id=connector_id,
+        )
+        _emit_progress(
+            progress_callback,
+            "discover_done",
+            connector=connector_id,
+            discovered=discovered,
+            skipped=skipped,
         )
         logger.info("Discovery complete: %s", result.model_dump())
         return result

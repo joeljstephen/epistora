@@ -63,7 +63,7 @@ dev = [
 
 [project.scripts]
 epistora = "app.cli.main:app"
-kb = "app.cli.main:app"
+eps = "app.cli.main:app"
 
 [project.urls]
 Homepage = "https://github.com/joeljstephen/epistora"

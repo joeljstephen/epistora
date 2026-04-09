@@ -31,8 +31,24 @@ class RaindropConnector:
             "perpage": min(limit, 40),
             "page": page,
         }
-        resp = httpx.get(url, headers=self._headers, params=params, timeout=30)
-        resp.raise_for_status()
+        try:
+            resp = httpx.get(url, headers=self._headers, params=params, timeout=30)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
+            if status in {401, 403}:
+                raise ValueError(
+                    "Raindrop authentication failed. Check your RAINDROP_API_TOKEN."
+                ) from exc
+            if status == 404:
+                raise ValueError(
+                    "Raindrop collection not found. Check your RAINDROP_COLLECTION_ID."
+                ) from exc
+            raise ValueError(f"Raindrop API request failed with status {status}.") from exc
+        except httpx.RequestError as exc:
+            raise ValueError(
+                "Could not reach the Raindrop API. Check your network connection and try again."
+            ) from exc
         data = resp.json()
 
         items: list[SourceItem] = []

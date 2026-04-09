@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from typer.testing import CliRunner
 
 from app.cli.main import app
+from app.models.results import IngestResult
 
 runner = CliRunner()
 
@@ -78,6 +80,12 @@ class TestCLIHelp:
         assert result.exit_code == 0
         assert "epistora" in result.output.lower()
 
+    def test_help_command(self):
+        result = runner.invoke(app, ["help"])
+        assert result.exit_code == 0
+        assert "vault use" in result.output.lower()
+        assert "eps" in result.output.lower()
+
 
 class TestDoctor:
     """Test the doctor command."""
@@ -123,6 +131,180 @@ class TestInit:
         assert (vault / "raw").exists()
         assert (vault / "wiki" / "indexes").exists()
         assert (vault / "wiki" / "logs").exists()
+
+
+class TestVaultCommands:
+    """Test vault path management commands."""
+
+    def test_vault_use_updates_env_and_initializes_target(self, tmp_path, monkeypatch):
+        env_path = tmp_path / ".env"
+        current_vault = tmp_path / "current-vault"
+        current_vault.mkdir()
+        target_vault = tmp_path / "new-vault"
+
+        monkeypatch.setenv("EPISTORA_ENV_FILE", str(env_path))
+
+        with patch("app.config.get_settings", return_value=SimpleNamespace(vault_path=current_vault)):
+            result = runner.invoke(app, ["vault", "use", str(target_vault)])
+
+        assert result.exit_code == 0
+        assert "Vault path updated" in result.output
+        assert target_vault.exists()
+        assert (target_vault / "wiki" / "indexes").exists()
+        assert env_path.exists()
+        assert f"VAULT_PATH={target_vault}" in env_path.read_text()
+
+
+class TestIngestProgress:
+    """Test user-facing ingest progress output."""
+
+    def test_ingest_latest_shows_progress_lines(self):
+        async def fake_sync_inbox(
+            connector_id: str = "raindrop",
+            limit: int = 25,
+            force: bool = False,
+            progress_callback=None,
+        ):
+            del force
+            if progress_callback:
+                progress_callback("sync_fetching", {"connector": connector_id, "limit": limit})
+                progress_callback(
+                    "sync_fetched",
+                    {"connector": connector_id, "count": 1, "limit": limit},
+                )
+                progress_callback("fetching", {"index": 1, "total": 1, "title": "Example item"})
+                progress_callback("analysing", {"index": 1, "total": 1, "title": "Example item"})
+                progress_callback("writing", {"index": 1, "total": 1, "title": "Example item"})
+                progress_callback("done", {"index": 1, "total": 1, "title": "Example item"})
+            return [
+                IngestResult(
+                    source_url="https://example.com",
+                    source_title="Example item",
+                    source_type="article",
+                    source_note_path="wiki/sources/articles/example-item.md",
+                )
+            ]
+
+        with patch("app.services.ingest_service.sync_inbox", new=fake_sync_inbox):
+            result = runner.invoke(app, ["ingest", "latest", "--limit", "1"])
+
+        assert result.exit_code == 0
+        assert "Starting ingest" in result.output
+        assert "done" in result.output.lower()
+        assert "[1/1] Example item" in result.output
+        assert "1 ingested, 0 skipped, 0 failed" in result.output
+
+    def test_sync_raindrop_shows_progress_lines(self):
+        async def fake_sync_inbox(
+            connector_id: str = "raindrop",
+            limit: int = 25,
+            force: bool = False,
+            progress_callback=None,
+        ):
+            del force
+            if progress_callback:
+                progress_callback("sync_fetching", {"connector": connector_id, "limit": limit})
+                progress_callback("sync_fetched", {"connector": connector_id, "count": 1})
+                progress_callback("fetching", {"index": 1, "total": 1, "title": "Synced item"})
+                progress_callback("done", {"index": 1, "total": 1, "title": "Synced item"})
+            return [IngestResult(source_url="https://example.com", source_title="Synced item")]
+
+        with patch("app.services.ingest_service.sync_inbox", new=fake_sync_inbox):
+            result = runner.invoke(app, ["sync-raindrop", "--limit", "1"])
+
+        assert result.exit_code == 0
+        assert "Starting sync" in result.output
+        assert "[1/1] Synced item" in result.output
+        assert "1 ingested, 0 skipped, 0 failed" in result.output
+
+    def test_ingest_latest_shows_actionable_error_hint(self):
+        async def fake_sync_inbox(*args, **kwargs):
+            raise ValueError("Inbox connector 'raindrop' is not configured or not supported")
+
+        with patch("app.services.ingest_service.sync_inbox", new=fake_sync_inbox):
+            result = runner.invoke(app, ["ingest", "latest", "--limit", "1"])
+
+        assert result.exit_code == 1
+        assert "Configuration error" in result.output
+        assert "connect raindrop" in result.output.lower()
+
+
+class TestAutomationCLI:
+    """Test automation command UX and actionable errors."""
+
+    def test_automation_discover_shows_actionable_error(self):
+        async def fake_run_discover(*args, **kwargs):
+            return {"error": "Raindrop authentication failed. Check your RAINDROP_API_TOKEN."}
+
+        with patch("app.automation.runner.run_discover", new=fake_run_discover):
+            result = runner.invoke(app, ["automation", "discover"])
+
+        assert result.exit_code == 1
+        assert "Discovery failed" in result.output
+        assert "connect raindrop" in result.output.lower()
+
+    def test_automation_process_pending_shows_progress_and_hints(self):
+        async def fake_run_process_pending(*args, **kwargs):
+            progress_callback = kwargs.get("progress_callback")
+            if progress_callback:
+                progress_callback("process_loaded", {"count": 1, "mode": "deep"})
+                progress_callback(
+                    "process_item_start",
+                    {"index": 1, "total": 1, "title": "Queued item", "mode": "deep"},
+                )
+                progress_callback(
+                    "process_item_failed",
+                    {
+                        "index": 1,
+                        "total": 1,
+                        "title": "Queued item",
+                        "mode": "deep",
+                        "error": "API key not configured",
+                    },
+                )
+            return {
+                "status": "ok",
+                "succeeded": 0,
+                "failed": 1,
+                "results": [{"success": False, "error": "API key not configured"}],
+            }
+
+        with patch("app.automation.runner.run_process_pending", new=fake_run_process_pending):
+            result = runner.invoke(app, ["automation", "process-pending", "--mode", "deep"])
+
+        assert result.exit_code == 0
+        assert "Starting processing" in result.output
+        assert "fail" in result.output.lower()
+        assert "backend setup" in result.output.lower()
+
+    def test_automation_run_pending_shows_stage_updates(self):
+        async def fake_run_automation(*args, **kwargs):
+            progress_callback = kwargs.get("progress_callback")
+            if progress_callback:
+                progress_callback("automation_stage", {"stage_name": "discover"})
+                progress_callback("discover_queued", {"title": "Bookmark 1"})
+                progress_callback("automation_stage", {"stage_name": "process"})
+                progress_callback(
+                    "process_item_done",
+                    {"index": 1, "total": 1, "title": "Bookmark 1", "mode": "safe"},
+                )
+                progress_callback("automation_stage", {"stage_name": "maintenance"})
+                progress_callback("automation_done", {"mode": "safe"})
+            return {
+                "status": "ok",
+                "discover": {"items_discovered": 1, "items_skipped_duplicate": 0},
+                "process": {"succeeded": 1, "failed": 0, "results": []},
+                "maintenance": {"status": "ok"},
+                "error": "",
+            }
+
+        with patch("app.automation.runner.run_automation", new=fake_run_automation):
+            result = runner.invoke(app, ["automation", "run-pending", "--mode", "safe"])
+
+        assert result.exit_code == 0
+        assert "Starting automation" in result.output
+        assert "queued" in result.output.lower()
+        assert "done" in result.output.lower()
 
 
 class TestSetupWizard:

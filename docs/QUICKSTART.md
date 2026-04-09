@@ -61,11 +61,18 @@ availability, and more. Fix any issues it reports.
 ## Step 4: Ingest Your First Content
 
 ```bash
-# Sync your latest Raindrop bookmarks
-epistora ingest latest
+# Start with one bookmark so you can verify the flow quickly
+epistora ingest latest --limit 1
 
 # Or ingest a single URL
 epistora ingest url "https://lilianweng.github.io/posts/2023-06-23-agent/"
+```
+
+If you want a short command reference:
+
+```bash
+epistora help
+eps help
 ```
 
 ## Step 5: Use Your Vault
@@ -103,6 +110,7 @@ epistora automation generate-scheduler --platform macos --mode safe
 ## What's Next?
 
 - **`epistora status`** — see vault stats and configuration
+- **`epistora vault use <path>`** — switch to a different vault without rerunning setup
 - **`epistora lint`** — check vault health
 - **`epistora backend status`** — see backend availability
 - **`epistora automation status`** — see automation queue status

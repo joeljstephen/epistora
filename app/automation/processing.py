@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timedelta
+from typing import Any, Callable
 
 from app.automation.models import (
     AutomationMode,
@@ -23,6 +24,21 @@ from app.storage.sqlite import Database
 from app.utils.dates import utcnow
 
 logger = logging.getLogger(__name__)
+
+ProgressCallback = Callable[[str, dict[str, Any]], None]
+
+
+def _emit_progress(
+    progress_callback: ProgressCallback | None,
+    stage: str,
+    **payload: Any,
+) -> None:
+    if progress_callback is None:
+        return
+    try:
+        progress_callback(stage, payload)
+    except Exception:
+        logger.debug("Processing progress callback failed for stage=%s", stage, exc_info=True)
 
 
 def classify_failure(error: Exception) -> FailureType:
@@ -74,6 +90,7 @@ async def process_pending_items(
     limit: int | None = None,
     retry_failed: bool = False,
     connector_id: str | None = None,
+    progress_callback: ProgressCallback | None = None,
 ) -> list[ProcessResult]:
     """Process pending queued items according to the given mode."""
     settings = get_settings()
@@ -96,6 +113,13 @@ async def process_pending_items(
             include_retryable=retry_failed,
             connector_id=connector_id,
         )
+        _emit_progress(
+            progress_callback,
+            "process_loaded",
+            mode=mode,
+            count=len(items),
+            connector=connector_id,
+        )
 
         if not items:
             logger.info("No pending items to process")
@@ -114,7 +138,8 @@ async def process_pending_items(
         results: list[ProcessResult] = []
         enriched_count = 0
 
-        for item in items:
+        total = len(items)
+        for index, item in enumerate(items, start=1):
             # Check enrichment budget for balanced/deep modes
             if mode != AutomationMode.SAFE and enrich_limit is not None:
                 if enriched_count >= enrich_limit:
@@ -122,8 +147,25 @@ async def process_pending_items(
                         "Enrichment limit reached (%d), remaining items stay queued",
                         enrich_limit,
                     )
+                    _emit_progress(
+                        progress_callback,
+                        "process_budget_reached",
+                        mode=mode,
+                        limit=enrich_limit,
+                        processed=index - 1,
+                        total=total,
+                    )
                     break
 
+            _emit_progress(
+                progress_callback,
+                "process_item_start",
+                index=index,
+                total=total,
+                title=item.title or item.url,
+                url=item.url,
+                mode=mode,
+            )
             result = await _process_single_item(
                 item=item,
                 mode=mode,
@@ -133,9 +175,39 @@ async def process_pending_items(
             )
             results.append(result)
 
+            if result.success:
+                _emit_progress(
+                    progress_callback,
+                    "process_item_done",
+                    index=index,
+                    total=total,
+                    title=item.title or item.url,
+                    url=item.url,
+                    mode=mode,
+                )
+            else:
+                _emit_progress(
+                    progress_callback,
+                    "process_item_failed",
+                    index=index,
+                    total=total,
+                    title=item.title or item.url,
+                    url=item.url,
+                    mode=mode,
+                    error=result.error,
+                    error_type=result.error_type,
+                )
+
             if result.success and mode != AutomationMode.SAFE:
                 enriched_count += 1
 
+        _emit_progress(
+            progress_callback,
+            "process_done",
+            mode=mode,
+            succeeded=sum(1 for r in results if r.success),
+            failed=sum(1 for r in results if not r.success),
+        )
         return results
 
     finally:
