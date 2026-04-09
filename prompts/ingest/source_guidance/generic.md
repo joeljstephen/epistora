@@ -1,0 +1,2 @@
+- Preserve the strongest claims, examples, and structure that survive extraction cleanly.
+- Be explicit when the source shape is mixed or ambiguous.

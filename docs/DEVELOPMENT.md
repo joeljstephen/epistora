@@ -324,6 +324,8 @@ This does not touch application source code or the vault operating manual.
 Use `--force` on ingest commands when you want to recompile an existing source
 in place without deleting generated vault content first. This is the preferred
 workflow for validating prompt/template upgrades against a single known source.
+The editable prompt files live under `prompts/`, with optional source-specific
+overrides such as `prompts/ingest/source_analysis.youtube.md`.
 
 ## Latest-Bookmark Validation
 

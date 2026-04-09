@@ -1,0 +1,2 @@
+- Preserve definitions, evidence, and structural cues from the document.
+- Keep terminology crisp enough that the note can serve as a durable reference page later.

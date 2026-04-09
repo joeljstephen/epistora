@@ -116,7 +116,7 @@
 - [ ] Stronger semantic dedup for near-duplicate topics that are related but not simple spelling variants
 - [ ] Git integration for vault versioning
 - [ ] Simple HTML status dashboard
-- [ ] Configurable prompt templates
+- [x] Configurable prompt templates
 - [ ] Batch ingest from URL list / OPML file
 - [ ] X thread stitching and article expansion quality improvements
 - [ ] Cron expression support for the scheduler

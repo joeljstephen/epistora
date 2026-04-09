@@ -14,11 +14,12 @@ from app.backends.models import TaskName
 from app.compiler.llm import run_structured, run_text
 from app.compiler.prompts import (
     SOURCE_ANALYSIS_JSON_SCHEMA,
-    SOURCE_ANALYSIS_PROMPT,
-    SYSTEM_ROLE,
-    YOUTUBE_ANALYSIS_RULES,
-    YOUTUBE_CHUNK_DIGEST_SYSTEM,
-    YOUTUBE_CHUNK_DIGEST_USER,
+    get_source_analysis_prompt,
+    get_source_guidance_markdown,
+    get_system_role,
+    get_youtube_analysis_rules,
+    get_youtube_chunk_digest_system,
+    get_youtube_chunk_digest_user,
 )
 from app.connectors.fetchers import fetch_content
 from app.models.db import ProcessedSource, VaultNoteMapping
@@ -289,12 +290,14 @@ async def _prepare_ingest_evidence(content: SourceContent, text: str) -> tuple[s
 
     title = content.source.title or content.source.url
     chunks = _youtube_transcript_chunks(text, chunk_size)
+    chunk_system_prompt = get_youtube_chunk_digest_system()
+    chunk_user_template = get_youtube_chunk_digest_user()
     digests: list[str] = []
     for index, chunk in enumerate(chunks):
         resp = await run_text(
             TaskName.INGEST,
-            system_prompt=YOUTUBE_CHUNK_DIGEST_SYSTEM,
-            user_prompt=YOUTUBE_CHUNK_DIGEST_USER.format(
+            system_prompt=chunk_system_prompt,
+            user_prompt=chunk_user_template.format(
                 title=title,
                 part=index + 1,
                 total=len(chunks),
@@ -389,74 +392,25 @@ class IngestState(TypedDict, total=False):
 
 
 def _source_specific_guidance(content: SourceContent) -> str:
-    guidance: list[str] = [
-        "Prefer concrete mechanisms, examples, and tensions over generic summary phrasing.",
-        "Assume the note should remain useful months later as part of a growing wiki.",
-        (
-            "Write with the expectation that future sources will update this wiki "
-            "rather than replace it."
-        ),
-    ]
-
     source_type = content.source.source_type.value
-    if source_type == "youtube":
-        guidance.extend(
-            [
-                (
-                    "Apply the numbered YouTube rules in the main prompt: full-arc article, "
-                    "chapters with timestamps in detailed_outline, synthesized prose "
-                    "(not transcript echo)."
-                ),
-                "Help the reader decide whether they still need to watch the full video.",
-                (
-                    "If the transcript feels noisy, promote the speaker's real argument "
-                    "and compress filler."
-                ),
-            ]
-        )
-    elif source_type == "article":
-        guidance.extend(
-            [
-                "Preserve the article's argument, structure, and why it matters.",
-                (
-                    "Treat the raw readable article archive as the evidence layer and "
-                    "this note as the compiled layer."
-                ),
-            ]
-        )
-    elif source_type == "x_thread":
-        guidance.extend(
-            [
-                "Capture the sequence of claims and missing context if the thread is thin.",
-                (
-                    "Differentiate between what the thread directly states and what "
-                    "remains implied or unsupported."
-                ),
-            ]
-        )
-    elif source_type == "pdf":
-        guidance.extend(
-            [
-                "Preserve definitions, evidence, and structural cues from the document.",
-                (
-                    "Keep terminology crisp enough that the note can serve as a "
-                    "durable reference page later."
-                ),
-            ]
-        )
+    guidance_parts: list[str] = []
+
+    template_guidance = get_source_guidance_markdown(source_type)
+    if template_guidance:
+        guidance_parts.append(template_guidance)
 
     if content.extraction_quality in {"metadata_only", "failed"}:
-        guidance.append(
-            "This extraction is incomplete. Be explicit about missing coverage "
+        guidance_parts.append(
+            "- This extraction is incomplete. Be explicit about missing coverage "
             "and avoid overclaiming."
         )
     else:
-        guidance.append(
-            "Assume the reader wants to learn efficiently from this note before "
+        guidance_parts.append(
+            "- Assume the reader wants to learn efficiently from this note before "
             "deciding whether to open the original."
         )
 
-    return "\n".join(f"- {line}" for line in guidance)
+    return "\n\n".join(part for part in guidance_parts if part)
 
 
 def _existing_knowledge_lookup(vault_path: Path) -> dict[str, dict[str, str]]:
@@ -706,7 +660,7 @@ async def _analyse_content(state: IngestState) -> dict:
         )
 
     is_youtube = content.source.source_type.value == "youtube"
-    prompt = SOURCE_ANALYSIS_PROMPT.format(
+    prompt = get_source_analysis_prompt(content.source.source_type.value).format(
         title=content.source.title or content.source.url,
         source_type=content.source.source_type.value,
         url=content.source.url,
@@ -720,13 +674,13 @@ async def _analyse_content(state: IngestState) -> dict:
         source_specific_guidance=_source_specific_guidance(content),
         existing_knowledge=_existing_knowledge_prompt(existing_lookup),
         content=evidence_text,
-        youtube_rules=YOUTUBE_ANALYSIS_RULES if is_youtube else "",
+        youtube_rules=get_youtube_analysis_rules() if is_youtube else "",
     )
 
     try:
         resp = await run_structured(
             task=TaskName.INGEST,
-            system_prompt=SYSTEM_ROLE,
+            system_prompt=get_system_role(),
             user_prompt=prompt,
             json_schema_hint=SOURCE_ANALYSIS_JSON_SCHEMA,
         )

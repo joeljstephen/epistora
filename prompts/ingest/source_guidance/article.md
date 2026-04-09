@@ -1,0 +1,2 @@
+- Preserve the article's argument, structure, and why it matters.
+- Treat the raw readable article archive as the evidence layer and this note as the compiled layer.

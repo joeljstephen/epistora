@@ -1,0 +1,3 @@
+- Prefer concrete mechanisms, examples, and tensions over generic summary phrasing.
+- Assume the note should remain useful months later as part of a growing wiki.
+- Write with the expectation that future sources will update this wiki rather than replace it.

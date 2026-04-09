@@ -91,6 +91,15 @@ your-vault/
 
 Open the vault in [Obsidian](https://obsidian.md/) and you'll see a fully linked knowledge graph.
 
+## Customizing Prompts
+
+The LLM prompts are editable Markdown/text files in [`prompts/`](./prompts/).
+
+- Edit [`prompts/ingest/source_analysis.md`](./prompts/ingest/source_analysis.md) to change the main wiki-writing prompt.
+- Edit [`prompts/ingest/source_guidance/`](./prompts/ingest/source_guidance/) to tune guidance for articles, YouTube, PDFs, X threads, or generic sources.
+- Add a file like `prompts/ingest/source_analysis.youtube.md` if you want a completely different prompt for one source type.
+- Set `EPISTORA_PROMPTS_DIR=/absolute/path/to/prompts` if you want to keep prompt files outside the repo.
+
 ## Using AI Agents on Your Vault
 
 Epistora is designed for **agent-first access**. Point Claude Code, OpenCode, or any agent at your vault directory:

@@ -83,12 +83,14 @@ markers = [
 packages = ["app"]
 include = [
     "knowledge_vault_template/**",
+    "prompts/**",
 ]
 
 [tool.hatch.build.targets.sdist]
 include = [
     "app/",
     "knowledge_vault_template/",
+    "prompts/",
     "LICENSE",
     "README.md",
     "pyproject.toml",

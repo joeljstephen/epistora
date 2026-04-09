@@ -1,221 +1,97 @@
-"""All LLM prompt templates used by the compiler."""
+"""Load editable markdown prompt templates for compiler workflows."""
 
 from __future__ import annotations
 
 import json
+import os
+from pathlib import Path
 
-SYSTEM_ROLE = (
-    "You are Epistora, the maintenance model for a persistent personal wiki. "
-    "Operate like a careful editor of a long-lived LLM-maintained knowledge base: raw captures are "
-    "immutable evidence, wiki notes are cumulative compiled knowledge, and outputs are temporary "
-    "unless promoted. Optimize for future usefulness, internal coherence, and navigability rather "
-    "than one-off summarization. Write clearly, link where justified, surface contradictions and "
-    "missing context, and be conservative about any claim not directly supported by the captured "
-    "evidence."
-)
+from app.config import project_root
 
-YOUTUBE_ANALYSIS_RULES = """
-12. **YouTube / video transcript (only when source type is youtube):**
-    - The evidence is spoken text (often repetitive or meandering). Produce a **standalone article**
-      that captures the full intellectual arc and every major beat—**not** a line-by-line rephrase
-      of the transcript.
-    - **Coverage:** Address the entire timeline in the evidence. If the evidence says it was built
-      from segment digests, or if timestamps stop before the video ends, state that limitation
-      explicitly.
-    - **`summary`:** State the speaker's core thesis and how the argument develops
-      (not a play-by-play).
-    - **`five_minute_read`:** A dense briefing that walks through **each major theme in order**,
-      with enough
-      substance that the reader grasps the whole video without watching it.
-    - **`detailed_reading_note`:** A long-form article using multiple `###` subsections.
-      For each major segment, include a short title and, when the evidence provides
-      `## MM:SS-MM:SS` (or similar) headers, the approximate time range in the heading
-      (e.g. `### [12:30–18:00] Why X matters`). Under each, explain claims, reasoning,
-      and evidence in **synthesized prose** - do not paste transcript filler.
-    - **`detailed_outline`:** Use a "Chapters & timestamps" shape:
-      `## [H:MM–H:MM] Short chapter title`
-      with nested bullets for sub-points. Mirror the structure of the video.
-    - **`important_examples`:** Name specific products, people, stories, numbers, demos,
-      or case studies the speaker uses (not generic restatements).
-    - **`actionable_takeaways`:** Prefer concrete heuristics, decision rules, workflows,
-      or caution flags the viewer could apply immediately.
-    - **`consume_recommendation`:** Tell the user whether this note is probably sufficient on its
-      own, or whether the original video is still worth watching for demos, visuals, delivery,
-      or missing nuance.
-    - **Anti-paraphrase:** Compress repetition; elevate the speaker's conclusions and
-      mechanisms. If two paragraphs of transcript say the same thing, merge them into
-      one clear paragraph in the analysis.
-"""
+PROMPTS_ENV_VAR = "EPISTORA_PROMPTS_DIR"
 
-YOUTUBE_CHUNK_DIGEST_SYSTEM = (
-    "You are compressing a portion of a YouTube transcript into notes for a later wiki article. "
-    "Be dense and factual. Synthesize; do not copy long runs of dialogue verbatim."
-)
 
-YOUTUBE_CHUNK_DIGEST_USER = """\
-Video title: {title}
-This is segment {part} of {total} (chronological order).
+def _prompt_roots() -> tuple[Path, ...]:
+    roots: list[Path] = []
 
-Transcript segment (may include ## MM:SS-MM:SS section headers from the capture):
----
-{chunk}
----
+    override = os.environ.get(PROMPTS_ENV_VAR, "").strip()
+    if override:
+        roots.append(Path(override).expanduser())
 
-Produce markdown with:
-- A one-line recap of what happens in this segment (time range if headers exist).
-- Bullet points: main claims, arguments, named tools/products/people, stories,
-  examples, and any numbers.
-- If the segment is mostly an ad read or aside, label it briefly and move on.
+    roots.append(project_root() / "prompts")
 
-Keep it under ~800 words. Use clear markdown (headings optional)."""
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for root in roots:
+        resolved = root.resolve()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(resolved)
 
-SOURCE_ANALYSIS_PROMPT = """\
-Compile the following source into a durable wiki-ready analysis.
+    return tuple(unique)
 
-Source profile:
-- Title: {title}
-- Source type: {source_type}
-- URL: {url}
-- Canonical URL: {canonical_url}
-- Author: {author}
-- Published date: {published_date}
-- Tags: {tags}
-- Extraction quality: {extraction_quality}
-- Extraction method: {extraction_method}
-- Extraction notes: {extraction_notes}
 
-Source-specific guidance:
-{source_specific_guidance}
+def _load_prompt(*relative_paths: str, required: bool = True) -> str:
+    searched: list[Path] = []
 
-Existing vault pages to reuse when they already fit:
-{existing_knowledge}
+    for root in _prompt_roots():
+        for relative_path in relative_paths:
+            candidate = root / relative_path
+            searched.append(candidate)
+            if candidate.exists():
+                return candidate.read_text(encoding="utf-8").strip()
 
-Evidence excerpt:
----
-{content}
----
+    if not required:
+        return ""
 
-Rules:
-1. Ground every section in the evidence excerpt and metadata above.
-2. If extraction is partial or metadata-only, say so plainly and do not imply full coverage.
-3. Write for a future human or model revisiting this vault months later.
-4. Prefer concrete facts, mechanisms, examples, and tensions over generic summary language.
-5. Use stable, reusable `[[wikilink]]`-friendly names for topics/entities/concepts.
-6. `five_minute_read` should be a dense but readable briefing.
-7. `detailed_reading_note` should read like a high-quality article note, not a transcript dump.
-8. `key_ideas`, `important_examples`, `actionable_takeaways`, `notable_quotes`, `best_for`,
-   and `open_questions` must be markdown bullet lists using `- ` prefixes.
-9. `detailed_outline` must use markdown headings and bullets.
-10. `notable_quotes` may only include short verbatim phrases clearly present in the evidence.
-    If none are available, return `- None captured verbatim.`
-11. `consume_recommendation` should say whether the original source is still
-    worth reading or watching.
-12. Optimize for vault usefulness:
-    - explain why the source matters, not just what it says
-    - preserve structure and argument flow
-    - call out contradictions, caveats, and open loops
-    - avoid generic filler such as "this article discusses"
-13. `topics` should be broad durable subject pages, usually 1-5 items.
-14. `entities` should be named people, companies, tools, publications, or projects that
-    clearly deserve their own pages. Do not emit near-duplicates.
-15. `concepts` should be reusable ideas, methods, or definitions that would compound across
-    multiple future sources. Favor stable concepts over source-specific jargon.
-16. Reuse existing topic/entity/concept titles from the provided vault-page list when they already
-    fit. Avoid near-duplicate variants that would fragment the wiki.
-{youtube_rules}
+    searched_str = "\n".join(f"- {path}" for path in searched)
+    raise FileNotFoundError(
+        "Prompt template not found. Checked:\n"
+        f"{searched_str}\n"
+        f"Set {PROMPTS_ENV_VAR} to point at a custom prompt directory if needed."
+    )
 
-Respond in the following JSON format (no markdown fences):
-{{
-  "summary": "2-4 sentence grounded overview",
-  "five_minute_read": "Dense readable briefing in prose/markdown",
-  "detailed_reading_note": "Detailed article-style reading note",
-  "key_ideas": "Bullet list of the strongest ideas, arguments, or claims",
-  "detailed_outline": "Section-by-section markdown outline using headings/bullets",
-  "important_examples": "Bullet list of examples, stories, case studies, or concrete evidence",
-  "actionable_takeaways": "Bullet list of practical implications or next actions",
-  "notable_quotes": "Bullet list of short supported quotes, or '- None captured verbatim.'",
-  "best_for": "Bullet list describing who or what this source is especially useful for",
-  "consume_recommendation": "1-3 sentence recommendation on whether the original
-    is still worth consuming",
-  "why_it_matters": "1-3 sentence explanation of why this source matters in the wider vault",
-  "open_questions": "Bullet list of unresolved questions, caveats, or follow-up items",
-  "topics": ["list", "of", "topic", "names"],
-  "entities": [
-    {{
-      "name": "Entity Name",
-      "type": "person|company|tool|publication|other",
-      "description": "brief"
-    }}
-  ],
-  "concepts": [
-    {{"name": "Concept Name", "definition": "brief definition"}}
-  ]
-}}
-"""
 
-QUERY_PROMPT = """\
-You are answering a question using the user's persistent knowledge vault.
+def get_system_role() -> str:
+    return _load_prompt("system_role.md")
 
-Question:
-{question}
 
-Vault context:
-{context}
+def get_youtube_analysis_rules() -> str:
+    return _load_prompt("ingest/youtube_rules.md")
 
-Rules:
-1. Use only the provided vault context.
-2. Prioritize concrete findings from source notes, then synthesize across pages.
-3. Reference relevant notes with `[[wikilinks]]`.
-4. Separate what the vault directly supports from your synthesis.
-5. Surface contradictions, uncertainty, and missing information instead of smoothing them over.
-6. Keep the answer useful for future filing back into the wiki.
-7. Prefer claims that could survive being copied into a durable synthesis note.
-8. If the vault context is thin, say exactly what is missing instead of padding.
 
-Write the answer with these sections:
-## Direct Findings
-## Cross-Source Synthesis
-## Contradictions / Uncertainty
-## Gaps / Open Questions
-## Useful Next Notes
-"""
+def get_youtube_chunk_digest_system() -> str:
+    return _load_prompt("ingest/youtube_chunk_digest_system.md")
 
-LINT_ANALYSIS_PROMPT = """\
-Review the following vault summary with the mindset of maintaining a coherent long-lived wiki.
 
-{vault_summary}
+def get_youtube_chunk_digest_user() -> str:
+    return _load_prompt("ingest/youtube_chunk_digest_user.md")
 
-Identify:
-1. Near-duplicate notes or pages that fragment the same concept
-2. Contradictions or unresolved tensions between notes
-3. Frequently referenced concepts/entities/topics that still lack strong dedicated pages
-4. Merge candidates where navigation would improve if pages were consolidated
-5. Navigation gaps where indexes, backlinks, or source-to-topic bridges seem weak
-6. Pages that look structurally present but semantically thin
-7. Places where raw evidence exists but the compiled layer is still underdeveloped
 
-Respond in JSON format (no markdown fences):
-{{
-  "duplicate_candidates": [
-    {{"notes": ["note1", "note2"], "reason": "why they might be duplicates"}}
-  ],
-  "potential_contradictions": [
-    {{"notes": ["note1", "note2"], "claim1": "...", "claim2": "...", "tension": "..."}}
-  ],
-  "missing_pages": [
-    {{"name": "entity or concept name", "mention_count": 3, "type": "entity|concept|topic"}}
-  ],
-  "merge_candidates": [
-    {{"notes": ["note1", "note2"], "reason": "why they could be merged"}}
-  ],
-  "navigation_gaps": [
-    {{"notes": ["note1", "note2"], "reason": "why navigation or linking is weak"}}
-  ],
-  "thin_pages": [
-    {{"notes": ["note1"], "reason": "why the page looks too shallow to be useful yet"}}
-  ]
-}}
-"""
+def get_source_analysis_prompt(source_type: str | None = None) -> str:
+    candidates: list[str] = []
+    if source_type:
+        candidates.append(f"ingest/source_analysis.{source_type}.md")
+    candidates.append("ingest/source_analysis.md")
+    return _load_prompt(*candidates)
+
+
+def get_source_guidance_markdown(source_type: str | None = None) -> str:
+    parts = [_load_prompt("ingest/source_guidance/common.md", required=False)]
+    if source_type:
+        parts.append(
+            _load_prompt(f"ingest/source_guidance/{source_type}.md", required=False)
+        )
+    return "\n\n".join(part for part in parts if part)
+
+
+def get_query_prompt() -> str:
+    return _load_prompt("query/query.md")
+
+
+def get_lint_analysis_prompt() -> str:
+    return _load_prompt("lint/lint_analysis.md")
+
 
 SOURCE_ANALYSIS_JSON_SCHEMA = json.dumps(
     {

@@ -12,8 +12,8 @@ from app.backends.models import TaskName
 from app.compiler.llm import run_structured
 from app.compiler.prompts import (
     LINT_ANALYSIS_JSON_SCHEMA,
-    LINT_ANALYSIS_PROMPT,
-    SYSTEM_ROLE,
+    get_lint_analysis_prompt,
+    get_system_role,
 )
 from app.models.results import LintIssue, LintResult
 from app.vault.log_updater import write_lint_log
@@ -210,10 +210,10 @@ async def _llm_lint(state: LintState) -> dict:
     vault_summary = "\n".join(vault_summary_parts)
 
     try:
-        prompt = LINT_ANALYSIS_PROMPT.format(vault_summary=vault_summary)
+        prompt = get_lint_analysis_prompt().format(vault_summary=vault_summary)
         resp = await run_structured(
             task=TaskName.LINT,
-            system_prompt=SYSTEM_ROLE,
+            system_prompt=get_system_role(),
             user_prompt=prompt,
             json_schema_hint=LINT_ANALYSIS_JSON_SCHEMA,
         )

@@ -1,0 +1,2 @@
+- Capture the sequence of claims and missing context if the thread is thin.
+- Differentiate between what the thread directly states and what remains implied or unsupported.

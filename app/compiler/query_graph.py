@@ -9,7 +9,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.backends.models import TaskName
 from app.compiler.llm import run_text
-from app.compiler.prompts import QUERY_PROMPT, SYSTEM_ROLE
+from app.compiler.prompts import get_query_prompt, get_system_role
 from app.models.results import QueryResult
 
 logger = logging.getLogger(__name__)
@@ -88,7 +88,7 @@ async def _generate_answer(state: QueryState) -> dict:
         )
         return {"answer": answer}
 
-    prompt = QUERY_PROMPT.format(
+    prompt = get_query_prompt().format(
         question=state["question"],
         context=state["context"],
     )
@@ -96,7 +96,7 @@ async def _generate_answer(state: QueryState) -> dict:
     try:
         resp = await run_text(
             task=TaskName.QUERY,
-            system_prompt=SYSTEM_ROLE,
+            system_prompt=get_system_role(),
             user_prompt=prompt,
         )
         if resp.success:
