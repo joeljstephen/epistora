@@ -249,5 +249,5 @@ When a note contains `[[Some Topic]]`, look for `wiki/topics/some-topic.md`.
 - The wiki layer should become more coherent over time as sources accumulate.
 - Prefer linking an existing page over creating near-duplicates.
 - When pages disagree, record the disagreement explicitly.
-- Indexes are auto-generated. Rebuild with `kb rebuild-indexes`.
+- Indexes are auto-generated. Rebuild with `epistora rebuild-indexes`.
 - Logs are append-only and track all ingest/lint operations.

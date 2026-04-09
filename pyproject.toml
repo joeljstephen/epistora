@@ -9,10 +9,28 @@ description = "Local-first personal knowledge compiler that turns saved links an
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
+authors = [{ name = "Epistora Contributors" }]
+keywords = ["knowledge-base", "bookmarks", "obsidian", "markdown", "cli", "raindrop", "ai"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Text Processing :: Markup :: Markdown",
+    "Topic :: Utilities",
+    "Typing :: Typed",
+]
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn[standard]>=0.32.0",
-    "typer[all]>=0.15.0",
+    "typer>=0.15.0",
+    "rich>=13.0.0",
     "pydantic>=2.10.0",
     "pydantic-settings>=2.7.0",
     "langchain>=0.3.0",
@@ -44,7 +62,15 @@ dev = [
 ]
 
 [project.scripts]
+epistora = "app.cli.main:app"
 kb = "app.cli.main:app"
+
+[project.urls]
+Homepage = "https://github.com/joeljstephen/epistora"
+Documentation = "https://github.com/joeljstephen/epistora#readme"
+Repository = "https://github.com/joeljstephen/epistora"
+Issues = "https://github.com/joeljstephen/epistora/issues"
+Changelog = "https://github.com/joeljstephen/epistora/blob/main/docs/ROADMAP.md"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -55,6 +81,18 @@ markers = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["app"]
+include = [
+    "knowledge_vault_template/**",
+]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "app/",
+    "knowledge_vault_template/",
+    "LICENSE",
+    "README.md",
+    "pyproject.toml",
+]
 
 [tool.ruff]
 line-length = 100

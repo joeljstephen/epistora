@@ -4,7 +4,7 @@
 
 Epistora is a local-first personal knowledge compiler. It ingests content from saved links, compiles structured knowledge notes, and maintains an agent-queryable Obsidian-compatible vault.
 
-**Query model:** Epistora is agent-first. The primary way to query the vault is to point Claude Code or OpenCode at the vault directory. The vault is structured so direct agents can navigate it effectively using `AGENTS.md`, index files, and the query protocol. The legacy `kb query` command is deprecated.
+**Query model:** Epistora is agent-first. The primary way to query the vault is to point Claude Code or OpenCode at the vault directory. The vault is structured so direct agents can navigate it effectively using `AGENTS.md`, index files, and the query protocol. The legacy `epistora query` command is deprecated.
 
 ```
 ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
@@ -229,7 +229,7 @@ The durable queue-based system separates discovery from processing and supports 
 
 #### Legacy Interval-Based Worker (still supported)
 
-- **`worker.py`** — Main loop for `kb worker`. Acquires a file lock, builds a scheduler, and ticks every 5s until interrupted.
+- **`worker.py`** — Main loop for `epistora worker`. Acquires a file lock, builds a scheduler, and ticks every 5s until interrupted.
 - **`scheduler.py`** — `IntervalScheduler` manages `ScheduledJob` instances. Each job has an interval, an async function, and overlap protection.
 - **`jobs.py`** — Individual job functions (`run_sync_job`, `run_lint_job`, `run_rebuild_indexes_job`) that call the existing service layer.
 - **`locks.py`** — `FileLock` using `fcntl.flock` for single-machine mutual exclusion.
@@ -257,7 +257,7 @@ item_attempts    — per-item attempt history for debugging
 
 ## Data Flow: Ingest
 
-1. User runs `kb ingest-url <url>` or `POST /ingest/url`
+1. User runs `epistora ingest url <url>` or `POST /ingest/url`
 2. URL classified → appropriate fetcher called → `SourceContent` produced
    - article-tagged generic bookmarks are promoted into the article extractor
    - article fetches preserve readable raw markdown
@@ -281,9 +281,9 @@ item_attempts    — per-item attempt history for debugging
 The ingest service and CLI now support force re-runs without deleting vault
 state:
 
-- `kb ingest-url --force <url>`
-- `kb sync-inbox --force`
-- `kb sync-raindrop --force`
+- `epistora ingest url --force <url>`
+- `epistora sync-inbox --force`
+- `epistora sync-raindrop --force`
 
 Internally this bypasses URL/content dedup so the compiled layer can be
 regenerated while the raw evidence file remains immutable if it already exists.
@@ -365,7 +365,7 @@ The vault works well even without these skills — the navigation files and
 
 ### Why Agent-First
 
-The previous `kb query` command used a snippet-based search + LLM generation
+The previous `epistora query` command used a snippet-based search + LLM generation
 pipeline that was weaker than what a capable agent can do by directly reading
 vault files. Direct agent access allows:
 

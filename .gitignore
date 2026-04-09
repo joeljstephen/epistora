@@ -1,3 +1,4 @@
+# Python
 __pycache__/
 *.py[cod]
 *$py.class
@@ -5,23 +6,69 @@ __pycache__/
 dist/
 build/
 .eggs/
+*.egg
 
-.env
-data/
-*.db
-
+# Virtual environments
 .venv/
 venv/
 env/
+.python-version
 
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+
+# Data and databases
+data/
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+
+# Logs
+logs/
+
+# Test artifacts
+test_data/
+htmlcov/
+.coverage
+.coverage.*
+coverage.xml
+
+# User vault (created at runtime)
+knowledge_vault/
+
+# Caches
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
-htmlcov/
-.coverage
+.cache/
 
-knowledge_vault/
+# IDE / Editor
 *.swp
 *.swo
 *~
+.idea/
+.vscode/
+*.code-workspace
+
+# OS files
 .DS_Store
+Thumbs.db
+Desktop.ini
+ehthumbs.db
+
+# Node (for .opencode or similar tooling)
+node_modules/
+
+# uv
+.uv/
+
+# Scheduler output (generated, not committed)
+com.epistora.automation.plist
+epistora-automation.xml
+epistora-automation.service
+epistora-automation.timer
+/SCHEDULING.md
+!knowledge_vault_template/**

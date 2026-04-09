@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-import shutil
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 
 import typer
@@ -11,11 +12,41 @@ from rich.console import Console
 from rich.table import Table
 
 app = typer.Typer(
-    name="kb",
-    help="Epistora – local-first personal knowledge compiler",
+    name="epistora",
+    help="Epistora — local-first personal knowledge compiler.\n\n"
+    "Turn saved bookmarks into a persistent, agent-queryable knowledge base.",
     add_completion=False,
+    no_args_is_help=True,
 )
 console = Console()
+
+
+def _print_version(value: bool) -> None:
+    """Print the installed package version and exit."""
+    if not value:
+        return
+
+    try:
+        resolved_version = package_version("epistora")
+    except PackageNotFoundError:
+        resolved_version = "0.1.0+local"
+
+    console.print(f"epistora {resolved_version}")
+    raise typer.Exit()
+
+
+@app.callback()
+def main(
+    version: bool = typer.Option(
+        False,
+        "--version",
+        callback=_print_version,
+        is_eager=True,
+        help="Show the Epistora version and exit.",
+    ),
+):
+    """Epistora CLI."""
+    del version
 
 
 def _run(coro):
@@ -32,6 +63,41 @@ def _looks_like_epistora_vault(path: Path) -> bool:
     )
 
 
+# ---------------------------------------------------------------------------
+# Core commands
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def setup(
+    vault: str = typer.Option(
+        None, "--vault", "-v", help="Vault path (skip interactive prompt)"
+    ),
+):
+    """Interactive setup wizard — configure Epistora from scratch.
+
+    This is the recommended way to get started. It walks you through:
+    vault location, Raindrop connection, backend selection, automation mode,
+    and generates all required configuration.
+    """
+    from app.cli.setup_wizard import run_setup_wizard
+
+    run_setup_wizard(vault_path_override=vault)
+
+
+@app.command()
+def doctor():
+    """Check your environment and configuration for issues.
+
+    Verifies Python version, config files, vault structure, backend availability,
+    and more. Prints a clear report with recommendations.
+    """
+    from app.cli.doctor import run_doctor
+
+    exit_code = run_doctor()
+    raise typer.Exit(exit_code)
+
+
 @app.command()
 def init(
     vault_path: str = typer.Option(
@@ -41,9 +107,13 @@ def init(
         help="Path where the knowledge vault will be created",
     ),
 ):
-    """Initialize a new knowledge vault and app configuration."""
+    """Initialize a new knowledge vault and database.
+
+    Creates the vault directory structure, copies template files, and
+    initializes the SQLite database. Safe to run on existing vaults.
+    """
+    from app.cli.setup_wizard import _initialize_vault
     from app.config import get_settings
-    from app.vault.paths import ensure_vault_dirs
 
     target = Path(vault_path).resolve()
 
@@ -56,35 +126,7 @@ def init(
         elif not typer.confirm("Reinitialize? (existing files will be kept)"):
             raise typer.Abort()
 
-    ensure_vault_dirs(target)
-
-    template_dir = Path(__file__).parent.parent.parent / "knowledge_vault_template"
-    if template_dir.exists():
-        agents_md = template_dir / "AGENTS.md"
-        if agents_md.exists():
-            dest = target / "AGENTS.md"
-            if not dest.exists():
-                shutil.copy2(agents_md, dest)
-
-    for idx_name in ["INDEX.md", "TOPICS.md", "ENTITIES.md", "CONCEPTS.md"]:
-        idx_path = target / "wiki" / "indexes" / idx_name
-        if not idx_path.exists():
-            idx_path.write_text(
-                f"# {idx_name.replace('.md', '')}\n\n"
-                "_Empty — will be populated after first ingest._\n"
-            )
-
-    for nav_name in ["START_HERE.md", "QUERY_PROTOCOL.md"]:
-        nav_path = target / "wiki" / "indexes" / nav_name
-        if not nav_path.exists():
-            template_nav = template_dir / "wiki" / "indexes" / nav_name
-            if template_nav.exists():
-                shutil.copy2(template_nav, nav_path)
-
-    for log_name, log_title in [("ingest-log.md", "Ingest Log"), ("lint-log.md", "Lint Log")]:
-        log_path = target / "wiki" / "logs" / log_name
-        if not log_path.exists():
-            log_path.write_text(f"# {log_title}\n\nAppend-only log.\n\n---\n\n")
+    _initialize_vault(target)
 
     settings = get_settings()
     db_path = settings.db_path
@@ -98,12 +140,58 @@ def init(
     console.print(f"[green]✓ Vault initialized at {target}[/green]")
     console.print(f"[green]✓ Database initialized at {db_path}[/green]")
     console.print("\nNext steps:")
-    console.print("  1. Copy .env.example to .env and fill in your API keys")
-    console.print("  2. Run: kb ingest-url <url>")
+    console.print("  1. Run: [cyan]epistora setup[/cyan] (if you haven't yet)")
+    console.print("  2. Run: [cyan]epistora doctor[/cyan] to verify")
+    console.print("  3. Run: [cyan]epistora ingest url <url>[/cyan]")
 
 
-@app.command("ingest-url")
-def ingest_url(
+@app.command()
+def status():
+    """Show vault and system status."""
+    from app.config import get_settings
+    from app.storage.repositories import SourceRepository
+    from app.storage.sqlite import Database
+    from app.vault.parser import scan_vault
+
+    settings = get_settings()
+    vault_path = Path(settings.vault_path)
+
+    table = Table(title="Epistora Status")
+    table.add_column("Item", style="bold")
+    table.add_column("Value")
+
+    table.add_row("Vault path", str(vault_path))
+    table.add_row("Vault exists", "yes" if vault_path.exists() else "no")
+    table.add_row("Database", str(settings.db_path))
+
+    if vault_path.exists():
+        notes = scan_vault(vault_path)
+        by_type: dict[str, int] = {}
+        for n in notes:
+            by_type[n.note_type] = by_type.get(n.note_type, 0) + 1
+        for ntype, count in sorted(by_type.items()):
+            table.add_row(f"  {ntype} notes", str(count))
+
+    if settings.db_path.exists():
+        db = Database(settings.db_path)
+        db.connect()
+        source_repo = SourceRepository(db)
+        table.add_row("Processed sources (DB)", str(source_repo.count()))
+        db.close()
+
+    table.add_row("OpenAI model", settings.openai_model)
+    table.add_row("Raindrop configured", "yes" if settings.raindrop_api_token else "no")
+    table.add_row("API auth enabled", "yes" if settings.epistora_api_key else "no")
+
+    console.print(table)
+
+
+# ---------------------------------------------------------------------------
+# Ingest commands
+# ---------------------------------------------------------------------------
+
+
+def _ingest_url_impl(
     url: str = typer.Argument(..., help="URL to ingest"),
     force: bool = typer.Option(
         False,
@@ -141,6 +229,83 @@ def ingest_url(
     table.add_row("Entities", ", ".join(result.entities_updated) or "none")
     table.add_row("Concepts", ", ".join(result.concepts_updated) or "none")
     console.print(table)
+
+
+ingest_app = typer.Typer(
+    name="ingest",
+    help="Ingest content from bookmarks or direct URLs.",
+    add_completion=False,
+)
+app.add_typer(ingest_app, name="ingest")
+
+
+@ingest_app.command("url")
+def ingest_url(
+    url: str = typer.Argument(..., help="URL to ingest"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Re-run ingest even if the URL was already compiled before",
+    ),
+):
+    """Ingest a single URL into the knowledge vault."""
+    _ingest_url_impl(url=url, force=force)
+
+
+@app.command("ingest-url", hidden=True)
+def ingest_url_compat(
+    url: str = typer.Argument(..., help="URL to ingest"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Re-run ingest even if the URL was already compiled before",
+    ),
+):
+    """Backward-compatible alias for 'ingest url'."""
+    _ingest_url_impl(url=url, force=force)
+
+
+def _ingest_latest_impl(
+    limit: int = typer.Option(10, "--limit", "-n", help="Max items to ingest"),
+    connector: str = typer.Option("raindrop", "--connector", "-c", help="Inbox connector"),
+    force: bool = typer.Option(False, "--force", help="Re-run for already-seen sources"),
+):
+    """Ingest the latest bookmarks from your configured connector.
+
+    This is a convenience command that syncs recent items from your
+    inbox connector (Raindrop by default) and ingests them.
+    """
+    from app.services.ingest_service import sync_inbox as _sync
+
+    console.print(f"[blue]Ingesting latest {limit} items from {connector}...[/blue]")
+
+    try:
+        results = _run(_sync(connector_id=connector, limit=limit, force=force))
+    except ValueError as e:
+        console.print(f"[red]Configuration error:[/red] {e}")
+        console.print("[dim]Run 'epistora connect raindrop' to set up your connector.[/dim]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Ingest failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    ingested = sum(1 for r in results if not r.deduplicated and not r.errors)
+    skipped = sum(1 for r in results if r.deduplicated)
+    failed = sum(1 for r in results if r.errors)
+
+    console.print(
+        f"[green]✓ Ingest complete:[/green] {ingested} ingested, {skipped} skipped, {failed} failed"
+    )
+
+
+@ingest_app.command("latest")
+def ingest_latest(
+    limit: int = typer.Option(10, "--limit", "-n", help="Max items to ingest"),
+    connector: str = typer.Option("raindrop", "--connector", "-c", help="Inbox connector"),
+    force: bool = typer.Option(False, "--force", help="Re-run for already-seen sources"),
+):
+    """Ingest the latest bookmarks from your configured connector."""
+    _ingest_latest_impl(limit=limit, connector=connector, force=force)
 
 
 @app.command("sync-raindrop")
@@ -208,6 +373,11 @@ def sync_inbox(
     )
 
 
+# ---------------------------------------------------------------------------
+# Vault maintenance
+# ---------------------------------------------------------------------------
+
+
 @app.command(deprecated=True)
 def query(
     question: str = typer.Argument(..., help="Question to ask the vault"),
@@ -221,13 +391,13 @@ def query(
     import warnings
 
     warnings.warn(
-        "`kb query` is deprecated. Use Claude Code or OpenCode directly on the "
+        "`epistora query` is deprecated. Use Claude Code or OpenCode directly on the "
         "vault directory instead. See AGENTS.md for guidance.",
         DeprecationWarning,
         stacklevel=2,
     )
     console.print(
-        "[yellow]Warning: `kb query` is deprecated. "
+        "[yellow]Warning: `epistora query` is deprecated. "
         "Use Claude Code or OpenCode directly on the vault directory.[/yellow]\n"
     )
 
@@ -291,73 +461,71 @@ def lint():
         console.print(f"\n[green]Full report:[/green] {result.report_path}")
 
 
-@app.command()
-def status():
-    """Show vault and system status."""
+@app.command("rebuild-indexes")
+def rebuild_indexes():
+    """Rebuild all vault index files."""
     from app.config import get_settings
-    from app.storage.repositories import SourceRepository
-    from app.storage.sqlite import Database
-    from app.vault.parser import scan_vault
+    from app.vault.index_updater import rebuild_indexes as _rebuild
 
     settings = get_settings()
     vault_path = Path(settings.vault_path)
 
-    table = Table(title="Epistora Status")
-    table.add_column("Item", style="bold")
-    table.add_column("Value")
+    if not vault_path.exists():
+        console.print("[red]Vault not found. Run 'epistora init' first.[/red]")
+        raise typer.Exit(1)
 
-    table.add_row("Vault path", str(vault_path))
-    table.add_row("Vault exists", "yes" if vault_path.exists() else "no")
-    table.add_row("Database", str(settings.db_path))
-
-    if vault_path.exists():
-        notes = scan_vault(vault_path)
-        by_type: dict[str, int] = {}
-        for n in notes:
-            by_type[n.note_type] = by_type.get(n.note_type, 0) + 1
-        for ntype, count in sorted(by_type.items()):
-            table.add_row(f"  {ntype} notes", str(count))
-
-    if settings.db_path.exists():
-        db = Database(settings.db_path)
-        db.connect()
-        source_repo = SourceRepository(db)
-        table.add_row("Processed sources (DB)", str(source_repo.count()))
-        db.close()
-
-    table.add_row("OpenAI model", settings.openai_model)
-    table.add_row("Raindrop configured", "yes" if settings.raindrop_api_token else "no")
-    table.add_row("API auth enabled", "yes" if settings.epistora_api_key else "no")
-
-    console.print(table)
+    updated = _rebuild(vault_path)
+    console.print(f"[green]✓ Rebuilt {len(updated)} index files[/green]")
+    for path in updated:
+        console.print(f"  - {path}")
 
 
-@app.command()
-def worker():
-    """Run the background automation worker (sync, lint, index rebuild)."""
-    import logging
-
+@app.command("reset-generated")
+def reset_generated(
+    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt"),
+    archive: bool = typer.Option(
+        True,
+        "--archive/--no-archive",
+        help="Archive current generated artifacts before clearing",
+    ),
+):
+    """Reset generated vault content and internal state."""
     from app.config import get_settings
+    from app.services.reset_service import reset_generated_state
 
     settings = get_settings()
-    logging.basicConfig(
-        level=getattr(logging, settings.log_level.upper(), logging.INFO),
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-    )
+    vault_path = Path(settings.vault_path)
 
-    console.print("[blue]Starting Epistora worker...[/blue]")
-    interval = settings.sync_interval_seconds
-    console.print(f"  Sync enabled: {settings.sync_enabled} (every {interval}s)")
-    console.print(f"  Auto-lint enabled: {settings.auto_lint_enabled}")
-    console.print(f"  Auto-rebuild enabled: {settings.auto_rebuild_indexes_enabled}")
-    console.print("[dim]Press Ctrl+C to stop.[/dim]\n")
+    if not yes:
+        confirmed = typer.confirm(
+            f"Reset generated content under {vault_path}? This keeps source code and AGENTS.md."
+        )
+        if not confirmed:
+            raise typer.Abort()
 
-    from app.automation.worker import run_worker
+    result = reset_generated_state(archive_existing=archive)
+    console.print("[green]✓ Generated vault artifacts reset[/green]")
+    if result.get("archive_path"):
+        console.print(f"[blue]Archive:[/blue] {result['archive_path']}")
+    cleared = result.get("cleared", [])
+    if isinstance(cleared, list):
+        for relative in cleared:
+            console.print(f"  - cleared {relative}")
 
-    _run(run_worker())
+
+# ---------------------------------------------------------------------------
+# Backend commands
+# ---------------------------------------------------------------------------
+
+backend_app = typer.Typer(
+    name="backend",
+    help="Backend configuration and status.",
+    add_completion=False,
+)
+app.add_typer(backend_app, name="backend")
 
 
-@app.command("backend-status")
+@backend_app.command("status")
 def backend_status():
     """Show which backend is configured and available for each task."""
     from app.backends.models import TaskName
@@ -385,11 +553,124 @@ def backend_status():
     console.print(table)
 
 
-@app.command("run-sync")
+@backend_app.command("setup")
+def backend_setup_cmd():
+    """Interactive backend configuration helper.
+
+    Walks you through configuring your preferred LLM backend.
+    """
+    from app.cli.setup_wizard import _prompt_backend, _write_env_file
+    from app.config import preferred_env_file
+
+    console.print("[bold blue]Backend Configuration[/bold blue]\n")
+    config = _prompt_backend()
+
+    env_path = preferred_env_file()
+    _write_env_file(env_path, config)
+    console.print(f"\n[green]✓ Backend configuration saved to {env_path}[/green]")
+    console.print("[dim]Run 'epistora backend status' to verify.[/dim]")
+
+
+# Keep the top-level alias for backward compatibility
+@app.command("backend-status", hidden=True)
+def backend_status_compat():
+    """Show backend status (alias for 'backend status')."""
+    backend_status()
+
+
+# ---------------------------------------------------------------------------
+# Connect commands
+# ---------------------------------------------------------------------------
+
+connect_app = typer.Typer(
+    name="connect",
+    help="Connect to external services.",
+    add_completion=False,
+)
+app.add_typer(connect_app, name="connect")
+
+
+@connect_app.command("raindrop")
+def connect_raindrop():
+    """Set up Raindrop.io connection interactively.
+
+    Walks you through getting an API token and configuring the connection.
+    """
+    from app.cli.setup_wizard import _write_env_file
+    from app.config import preferred_env_file
+
+    console.print("[bold blue]Raindrop.io Connection Setup[/bold blue]\n")
+    console.print(
+        "Epistora syncs your saved bookmarks from Raindrop.io.\n"
+        "You need an API token to connect.\n"
+    )
+    console.print(
+        "  1. Go to [link=https://app.raindrop.io/settings/integrations]"
+        "https://app.raindrop.io/settings/integrations[/link]"
+    )
+    console.print("  2. Create a new app (or use an existing one)")
+    console.print("  3. Generate a test token")
+    console.print()
+
+    token = typer.prompt("Raindrop API token").strip()
+    if not token:
+        console.print("[yellow]No token provided. Aborting.[/yellow]")
+        raise typer.Abort()
+
+    collection_id = typer.prompt(
+        "Collection ID (0 = all unsorted bookmarks)", default=0, type=int
+    )
+
+    config = {
+        "raindrop_api_token": token,
+        "raindrop_collection_id": str(collection_id),
+    }
+    env_path = preferred_env_file()
+    _write_env_file(env_path, config)
+
+    console.print("\n[green]✓ Raindrop.io configured![/green]")
+    console.print(f"  Token saved to {env_path}")
+    console.print("\nNext steps:")
+    console.print("  [cyan]epistora sync-raindrop[/cyan]        — sync recent bookmarks")
+    console.print("  [cyan]epistora ingest latest[/cyan]        — ingest latest items")
+    console.print("  [cyan]epistora automation run-pending[/cyan] — full automation run")
+
+
+# ---------------------------------------------------------------------------
+# Worker / legacy commands
+# ---------------------------------------------------------------------------
+
+
+@app.command()
+def worker():
+    """Run the background automation worker (legacy interval-based)."""
+    import logging
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    logging.basicConfig(
+        level=getattr(logging, settings.log_level.upper(), logging.INFO),
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    )
+
+    console.print("[blue]Starting Epistora worker...[/blue]")
+    interval = settings.sync_interval_seconds
+    console.print(f"  Sync enabled: {settings.sync_enabled} (every {interval}s)")
+    console.print(f"  Auto-lint enabled: {settings.auto_lint_enabled}")
+    console.print(f"  Auto-rebuild enabled: {settings.auto_rebuild_indexes_enabled}")
+    console.print("[dim]Press Ctrl+C to stop.[/dim]\n")
+
+    from app.automation.worker import run_worker
+
+    _run(run_worker())
+
+
+@app.command("run-sync", hidden=True)
 def run_sync_now(
     limit: int = typer.Option(25, "--limit", "-n", help="Max items to sync"),
 ):
-    """Run a one-off Raindrop sync (like sync-raindrop, via automation jobs)."""
+    """Run a one-off Raindrop sync (alias)."""
     from app.automation.jobs import run_sync_job
 
     console.print("[blue]Running sync job...[/blue]")
@@ -406,9 +687,9 @@ def run_sync_now(
         raise typer.Exit(1)
 
 
-@app.command("run-lint")
+@app.command("run-lint", hidden=True)
 def run_lint_now():
-    """Run a one-off lint check via automation jobs."""
+    """Run a one-off lint check (alias)."""
     from app.automation.jobs import run_lint_job
 
     console.print("[blue]Running lint job...[/blue]")
@@ -423,25 +704,6 @@ def run_lint_now():
         raise typer.Exit(1)
 
 
-@app.command("rebuild-indexes")
-def rebuild_indexes():
-    """Rebuild all vault index files."""
-    from app.config import get_settings
-    from app.vault.index_updater import rebuild_indexes as _rebuild
-
-    settings = get_settings()
-    vault_path = Path(settings.vault_path)
-
-    if not vault_path.exists():
-        console.print("[red]Vault not found. Run 'kb init' first.[/red]")
-        raise typer.Exit(1)
-
-    updated = _rebuild(vault_path)
-    console.print(f"[green]✓ Rebuilt {len(updated)} index files[/green]")
-    for path in updated:
-        console.print(f"  - {path}")
-
-
 # ---------------------------------------------------------------------------
 # Automation subcommand group
 # ---------------------------------------------------------------------------
@@ -452,6 +714,64 @@ automation_app = typer.Typer(
     add_completion=False,
 )
 app.add_typer(automation_app, name="automation")
+
+
+@automation_app.command("setup")
+def automation_setup_cmd():
+    """Interactive automation configuration helper.
+
+    Walks you through choosing an automation mode, enabling automation,
+    and optionally generating OS scheduler files.
+    """
+    from app.cli.setup_wizard import _prompt_automation, _prompt_scheduler, _write_env_file
+    from app.config import epistora_logs_dir, preferred_env_file
+
+    console.print("[bold blue]Automation Configuration[/bold blue]\n")
+    config = _prompt_automation()
+
+    generate_scheduler = _prompt_scheduler()
+
+    env_path = preferred_env_file()
+    _write_env_file(env_path, config)
+    console.print(f"\n[green]✓ Automation configuration saved to {env_path}[/green]")
+
+    if generate_scheduler:
+        from app.cli.setup_wizard import _detect_platform
+
+        plat = _detect_platform()
+        if plat != "unknown":
+            from app.automation.scheduler_helpers import (
+                generate_launchd_plist,
+                generate_scheduler_instructions,
+                generate_systemd_timer,
+                generate_windows_task_xml,
+            )
+
+            mode = config.get("automation_default_mode", "safe")
+            out = Path.cwd()
+            epistora_logs_dir().mkdir(parents=True, exist_ok=True)
+
+            if plat == "macos":
+                content = generate_launchd_plist(mode=mode)
+                path = out / "com.epistora.automation.plist"
+                path.write_text(content)
+                console.print(f"[green]Generated:[/green] {path}")
+            elif plat == "linux":
+                svc, tmr = generate_systemd_timer(mode=mode)
+                (out / "epistora-automation.service").write_text(svc)
+                (out / "epistora-automation.timer").write_text(tmr)
+                console.print("[green]Generated:[/green] epistora-automation.service/timer")
+            elif plat == "windows":
+                content = generate_windows_task_xml(mode=mode)
+                path = out / "epistora-automation.xml"
+                path.write_text(content)
+                console.print(f"[green]Generated:[/green] {path}")
+
+            instructions = generate_scheduler_instructions(mode=mode)
+            (out / "SCHEDULING.md").write_text(instructions)
+            console.print("[green]Generated:[/green] SCHEDULING.md")
+
+    console.print("\n[dim]Run 'epistora automation status' to verify.[/dim]")
 
 
 @automation_app.command("discover")
@@ -590,19 +910,16 @@ def automation_status():
     table.add_row("Enabled", "yes" if result["automation_enabled"] else "no")
     table.add_row("Default mode", result["default_mode"])
 
-    # Queue counts
     counts = result.get("queue_counts", {})
     for status_name, count in sorted(counts.items()):
         table.add_row(f"  queue: {status_name}", str(count))
     table.add_row("  queue: total", str(result.get("total_queued", 0)))
     table.add_row("Retryable failures", str(result.get("retryable_failures", 0)))
 
-    # Connectors
     for cid, info in result.get("connectors", {}).items():
         last_sync = info.get("last_sync_at", "never")
         table.add_row(f"Connector: {cid}", f"last sync: {last_sync}")
 
-    # Last run
     last_run = result.get("last_run")
     if last_run:
         table.add_row("Last run type", last_run.get("run_type", ""))
@@ -610,7 +927,6 @@ def automation_status():
         table.add_row("Last run at", str(last_run.get("started_at", "")))
         table.add_row("Last run summary", last_run.get("summary", ""))
 
-    # Backends
     for backend, available in result.get("backends_available", {}).items():
         color = "green" if available else "red"
         table.add_row(
@@ -710,12 +1026,11 @@ def automation_generate_scheduler(
         generate_systemd_timer,
         generate_windows_task_xml,
     )
+    from app.config import epistora_logs_dir
 
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-
-    repo_logs_dir = Path(__file__).resolve().parents[2] / "logs"
-    repo_logs_dir.mkdir(parents=True, exist_ok=True)
+    epistora_logs_dir().mkdir(parents=True, exist_ok=True)
 
     platforms = [platform] if platform != "all" else ["macos", "linux", "windows"]
 
@@ -741,44 +1056,10 @@ def automation_generate_scheduler(
             path.write_text(content)
             console.print(f"[green]Generated:[/green] {path}")
 
-    # Always generate instructions
     instructions = generate_scheduler_instructions(mode=mode, interval_minutes=interval)
     inst_path = out / "SCHEDULING.md"
     inst_path.write_text(instructions)
     console.print(f"[green]Generated:[/green] {inst_path}")
-
-
-@app.command("reset-generated")
-def reset_generated(
-    yes: bool = typer.Option(False, "--yes", help="Skip confirmation prompt"),
-    archive: bool = typer.Option(
-        True,
-        "--archive/--no-archive",
-        help="Archive current generated artifacts before clearing",
-    ),
-):
-    """Reset generated vault content and generated internal state."""
-    from app.config import get_settings
-    from app.services.reset_service import reset_generated_state
-
-    settings = get_settings()
-    vault_path = Path(settings.vault_path)
-
-    if not yes:
-        confirmed = typer.confirm(
-            f"Reset generated content under {vault_path}? This keeps source code and AGENTS.md."
-        )
-        if not confirmed:
-            raise typer.Abort()
-
-    result = reset_generated_state(archive_existing=archive)
-    console.print("[green]✓ Generated vault artifacts reset[/green]")
-    if result.get("archive_path"):
-        console.print(f"[blue]Archive:[/blue] {result['archive_path']}")
-    cleared = result.get("cleared", [])
-    if isinstance(cleared, list):
-        for relative in cleared:
-            console.print(f"  - cleared {relative}")
 
 
 if __name__ == "__main__":

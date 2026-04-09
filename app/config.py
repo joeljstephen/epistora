@@ -2,15 +2,119 @@
 
 from __future__ import annotations
 
+import os
+import platform
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+def project_root() -> Path:
+    """Return the repository root when running from source."""
+    return Path(__file__).resolve().parent.parent
+
+
+def _default_epistora_home() -> Path:
+    """Return the OS-appropriate home directory for Epistora config/state."""
+    override = os.environ.get("EPISTORA_HOME")
+    if override:
+        return Path(override).expanduser()
+
+    home = Path.home()
+    system = platform.system()
+
+    if system == "Windows":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            return Path(appdata) / "Epistora"
+        return home / "AppData" / "Roaming" / "Epistora"
+
+    if system == "Darwin":
+        return home / "Library" / "Application Support" / "Epistora"
+
+    xdg_config_home = os.environ.get("XDG_CONFIG_HOME")
+    if xdg_config_home:
+        return Path(xdg_config_home).expanduser() / "epistora"
+
+    return home / ".config" / "epistora"
+
+
+def epistora_home() -> Path:
+    """Public helper for the Epistora config/state directory."""
+    return _default_epistora_home()
+
+
+def epistora_logs_dir() -> Path:
+    """Return the default log directory for scheduler helpers."""
+    return epistora_home() / "logs"
+
+
+def candidate_env_files(cwd: Path | None = None) -> tuple[Path, ...]:
+    """Return env files in lookup priority order."""
+    candidates: list[Path] = []
+
+    explicit = os.environ.get("EPISTORA_ENV_FILE")
+    if explicit:
+        candidates.append(Path(explicit).expanduser())
+
+    working_dir = (cwd or Path.cwd()).resolve()
+    candidates.append(working_dir / ".env")
+
+    root = project_root()
+    inside_project_tree = root == working_dir or root in working_dir.parents
+
+    if inside_project_tree:
+        candidates.append(root / ".env")
+
+    candidates.append(epistora_home() / ".env")
+
+    if not inside_project_tree:
+        candidates.append(root / ".env")
+
+    unique: list[Path] = []
+    seen: set[Path] = set()
+    for path in candidates:
+        resolved = path.expanduser()
+        if resolved not in seen:
+            seen.add(resolved)
+            unique.append(resolved)
+
+    return tuple(unique)
+
+
+def existing_env_file(cwd: Path | None = None) -> Path | None:
+    """Return the first existing env file in lookup order."""
+    for path in candidate_env_files(cwd):
+        if path.exists():
+            return path
+    return None
+
+
+def preferred_env_file(cwd: Path | None = None) -> Path:
+    """Return the env file path to create or update."""
+    explicit = os.environ.get("EPISTORA_ENV_FILE")
+    if explicit:
+        return Path(explicit).expanduser()
+
+    working_dir = (cwd or Path.cwd()).resolve()
+    cwd_env = working_dir / ".env"
+    if cwd_env.exists():
+        return cwd_env
+
+    root = project_root()
+    inside_project_tree = root == working_dir or root in working_dir.parents
+    if (working_dir / "pyproject.toml").exists() and (working_dir / "app").is_dir():
+        return cwd_env
+
+    if inside_project_tree:
+        return root / ".env"
+
+    return epistora_home() / ".env"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -182,7 +286,7 @@ _settings: Settings | None = None
 def get_settings() -> Settings:
     global _settings
     if _settings is None:
-        _settings = Settings()
+        _settings = Settings(_env_file=candidate_env_files())
     return _settings
 
 

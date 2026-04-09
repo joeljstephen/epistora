@@ -1,231 +1,156 @@
-# Epistora — Build Plan
+# Epistora — Open-Source Release Plan
 
 ## Overview
 
-Build a local-first personal knowledge compiler that turns saved links (from Raindrop.io and direct URLs) into a persistent, markdown-based, queryable knowledge base compatible with Obsidian.
+Transform Epistora from a personal development project into a polished, cross-platform,
+open-source CLI tool that anyone can install and use with minimal friction.
+
+## Current State Assessment
+
+### What exists and works well
+- Solid Python codebase with clear architecture (connectors, compiler, vault, automation)
+- Comprehensive CLI via Typer (`kb` command) with 20+ subcommands
+- FastAPI server with OpenAPI docs
+- Multi-backend LLM support (API, OpenCode, Claude Code, Codex)
+- Queue-based automation with cross-platform scheduler generation
+- 128 tracked files, 212+ tests passing
+- Existing docs: README, ARCHITECTURE, DEVELOPMENT, ROADMAP, SECURITY, LICENSE
+
+### What needs improvement
+- **CLI entry point** is `kb`, not `epistora` — confusing for a tool named Epistora
+- **No setup wizard** — users must manually copy `.env.example`, edit it, run `kb init`
+- **No doctor/health check** — no way to verify environment is correctly configured
+- **No uv support** — only pip-based setup documented
+- **Tracked junk** — log files and SQLite WAL/SHM in version control
+- **Missing OSS files** — no CONTRIBUTING.md, CODE_OF_CONDUCT.md, issue/PR templates
+- **.gitignore gaps** — missing patterns for logs/, test_data/, node_modules
+- **Docs are developer-focused** — not approachable for non-technical users
+- **No quickstart or troubleshooting guides**
 
 ## Implementation Phases
 
-### Phase 1: Foundation ✅
-- [x] Project scaffold and dependencies
-- [x] Pydantic models (SourceItem, SourceContent, Topic, Entity, Concept, etc.)
-- [x] Configuration and settings
-- [x] SQLite storage layer
-- [x] Utility functions (hashing, slugify, markdown, dates)
+### Phase 1: Repository Hygiene
+- [x] Improve `.gitignore` (logs/, test_data/, .opencode/node_modules/, Thumbs.db, etc.)
+- [x] Remove tracked files that should not be committed (logs/*.log, test_data/*.db-*)
+- [x] Add `.gitattributes` for consistent line endings and diff behavior
+- [x] Update `.env.example` with better comments and grouping
 
-### Phase 2: Vault Layer ✅
-- [x] Vault directory structure and path helpers
-- [x] Markdown note templates (source, topic, entity, concept, synthesis)
-- [x] VaultWriter with create/update logic
-- [x] Vault parser for reading notes
-- [x] Index rebuilder
-- [x] Log updater (ingest log, lint log)
-- [x] AGENTS.md conventions file
+### Phase 2: Open-Source Files
+- [x] Add `CONTRIBUTING.md` — how to contribute, code style, PR process
+- [x] Add `CODE_OF_CONDUCT.md` — Contributor Covenant
+- [x] Add `.github/ISSUE_TEMPLATE/bug_report.md`
+- [x] Add `.github/ISSUE_TEMPLATE/feature_request.md`
+- [x] Add `.github/PULL_REQUEST_TEMPLATE.md`
 
-### Phase 3: Connectors ✅
-- [x] URL classifier (YouTube, X, PDF, article)
-- [x] Raindrop.io connector
-- [x] Article fetcher (trafilatura)
-- [x] YouTube transcript fetcher
-- [x] X/Twitter best-effort fetcher
-- [x] PDF text extractor (PyMuPDF)
-- [x] Generic fallback fetcher
+### Phase 3: Packaging & uv
+- [x] Update `pyproject.toml`:
+  - Add `epistora` as the primary CLI entry point
+  - Keep `kb` as a backward-compatible alias
+  - Add project URLs, classifiers, authors metadata
+  - Configure for uv compatibility
+- [x] Set up uv workflow (`uv sync`, `uv run`)
+- [x] Validate installation works via `uv tool install`
 
-### Phase 4: Compiler / Orchestrator ✅
-- [x] LLM client setup (LangChain + OpenAI)
-- [x] Prompt templates
-- [x] Ingest LangGraph workflow (fetch → dedup → analyse → extract → write → persist)
-- [x] Query LangGraph workflow (resolve → generate → save)
-- [x] Lint LangGraph workflow (scan → structural → llm → report)
+### Phase 4: CLI Refactoring
+- [x] Rename internal Typer app from "kb" to "epistora"
+- [x] Add `epistora setup` — interactive guided setup wizard
+- [x] Add `epistora doctor` — environment and configuration health check
+- [x] Add `epistora connect raindrop` — Raindrop connection helper
+- [x] Add `epistora backend setup` — backend configuration helper
+- [x] Add `epistora automation setup` — automation configuration helper
+- [x] Add `epistora ingest latest` — quick ingest of recent bookmarks
+- [x] Keep all existing commands working
 
-### Phase 5: Retrieval ✅
-- [x] FTS5 search index over vault markdown
-- [x] Keyword fallback search
-- [x] Name-to-page resolver
+### Phase 5: Setup Wizard
+- [x] Interactive vault location prompt
+- [x] Connector selection (Raindrop for now)
+- [x] Raindrop API token input and validation
+- [x] Backend selection (API, Claude Code, OpenCode, Codex)
+- [x] Backend-specific configuration
+- [x] Automation mode selection (safe/balanced/deep)
+- [x] Optional scheduler helper generation
+- [x] Config file creation/update
+- [x] Vault scaffolding at chosen location
+- [x] Success summary with next steps
 
-### Phase 6: Interfaces ✅
-- [x] Typer CLI (init, ingest-url, sync-raindrop, query, lint, status, rebuild-indexes)
-- [x] FastAPI API (health, ingest, query, lint, status, indexes)
+### Phase 6: Doctor Command
+- [x] Python version check
+- [x] uv availability check
+- [x] Config file existence and validity
+- [x] Vault path existence and structure
+- [x] Raindrop token presence
+- [x] Backend availability (API key, CLI binaries)
+- [x] Database connectivity
+- [x] Automation readiness
+- [x] Helpful report with recommendations
 
-### Phase 7: Quality ✅
-- [x] Tests for classifier, vault writer, ingest flow, query flow, lint flow
-- [x] Documentation (README, ARCHITECTURE, PLAN, ROADMAP)
+### Phase 7: Documentation Overhaul
+- [x] Rewrite README.md — beginner-friendly with clear install/setup/usage
+- [x] Create `docs/QUICKSTART.md`
+- [x] Create `docs/TROUBLESHOOTING.md`
+- [x] Update `docs/ARCHITECTURE.md`
+- [x] Update `docs/DEVELOPMENT.md`
 
-### Phase 8: Multi-Backend & Automation ✅
-- [x] Backend abstraction layer (`app/backends/`)
-  - [x] `ReasoningBackend` abstract base class with `generate`, `generate_structured`, `is_available`, `describe`
-  - [x] `DirectApiBackend` — OpenAI-compatible API with per-task overrides
-  - [x] `OpenCodeCliBackend` — subprocess execution with timeout and JSON parsing
-  - [x] `ClaudeCodeCliBackend` — subprocess execution in print mode
-  - [x] `BackendRouter` — per-task fallback with both selection-time and execution-time fallback
-  - [x] `BackendRequest` / `BackendResponse` / `BackendDescriptor` models
-- [x] Extended `Settings` with 50+ configuration fields for all backends and automation
-- [x] Refactored `compiler/llm.py` to expose `get_backend_router()`, `run_text()`, `run_structured()`
-- [x] Updated all three graph files to use the backend router instead of `get_llm()` directly
-- [x] Automation subsystem (`app/automation/`)
-  - [x] `IntervalScheduler` with `ScheduledJob` management
-  - [x] `FileLock` using fcntl for process-level exclusion
-  - [x] Job definitions for sync, lint, and index rebuild
-  - [x] `run_worker()` main loop with graceful shutdown
-- [x] New CLI commands: `worker`, `backend-status`, `run-sync`, `run-lint`
-- [x] Automation API endpoints: `/automation/status`, `/automation/run-sync`, `/automation/run-lint`, `/automation/rebuild-indexes`
-- [x] Tests for backend availability, routing, fallback, JSON parsing, automation scheduler, locks, jobs
-- [x] Integration tests with mocked backend router for all three graph workflows
-- [x] Updated all documentation
+### Phase 8: Testing & Validation
+- [x] Run existing test suite
+- [x] Add tests for new CLI commands (setup, doctor, connect)
+- [x] Validate uv workflow end-to-end
+- [x] Validate CLI entry point
+- [x] Fix any issues found
 
-### Phase 9: Extraction Stack Upgrade ✅
-- [x] Extend `SourceContent` model with extraction metadata (method, fallback_chain, raw_metadata, canonical_url)
-- [x] Add `ExtractionQuality` enum (full, mostly_full, partial, metadata_only, failed)
-- [x] Extraction config settings (article, YouTube, X, browser timeouts and toggles)
-- [x] Quality scoring utilities (`app/utils/extraction.py`)
-- [x] Article fetcher: Trafilatura → readability-lxml → browser rendering → metadata-only
-- [x] YouTube fetcher: transcript-api → yt-dlp subtitles → metadata/noembed + ASR hook
-- [x] X fetcher overhaul: Official API → fxtwitter/vxtwitter → oEmbed → page scrape → browser
-  - [x] `x_api.py` — Official X API v2 client with thread reconstruction
-  - [x] `x_mirrors.py` — fxtwitter/vxtwitter/oEmbed helpers
-  - [x] Five-tier fallback in `x_thread.py`
-- [x] Generic fetcher: Trafilatura → readability → browser → metadata-only
-- [x] PDF fetcher: Updated with extraction metadata
-- [x] Browser fallback module (`browser.py`) — optional Playwright
-- [x] Readability module (`readability.py`) — readability-lxml wrapper
-- [x] Fetcher router with timing, logging, and crash protection
-- [x] Vault templates updated with extraction_method, fallback_chain, canonical_url
-- [x] New dependency: `readability-lxml`; optional: `playwright`
-- [x] Tests: 41 new tests covering all fetcher fallback chains and quality scoring
-- [x] Documentation updates (README, ARCHITECTURE, ROADMAP)
+## Key Design Decisions
 
-## Key Decisions
+1. **`epistora` as primary command, `kb` as alias** — the tool name should match the package
+2. **uv-first, pip-compatible** — uv is primary, pip still works
+3. **Setup wizard creates `.env`** — no need for users to manually copy/edit
+4. **Doctor validates everything** — single command to diagnose all issues
+5. **Subcommand groups** — `connect`, `backend`, `automation` for organization
+6. **Cross-platform from day one** — no macOS assumptions in docs or code
 
-1. **LangGraph over raw LangChain chains**: Gives clear state machines for each workflow, easy to extend with new nodes
-2. **FTS5 for search**: Zero infrastructure, ships with SQLite, good enough for v1
-3. **trafilatura for article extraction**: Best-in-class Python readability extraction
-4. **PyMuPDF for PDFs**: Fast, reliable, no Java dependencies
-5. **Immutable raw captures**: Provenance-first design, can always re-process
-6. **Backend abstraction via protocol**: Keeps LangGraph nodes backend-agnostic; new providers only need one file
-7. **CLI backends**: Enables using OpenCode/Claude Code without reimplementing their auth/model access
-8. **File-based locking**: Simplest reliable mechanism for single-machine local-first automation
-9. **Interval scheduler over cron**: Simpler implementation, adequate for the use case, cron can be added later
-10. **Multi-tier extraction fallbacks**: Each source type has its own fallback chain to maximize content capture while degrading gracefully
-11. **X API optional, mirrors default**: Official X API provides best quality but free mirrors (fxtwitter/vxtwitter) work well enough as default
-12. **Browser rendering opt-in**: Playwright adds significant weight; kept as optional install with config toggle
+## User Journey After Implementation
 
-### Phase 10: Knowledge Compiler Quality Upgrade ✅
-- [x] Resolve current branch instability in vault templates and keep all user-owned edits intact
-- [x] Upgrade the source-analysis schema and prompts so source notes are richer, more grounded, and more cumulative
-- [x] Strengthen query, lint, and maintenance prompts so the wiki behaves like a persistent compiled layer rather than a one-shot summarizer
-- [x] Improve YouTube ingest:
-  - [x] Preserve transcript/raw capture separately from compiled notes
-  - [x] Clean transcript structure and record transcript availability / quality
-  - [x] Generate article-style video notes with a 5-minute read and detailed reading version
-  - [x] Make the note useful enough that the user can often skip the full watch on first pass
-- [x] Improve article ingest for Raindrop items tagged `article`:
-  - [x] Treat the tag as a strong signal to use article extraction
-  - [x] Preserve a clean readable markdown archive in the raw layer
-  - [x] Keep the compiled source note separate from the raw archive
-  - [x] Preserve article metadata cleanly without mixing AI commentary into the raw archive body
-- [x] Strengthen vault templates and conventions:
-  - [x] Source note templates for video/article/generic sources
-  - [x] Topic/entity/concept/synthesis templates with stronger navigation sections
-  - [x] `knowledge_vault_template/AGENTS.md` as the operating manual for the vault
-- [x] Improve maintenance surfaces:
-  - [x] Query prompt and saved outputs for better grounded answers
-  - [x] Lint prompt and structural checks for wiki health issues
-  - [x] Index and ingest-log generation so the vault is easier to navigate
-- [x] Keep raw captures immutable and avoid deleting or resetting existing generated vault artifacts during validation
-- [x] Fetch and process only the latest Raindrop bookmark with the upgraded pipeline
-- [x] Inspect the generated raw/wiki artifacts, fix workflow or quality issues discovered during validation, and rerun as needed
-- [x] Expand tests for YouTube/article raw-vs-compiled separation and mixed-source ingest
-- [x] Update README and architecture/development/roadmap docs with the new behavior, folder responsibilities, and validation notes
+```
+# Install
+uv tool install .    # or install from GitHub once the repo is accessible
 
-### Phase 11: Agent-First Query Migration ✅
-- [x] Deprecated `kb query` CLI command with deprecation warning
-- [x] Deprecated `/query` API endpoint with OpenAPI deprecation marker
-- [x] Rewrote `AGENTS.md` as comprehensive agent operating manual with:
-  - Three-layer model explanation
-  - Explicit navigation sequence (9 steps)
-  - Answer structure requirements
-  - Evidence trust hierarchy
-  - Extraction quality handling
-  - Wikilink graph navigation guidance
-- [x] Added `wiki/indexes/START_HERE.md` — auto-generated vault orientation map
-- [x] Added `wiki/indexes/QUERY_PROTOCOL.md` — auto-generated query procedure
-- [x] Updated `index_updater.py` to generate START_HERE and QUERY_PROTOCOL
-- [x] Added path helpers for new index files in `paths.py`
-- [x] Updated `kb init` to copy START_HERE and QUERY_PROTOCOL templates
-- [x] Added `.claude/skills/vault-query.md` — Claude Code query skill
-- [x] Added `.opencode/VAULT_QUERY.md` — OpenCode agent instructions
-- [x] Updated README.md for agent-first workflow
-- [x] Updated ARCHITECTURE.md with agent-first query architecture section
-- [x] Updated DEVELOPMENT.md with agent-first querying section
-- [x] Updated ROADMAP.md with v1.4 agent-first milestone
-- [x] Updated PLAN.md with Phase 11 completion notes
-- [x] Updated tests for new navigation files and deprecation warnings
+# Set up everything interactively
+epistora setup
 
-### Phase 12: summarize.sh Source Extraction Integration ✅
-- [x] Add typed summarize settings and `.env.example`
-- [x] Add dedicated `summarize_cli` wrapper with availability checks, timeout handling, and JSON parsing
-- [x] Normalize summarize output into `SourceContent` without changing ingest graph / vault / state boundaries
-- [x] Add explicit weak-extraction heuristics for article, generic, YouTube, and X fallback decisions
-- [x] Use summarize as primary extraction for YouTube when enabled
-- [x] Use summarize as fallback for article and generic extraction
-- [x] Use summarize as fallback-only for X after X-specific tiers
-- [x] Add tests for wrapper success/failure/timeout plus source-specific integration behavior
-- [x] Update README, ARCHITECTURE, DEVELOPMENT, and ROADMAP docs
+# Verify configuration
+epistora doctor
 
-### Phase 13: Queue-Based Cross-Platform Automation ✅
-- [x] Durable queue system with SQLite persistence
-  - [x] `queued_items` table with full status lifecycle
-  - [x] `automation_runs` history table
-  - [x] `item_attempts` per-item attempt tracking
-  - [x] Repository pattern for all three tables
-- [x] Discovery pipeline (`app/automation/discovery.py`)
-  - [x] Fetches new bookmarks from connectors
-  - [x] Stages items durably in queue before advancing sync cursor
-  - [x] Dedup against both queue and processed_sources tables
-- [x] Mode-aware processing pipeline (`app/automation/processing.py`)
-  - [x] Safe mode: fetch + archive only, no LLM cost
-  - [x] Balanced mode: capped LLM enrichment per run
-  - [x] Deep mode: full ingest graph with topic/entity/concept updates
-  - [x] Failure classification (network, timeout, rate_limit, extraction, unsupported, unknown)
-  - [x] Retry with exponential backoff
-  - [x] Partial batch failure handling
-  - [x] Daily enrichment caps
-- [x] One-shot automation runner (`app/automation/runner.py`)
-  - [x] `run_automation()`: discover → process → maintain → exit
-  - [x] Records automation runs with stats
-  - [x] Status and observability endpoint
-- [x] CLI commands (`kb automation` subgroup)
-  - [x] `discover`, `process-pending`, `maintain`, `run-pending`
-  - [x] `status`, `list-pending`, `retry-failed`
-  - [x] `generate-scheduler` for cross-platform scheduler config generation
-- [x] API endpoints for queue-based automation
-  - [x] `POST /automation/discover`
-  - [x] `POST /automation/process-pending`
-  - [x] `POST /automation/run-pending`
-  - [x] Updated `GET /automation/status` with queue data
-- [x] Cross-platform scheduler helpers
-  - [x] macOS LaunchAgent plist generation
-  - [x] Linux systemd service + timer generation
-  - [x] Windows Task Scheduler XML generation
-  - [x] Scheduling instructions document
-- [x] Configuration (15+ new settings in `.env.example` and `config.py`)
-- [x] 39 new tests covering all automation components
-- [x] All 212 tests passing (new + existing)
-- [x] Updated ARCHITECTURE.md, DEVELOPMENT.md, ROADMAP.md, PLAN.md
+# Start using
+epistora ingest latest
+epistora automation run-pending
+```
 
-## Key Decisions
+## Files Added/Modified
 
-### Phase 13 Decisions
-13. **Queue-based over pure interval**: Durable queue separates discovery from processing, enabling crash recovery and partial batch handling
-14. **Safe mode default**: Users never accidentally consume expensive LLM credits from automation
-15. **One-shot commands as scheduler primitives**: OS-specific schedulers are thin wrappers on idempotent commands, not the other way around
-16. **Exponential backoff for retries**: Prevents hammering failed endpoints while keeping retryable items alive
-17. **Daily enrichment caps**: Cost control for balanced/deep modes beyond per-run limits
+### New files
+- `CONTRIBUTING.md`
+- `CODE_OF_CONDUCT.md`
+- `.gitattributes`
+- `.github/ISSUE_TEMPLATE/bug_report.md`
+- `.github/ISSUE_TEMPLATE/feature_request.md`
+- `.github/PULL_REQUEST_TEMPLATE.md`
+- `app/cli/setup_wizard.py`
+- `app/cli/doctor.py`
+- `docs/QUICKSTART.md`
+- `docs/TROUBLESHOOTING.md`
+- `tests/test_cli_commands.py`
 
-## Phase 10 Execution Notes
+### Modified files
+- `.gitignore`
+- `.env.example`
+- `pyproject.toml`
+- `app/cli/main.py`
+- `README.md`
+- `docs/ARCHITECTURE.md`
+- `docs/DEVELOPMENT.md`
+- `docs/PLAN.md`
 
-- The validation run should target the newest Raindrop bookmark only.
-- Existing generated vault artifacts, indexes, logs, and outputs must not be deleted or reset as part of this upgrade.
-- The raw layer remains evidence-first and immutable after capture.
-- The wiki layer is the maintained compiled layer that should accumulate better topic/entity/concept/synthesis structure over time.
-- Valuable query answers should remain promotable into durable synthesis notes instead of staying as ephemeral chat output.
+### Removed from tracking
+- `logs/automation-stderr.log`
+- `logs/automation-stdout.log`
+- `test_data/app.db-shm`
+- `test_data/app.db-wal`

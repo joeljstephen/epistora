@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import os
+import shlex
+import shutil
 import sys
-from pathlib import Path
 from textwrap import dedent
+
+from app.config import epistora_home, epistora_logs_dir
 
 
 def _launchd_environment_entries() -> str:
@@ -31,18 +34,32 @@ def _launchd_environment_entries() -> str:
     return "\n".join(lines)
 
 
+def _cli_command_parts(mode: str) -> list[str]:
+    """Return the preferred automation command for installed or source usage."""
+    epistora_cli = shutil.which("epistora")
+    if epistora_cli:
+        return [epistora_cli, "automation", "run-pending", "--mode", mode]
+    return [sys.executable, "-m", "app.cli.main", "automation", "run-pending", "--mode", mode]
+
+
+def _cli_command_string(mode: str) -> str:
+    """Return a shell-safe string form of the automation command."""
+    return shlex.join(_cli_command_parts(mode))
+
+
 def generate_launchd_plist(
     mode: str = "safe",
     interval_minutes: int = 30,
     label: str = "com.epistora.automation",
 ) -> str:
     """Generate a macOS LaunchAgent plist for scheduled automation."""
-    python = sys.executable
-    kb_path = Path(__file__).parent.parent.parent
-    working_dir = str(kb_path)
+    command_parts = _cli_command_parts(mode)
+    working_dir = str(epistora_home())
+    logs_dir = epistora_logs_dir()
     interval_seconds = interval_minutes * 60
     environment_entries = _launchd_environment_entries()
     environment_block = f"\n{environment_entries}\n" if environment_entries else "\n"
+    args_xml = "\n".join(f"            <string>{part}</string>" for part in command_parts)
 
     return dedent(f"""\
         <?xml version="1.0" encoding="UTF-8"?>
@@ -55,13 +72,7 @@ def generate_launchd_plist(
 
             <key>ProgramArguments</key>
             <array>
-                <string>{python}</string>
-                <string>-m</string>
-                <string>app.cli.main</string>
-                <string>automation</string>
-                <string>run-pending</string>
-                <string>--mode</string>
-                <string>{mode}</string>
+{args_xml}
             </array>
 
             <key>WorkingDirectory</key>
@@ -72,10 +83,10 @@ def generate_launchd_plist(
             <integer>{interval_seconds}</integer>
 
             <key>StandardOutPath</key>
-            <string>{working_dir}/logs/automation-stdout.log</string>
+            <string>{logs_dir / 'automation-stdout.log'}</string>
 
             <key>StandardErrorPath</key>
-            <string>{working_dir}/logs/automation-stderr.log</string>
+            <string>{logs_dir / 'automation-stderr.log'}</string>
 
             <key>RunAtLoad</key>
             <false/>
@@ -96,10 +107,9 @@ def generate_systemd_timer(
 
     Returns (service_content, timer_content).
     """
-    python = sys.executable
-    kb_path = Path(__file__).parent.parent.parent
-    working_dir = str(kb_path)
+    working_dir = str(epistora_home())
     user = os.environ.get("USER", "epistora")
+    command = _cli_command_string(mode)
 
     service = dedent(f"""\
         [Unit]
@@ -110,7 +120,7 @@ def generate_systemd_timer(
         Type=oneshot
         User={user}
         WorkingDirectory={working_dir}
-        ExecStart={python} -m app.cli.main automation run-pending --mode {mode}
+        ExecStart={command}
         StandardOutput=journal
         StandardError=journal
 
@@ -140,10 +150,10 @@ def generate_windows_task_xml(
     task_name: str = "EpistoraAutomation",
 ) -> str:
     """Generate a Windows Task Scheduler XML import file."""
-    python = sys.executable
-    kb_path = Path(__file__).parent.parent.parent
-    working_dir = str(kb_path).replace("/", "\\")
-    python_win = python.replace("/", "\\")
+    command_parts = _cli_command_parts(mode)
+    working_dir = str(epistora_home()).replace("/", "\\")
+    command_win = command_parts[0].replace("/", "\\")
+    arguments = " ".join(command_parts[1:])
     description = (
         "Epistora automation runner "
         f"({mode} mode every {interval_minutes} min)"
@@ -181,8 +191,8 @@ def generate_windows_task_xml(
           </Settings>
           <Actions Context="Author">
             <Exec>
-              <Command>{python_win}</Command>
-              <Arguments>-m app.cli.main automation run-pending --mode {mode}</Arguments>
+              <Command>{command_win}</Command>
+              <Arguments>{arguments}</Arguments>
               <WorkingDirectory>{working_dir}</WorkingDirectory>
             </Exec>
           </Actions>
@@ -195,19 +205,18 @@ def generate_scheduler_instructions(
     interval_minutes: int = 30,
 ) -> str:
     """Generate human-readable instructions for all platforms."""
-    python = sys.executable
-    kb_path = Path(__file__).parent.parent.parent
-    working_dir = str(kb_path)
+    logs_dir = epistora_logs_dir()
+    command = _cli_command_string(mode)
     macos_generate = (
-        "kb automation generate-scheduler "
+        "epistora automation generate-scheduler "
         f"--platform macos --mode {mode} --interval {interval_minutes}"
     )
     linux_generate = (
-        "kb automation generate-scheduler "
+        "epistora automation generate-scheduler "
         f"--platform linux --mode {mode} --interval {interval_minutes}"
     )
     windows_generate = (
-        "kb automation generate-scheduler "
+        "epistora automation generate-scheduler "
         f"--platform windows --mode {mode} --interval {interval_minutes}"
     )
     windows_register = (
@@ -216,9 +225,8 @@ def generate_scheduler_instructions(
         '-TaskName "EpistoraAutomation"'
     )
     cron_line = (
-        f"*/{interval_minutes} * * * * cd {working_dir} && "
-        f"{python} -m app.cli.main automation run-pending --mode {mode} "
-        ">> logs/automation.log 2>&1"
+        f"*/{interval_minutes} * * * * {command} "
+        f">> {logs_dir / 'automation.log'} 2>&1"
     )
 
     return dedent(f"""\
@@ -231,12 +239,7 @@ def generate_scheduler_instructions(
 
         All scheduling calls the same one-shot command:
 
-            cd {working_dir}
-            {python} -m app.cli.main automation run-pending --mode {mode}
-
-        Or using the installed `kb` CLI:
-
-            kb automation run-pending --mode {mode}
+            {command}
 
         This will:
         1. Discover new bookmarks from configured connectors
@@ -251,11 +254,11 @@ def generate_scheduler_instructions(
         1. Generate the plist:
            {macos_generate}
 
-        2. Ensure the repo log directory exists:
-           mkdir -p {working_dir}/logs
+        2. Ensure the log directory exists:
+           mkdir -p {logs_dir}
 
         3. Copy to LaunchAgents:
-           cp epistora-automation.plist ~/Library/LaunchAgents/com.epistora.automation.plist
+           cp com.epistora.automation.plist ~/Library/LaunchAgents/com.epistora.automation.plist
 
         4. Load it for the current GUI session:
            launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.epistora.automation.plist
@@ -315,5 +318,5 @@ def generate_scheduler_instructions(
         - The command is idempotent and safe to run concurrently (uses file locks)
         - Safe mode avoids expensive LLM calls by default
         - Use --mode balanced or --mode deep for AI enrichment
-        - Configure limits in .env to control costs
+        - Configure limits in Epistora's config file to control costs
     """)

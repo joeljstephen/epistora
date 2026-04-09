@@ -2,30 +2,40 @@
 
 ## Prerequisites
 
-- Python 3.12+
+- **Python 3.11+** (3.12 recommended)
+- **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (recommended)
 - At least one of: OpenAI API key, `opencode` binary, `claude` binary
 - (Optional) Raindrop.io API token
 - (Optional) `summarize` binary if you want summarize-backed extraction enabled
 
 ## Setup
 
+### Using uv (recommended)
+
 ```bash
 # Clone and enter the project
+git clone https://github.com/joeljstephen/epistora.git
 cd epistora
 
-# Create virtual environment
-python -m venv .venv
-source .venv/bin/activate
-
-# Install dependencies
-pip install -e ".[dev]"
+# Install all dependencies (including dev)
+uv sync --extra dev
 
 # Configure environment
 cp .env.example .env
 # Edit .env with your API keys / backend config
 
-# Initialize the vault
-kb init
+# Or run the interactive setup wizard
+uv run epistora setup
+```
+
+### Using pip
+
+```bash
+cd epistora
+python -m venv .venv
+source .venv/bin/activate   # or .venv\Scripts\activate on Windows
+pip install -e ".[dev]"
+cp .env.example .env
 ```
 
 ## Running
@@ -33,65 +43,83 @@ kb init
 ### CLI
 
 ```bash
+# Interactive setup (recommended for first-time)
+epistora setup
+
+# Check environment health
+epistora doctor
+
 # Initialize vault
-kb init --vault ./my-vault
+epistora init --vault ./my-vault
 
 # Ingest a URL
-kb ingest-url "https://example.com/article"
+epistora ingest url "https://example.com/article"
+
+# Ingest latest bookmarks
+epistora ingest latest
 
 # Re-run ingest without clearing prior vault state
-kb ingest-url --force "https://example.com/article"
+epistora ingest url --force "https://example.com/article"
 
 # Sync from Raindrop
-kb sync-raindrop --limit 10
+epistora sync-raindrop --limit 10
 
 # Reset generated vault artifacts before a clean replay
-kb reset-generated --yes --archive
+epistora reset-generated --yes --archive
 
 # Run lint
-kb lint
+epistora lint
 
 # Check status
-kb status
+epistora status
 
 # Rebuild indexes
-kb rebuild-indexes
+epistora rebuild-indexes
 
 # Check backend availability
-kb backend-status
+epistora backend status
 
-# Run the legacy automation worker
-kb worker
+# Configure backend interactively
+epistora backend setup
+
+# Connect to Raindrop
+epistora connect raindrop
 
 # --- Queue-Based Automation ---
 
+# Configure automation interactively
+epistora automation setup
+
 # Discover and queue new bookmarks
-kb automation discover
+epistora automation discover
 
 # Process pending items (safe mode — no LLM cost)
-kb automation process-pending --mode safe
+epistora automation process-pending --mode safe
 
 # Process with AI enrichment (capped)
-kb automation process-pending --mode balanced --limit 5
+epistora automation process-pending --mode balanced --limit 5
 
 # One-shot end-to-end: discover + process + maintain
-kb automation run-pending --mode safe
+epistora automation run-pending --mode safe
 
 # Check automation status
-kb automation status
+epistora automation status
 
 # List pending queue items
-kb automation list-pending
+epistora automation list-pending
 
 # Retry failed items
-kb automation retry-failed --mode balanced
+epistora automation retry-failed --mode balanced
 
 # Run maintenance tasks
-kb automation maintain --lint --rebuild
+epistora automation maintain --lint --rebuild
 
 # Generate OS scheduler helpers
-kb automation generate-scheduler --platform macos --mode safe --interval 30
+epistora automation generate-scheduler --platform macos --mode safe --interval 30
 ```
+
+Note: If running from source, prefix commands with `uv run` (e.g., `uv run epistora setup`).
+The `kb` command is still available as a backward-compatible alias.
 
 ### Automation Modes
 
@@ -103,11 +131,11 @@ kb automation generate-scheduler --platform macos --mode safe --interval 30
 
 ### Cross-Platform Scheduling
 
-The `kb automation run-pending` command is the primary building block for OS schedulers. It runs one-shot, is idempotent, and exits cleanly.
+The `epistora automation run-pending` command is the primary building block for OS schedulers. It runs one-shot, is idempotent, and exits cleanly.
 
 ```bash
 # Generate scheduler configs for your OS
-kb automation generate-scheduler --platform all --mode safe --interval 30
+epistora automation generate-scheduler --platform all --mode safe --interval 30
 ```
 
 This generates:
@@ -133,7 +161,7 @@ The agent reads `AGENTS.md` and navigates the vault using the index files.
 See `wiki/indexes/START_HERE.md` and `wiki/indexes/QUERY_PROTOCOL.md` for
 the navigation procedure.
 
-The legacy `kb query` command is deprecated but still functional.
+The legacy `epistora query` command is deprecated but still functional.
 
 ### API Server
 
@@ -147,28 +175,22 @@ Then visit http://localhost:8000/docs for the interactive API documentation.
 
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run with coverage
-pytest --cov=app --cov-report=term-missing
+uv run pytest --cov=app --cov-report=term-missing
 
 # Run specific test file
-pytest tests/test_classifier.py -v
+uv run pytest tests/test_classifier.py -v
 
 # Run backend tests
-pytest tests/test_backends.py -v
-
-# Run automation tests (legacy)
-pytest tests/test_automation.py -v
+uv run pytest tests/test_backends.py -v
 
 # Run queue-based automation tests
-pytest tests/test_queue_automation.py -v
+uv run pytest tests/test_queue_automation.py -v
 
-# Run integration tests
-pytest tests/test_backend_integration.py -v
-
-# Run summarize integration tests
-pytest tests/test_summarize_cli.py tests/test_youtube_summarize_integration.py -v
+# Run CLI tests
+uv run pytest tests/test_cli_commands.py -v
 ```
 
 ### Testing Without Real Backends
@@ -239,7 +261,7 @@ To validate the live CLI path locally:
 
 ```bash
 summarize --version
-kb ingest-url "https://www.youtube.com/watch?v=..."
+epistora ingest url "https://www.youtube.com/watch?v=..."
 ```
 
 Useful settings while debugging:
@@ -291,7 +313,7 @@ The `generate_structured()` method has a default implementation that calls `gene
 
 ## Resetting Generated State
 
-Use `kb reset-generated --yes --archive` when you want to:
+Use `epistora reset-generated --yes --archive` when you want to:
 
 - archive the current generated raw/wiki/output/state artifacts
 - clear processed-source and sync cursor state

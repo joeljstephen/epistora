@@ -1,0 +1,39 @@
+# Enforce consistent line endings
+* text=auto
+
+# Python
+*.py text diff=python
+*.pyi text diff=python
+
+# Markdown
+*.md text diff=markdown
+
+# Config
+*.toml text
+*.cfg text
+*.ini text
+*.yaml text
+*.yml text
+*.json text
+
+# Shell
+*.sh text eol=lf
+
+# Windows batch
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# XML (scheduler configs)
+*.xml text
+*.plist text
+
+# Binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+
+# Lock files — exact (no diff noise)
+uv.lock text -diff
