@@ -73,7 +73,7 @@ Your vault is a folder of markdown files organized for both human browsing and a
 ```
 your-vault/
   AGENTS.md                     ← Operating manual for AI agents
-  inbox/raw/                    ← Immutable raw captures (articles, transcripts, threads)
+  raw/                          ← Immutable raw captures (articles, transcripts, threads)
   wiki/
     sources/                    ← Compiled source notes (primary evidence)
     topics/                     ← Topic pages (auto-maintained hubs)
@@ -84,7 +84,7 @@ your-vault/
   outputs/                      ← Saved answers, digests, reports
 ```
 
-- **Raw captures** (`inbox/raw/`) are immutable evidence — the original article text, video transcripts, thread captures
+- **Raw captures** (`raw/`) are immutable evidence — the original article text, video transcripts, thread captures
 - **Source notes** (`wiki/sources/`) are compiled summaries with key ideas, entities, and wikilinks
 - **Wiki pages** (`wiki/topics/`, `wiki/entities/`, `wiki/concepts/`) accumulate knowledge across sources
 - **Index files** provide navigation starting points

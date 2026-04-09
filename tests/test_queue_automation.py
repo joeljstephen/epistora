@@ -499,7 +499,7 @@ class TestProcessing:
 
             mock_writer_instance = MagicMock()
             mock_writer_instance.write_raw_capture.return_value = MagicMock(
-                path="inbox/raw/articles/safe-test.md"
+                path="raw/articles/safe-test.md"
             )
             mock_writer_instance.write_source_note.return_value = MagicMock(
                 path="wiki/sources/articles/safe-test.md"

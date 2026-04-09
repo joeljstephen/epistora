@@ -41,7 +41,7 @@ def populated_vault(tmp_vault: Path) -> Path:
         writer.write_source_note(
             content=content,
             slug=slug,
-            raw_capture_path=f"inbox/raw/articles/{slug}.md",
+            raw_capture_path=f"raw/articles/{slug}.md",
             summary=f"Summary of {title}",
             five_minute_read=f"Briefing for {title}",
             detailed_reading_note=f"Detailed reading note for {title}",

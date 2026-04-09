@@ -9,7 +9,7 @@ Read this first, then use the indexes and hub pages to find what you need.
 
 | Layer | Location | Purpose | Trust Level |
 |-------|----------|---------|-------------|
-| Evidence | `inbox/raw/` | Immutable source captures | Escalation only |
+| Evidence | `raw/` | Immutable source captures | Escalation only |
 | Knowledge | `wiki/` | Compiled, maintained notes | Primary |
 | Scratch | `outputs/` | Temporary or user-requested artifacts | Unverified |
 
@@ -38,6 +38,6 @@ Read this first, then use the indexes and hub pages to find what you need.
 
 - Read source notes (`wiki/sources/`) first for grounded evidence
 - Use topic/entity/concept pages as routing hubs
-- Only read raw captures (`inbox/raw/`) when evidence quality is weak or exact text matters
+- Only read raw captures (`raw/`) when evidence quality is weak or exact text matters
 - Ignore `.system/` — it is internal state, not knowledge
 - Structure answers with: Direct Findings, Cross-Source Synthesis, Gaps, Relevant Notes

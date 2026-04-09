@@ -67,7 +67,7 @@ class VaultNote:
             return "concept"
         if "wiki/synthesis/" in self.rel_path:
             return "synthesis"
-        if "inbox/raw/" in self.rel_path:
+        if "raw/" in self.rel_path:
             return "raw"
         return "unknown"
 

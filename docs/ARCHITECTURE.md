@@ -269,7 +269,7 @@ item_attempts    — per-item attempt history for debugging
 6. Knowledge extraction produces `Topic`, `Entity`, `Concept` models
    - extracted names are normalized back onto existing vault page titles when obvious variants already exist
 7. VaultWriter creates/updates:
-   - Raw capture → `inbox/raw/{type}/`
+   - Raw capture → `raw/{type}/`
    - Source note → `wiki/sources/{type}/`
    - Topic pages → `wiki/topics/`
    - Entity pages → `wiki/entities/`

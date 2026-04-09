@@ -111,4 +111,4 @@ Use this standard structure for all knowledge answers:
 1. Compiled source notes (`wiki/sources/`) — primary evidence
 2. Synthesis notes (`wiki/synthesis/`) — prior cross-source work
 3. Hub pages (`wiki/topics/`, `wiki/entities/`, `wiki/concepts/`) — routing + patterns
-4. Raw captures (`inbox/raw/`) — escalation evidence only
+4. Raw captures (`raw/`) — escalation evidence only

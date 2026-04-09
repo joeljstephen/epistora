@@ -57,7 +57,7 @@ def _run(coro):
 def _looks_like_epistora_vault(path: Path) -> bool:
     return (
         (path / "wiki").exists()
-        and (path / "inbox").exists()
+        and (path / "raw").exists()
         and (path / "wiki" / "indexes").exists()
         and (path / "wiki" / "logs").exists()
     )
@@ -70,9 +70,7 @@ def _looks_like_epistora_vault(path: Path) -> bool:
 
 @app.command()
 def setup(
-    vault: str = typer.Option(
-        None, "--vault", "-v", help="Vault path (skip interactive prompt)"
-    ),
+    vault: str = typer.Option(None, "--vault", "-v", help="Vault path (skip interactive prompt)"),
 ):
     """Interactive setup wizard — configure Epistora from scratch.
 
@@ -601,8 +599,7 @@ def connect_raindrop():
 
     console.print("[bold blue]Raindrop.io Connection Setup[/bold blue]\n")
     console.print(
-        "Epistora syncs your saved bookmarks from Raindrop.io.\n"
-        "You need an API token to connect.\n"
+        "Epistora syncs your saved bookmarks from Raindrop.io.\nYou need an API token to connect.\n"
     )
     console.print(
         "  1. Go to [link=https://app.raindrop.io/settings/integrations]"
@@ -617,9 +614,7 @@ def connect_raindrop():
         console.print("[yellow]No token provided. Aborting.[/yellow]")
         raise typer.Abort()
 
-    collection_id = typer.prompt(
-        "Collection ID (0 = all unsorted bookmarks)", default=0, type=int
-    )
+    collection_id = typer.prompt("Collection ID (0 = all unsorted bookmarks)", default=0, type=int)
 
     config = {
         "raindrop_api_token": token,
@@ -807,9 +802,14 @@ def automation_process_pending(
     from app.automation.runner import run_process_pending
 
     console.print(f"[blue]Processing pending items in {mode} mode...[/blue]")
-    result = _run(run_process_pending(
-        mode=mode, limit=limit, retry_failed=retry_failed, connector_id=connector,
-    ))
+    result = _run(
+        run_process_pending(
+            mode=mode,
+            limit=limit,
+            retry_failed=retry_failed,
+            connector_id=connector,
+        )
+    )
 
     if result.get("status") == "ok":
         console.print(
@@ -837,8 +837,7 @@ def automation_maintain(
         lint_r = result["lint"]
         if lint_r.get("status") == "ok":
             console.print(
-                f"  Lint: {lint_r.get('total_notes', 0)} notes, "
-                f"{lint_r.get('issues', 0)} issues"
+                f"  Lint: {lint_r.get('total_notes', 0)} notes, {lint_r.get('issues', 0)} issues"
             )
 
     if result.get("rebuild_indexes"):
@@ -866,16 +865,19 @@ def automation_run_pending(
     effective_mode = mode
     if effective_mode is None:
         from app.config import get_settings
+
         effective_mode = get_settings().automation_default_mode
 
     console.print(f"[blue]Running automation ({effective_mode} mode)...[/blue]")
-    result = _run(run_automation(
-        mode=effective_mode,
-        limit=limit,
-        connector_id=connector,
-        run_maintenance_tasks=not no_maintenance,
-        retry_failed=retry_failed,
-    ))
+    result = _run(
+        run_automation(
+            mode=effective_mode,
+            limit=limit,
+            connector_id=connector,
+            run_maintenance_tasks=not no_maintenance,
+            retry_failed=retry_failed,
+        )
+    )
 
     discover = result.get("discover", {})
     process = result.get("process", {})
@@ -885,8 +887,7 @@ def automation_run_pending(
         f"{discover.get('items_skipped_duplicate', 0)} skipped"
     )
     console.print(
-        f"  Processed: {process.get('succeeded', 0)} succeeded, "
-        f"{process.get('failed', 0)} failed"
+        f"  Processed: {process.get('succeeded', 0)} succeeded, {process.get('failed', 0)} failed"
     )
 
     if result.get("error"):
@@ -946,9 +947,13 @@ def automation_retry_failed(
     from app.automation.runner import run_process_pending
 
     console.print(f"[blue]Retrying failed items in {mode} mode...[/blue]")
-    result = _run(run_process_pending(
-        mode=mode, limit=limit, retry_failed=True,
-    ))
+    result = _run(
+        run_process_pending(
+            mode=mode,
+            limit=limit,
+            retry_failed=True,
+        )
+    )
 
     console.print(
         f"[green]Retry complete:[/green] "

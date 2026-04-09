@@ -34,7 +34,7 @@ def broken_vault(tmp_vault: Path) -> Path:
     writer.write_source_note(
         content=content,
         slug="the-only-article",
-        raw_capture_path="inbox/raw/articles/the-only-article.md",
+        raw_capture_path="raw/articles/the-only-article.md",
         summary="Test",
         five_minute_read="Briefing",
         detailed_reading_note="Detailed note",

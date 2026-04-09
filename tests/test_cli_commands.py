@@ -120,7 +120,7 @@ class TestInit:
         assert result.exit_code == 0
         assert vault.exists()
         assert (vault / "wiki").exists()
-        assert (vault / "inbox").exists()
+        assert (vault / "raw").exists()
         assert (vault / "wiki" / "indexes").exists()
         assert (vault / "wiki" / "logs").exists()
 
@@ -167,7 +167,7 @@ class TestSetupWizard:
         assert (vault / "wiki" / "indexes").exists()
         assert (vault / "wiki" / "indexes" / "START_HERE.md").exists()
         assert (vault / "wiki" / "indexes" / "QUERY_PROTOCOL.md").exists()
-        assert (vault / "inbox" / "raw").exists()
+        assert (vault / "raw").exists()
         assert (vault / "wiki" / "logs" / "ingest-log.md").exists()
 
     def test_detect_platform(self):

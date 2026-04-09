@@ -39,11 +39,15 @@ def _check_python() -> Check:
         return Check("Python", "ok", f"Python {version_str}")
     elif version >= (3, 10):
         return Check(
-            "Python", "warn", f"Python {version_str} (3.11+ recommended)",
+            "Python",
+            "warn",
+            f"Python {version_str} (3.11+ recommended)",
             hint="Consider upgrading to Python 3.11 or later",
         )
     return Check(
-        "Python", "fail", f"Python {version_str} (3.11+ required)",
+        "Python",
+        "fail",
+        f"Python {version_str} (3.11+ required)",
         hint="Install Python 3.11 or later: https://www.python.org/downloads/",
     )
 
@@ -54,7 +58,9 @@ def _check_uv() -> Check:
     if uv:
         return Check("uv", "ok", f"Found at {uv}")
     return Check(
-        "uv", "warn", "Not found on PATH",
+        "uv",
+        "warn",
+        "Not found on PATH",
         hint="Install uv: https://docs.astral.sh/uv/getting-started/installation/",
     )
 
@@ -87,7 +93,9 @@ def _check_env_file() -> Check:
         )
 
     return Check(
-        "Config (.env)", "fail", "No .env file found",
+        "Config (.env)",
+        "fail",
+        "No .env file found",
         hint="Run 'epistora setup' to create one in the Epistora config directory",
     )
 
@@ -102,16 +110,19 @@ def _check_vault() -> Check:
 
         if not vault_path.exists():
             return Check(
-                "Vault", "fail", f"Not found at {vault_path}",
+                "Vault",
+                "fail",
+                f"Not found at {vault_path}",
                 hint="Run 'epistora init' or 'epistora setup' to create a vault",
             )
 
-        required_dirs = ["wiki", "inbox", "wiki/indexes", "wiki/logs"]
+        required_dirs = ["wiki", "raw", "wiki/indexes", "wiki/logs"]
         missing = [d for d in required_dirs if not (vault_path / d).exists()]
 
         if missing:
             return Check(
-                "Vault", "warn",
+                "Vault",
+                "warn",
                 f"Found at {vault_path} but missing: {', '.join(missing)}",
                 hint="Run 'epistora init' to repair the vault structure",
             )
@@ -119,7 +130,8 @@ def _check_vault() -> Check:
         agents_md = vault_path / "AGENTS.md"
         if not agents_md.exists():
             return Check(
-                "Vault", "warn",
+                "Vault",
+                "warn",
                 f"Found at {vault_path} but AGENTS.md is missing",
                 hint="Run 'epistora init' to copy AGENTS.md into the vault",
             )
@@ -127,7 +139,9 @@ def _check_vault() -> Check:
         return Check("Vault", "ok", f"{vault_path}")
     except Exception as e:
         return Check(
-            "Vault", "fail", f"Error checking vault: {e}",
+            "Vault",
+            "fail",
+            f"Error checking vault: {e}",
             hint="Make sure .env is configured with VAULT_PATH",
         )
 
@@ -142,7 +156,8 @@ def _check_database() -> Check:
 
         if not db_path.parent.exists():
             return Check(
-                "Database", "warn",
+                "Database",
+                "warn",
                 f"Parent directory does not exist: {db_path.parent}",
                 hint="Run 'epistora init' to create the database",
             )
@@ -156,7 +171,8 @@ def _check_database() -> Check:
             return Check("Database", "ok", f"{db_path}")
 
         return Check(
-            "Database", "warn",
+            "Database",
+            "warn",
             f"Database not yet created at {db_path}",
             hint="Run 'epistora init' to initialize the database",
         )
@@ -174,13 +190,17 @@ def _check_raindrop() -> Check:
 
         if not token:
             return Check(
-                "Raindrop", "warn", "No API token configured",
+                "Raindrop",
+                "warn",
+                "No API token configured",
                 hint="Run 'epistora connect raindrop' or set RAINDROP_API_TOKEN in .env",
             )
 
         if len(token) < 10:
             return Check(
-                "Raindrop", "warn", "Token looks too short",
+                "Raindrop",
+                "warn",
+                "Token looks too short",
                 hint="Check RAINDROP_API_TOKEN in .env",
             )
 
@@ -200,21 +220,33 @@ def _check_backends() -> list[Check]:
 
         # API backend
         if not settings.api_enabled:
-            checks.append(Check(
-                "Backend: API", "ok", "Disabled",
-            ))
+            checks.append(
+                Check(
+                    "Backend: API",
+                    "ok",
+                    "Disabled",
+                )
+            )
         else:
             api_key = settings.effective_api_key()
             if api_key:
                 model = settings.effective_api_model()
-                checks.append(Check(
-                    "Backend: API", "ok", f"Key configured, model: {model}",
-                ))
+                checks.append(
+                    Check(
+                        "Backend: API",
+                        "ok",
+                        f"Key configured, model: {model}",
+                    )
+                )
             else:
-                checks.append(Check(
-                    "Backend: API", "warn", "No API key configured",
-                    hint="Set API_API_KEY (or OPENAI_API_KEY) in your Epistora config",
-                ))
+                checks.append(
+                    Check(
+                        "Backend: API",
+                        "warn",
+                        "No API key configured",
+                        hint="Set API_API_KEY (or OPENAI_API_KEY) in your Epistora config",
+                    )
+                )
 
         # CLI backends
         for name, binary_setting, enabled_setting in [
@@ -230,11 +262,14 @@ def _check_backends() -> list[Check]:
             if binary:
                 checks.append(Check(f"Backend: {name}", "ok", f"Found at {binary}"))
             else:
-                checks.append(Check(
-                    f"Backend: {name}", "warn",
-                    f"'{binary_setting}' not found on PATH",
-                    hint=f"Install {name} or disable it in your Epistora config",
-                ))
+                checks.append(
+                    Check(
+                        f"Backend: {name}",
+                        "warn",
+                        f"'{binary_setting}' not found on PATH",
+                        hint=f"Install {name} or disable it in your Epistora config",
+                    )
+                )
 
     except Exception as e:
         checks.append(Check("Backends", "fail", f"Error checking backends: {e}"))
@@ -251,12 +286,14 @@ def _check_automation() -> Check:
 
         if not settings.automation_enabled:
             return Check(
-                "Automation", "ok",
+                "Automation",
+                "ok",
                 f"Disabled (default mode: {settings.automation_default_mode})",
             )
 
         return Check(
-            "Automation", "ok",
+            "Automation",
+            "ok",
             f"Enabled, mode: {settings.automation_default_mode}",
         )
     except Exception as e:
@@ -265,10 +302,12 @@ def _check_automation() -> Check:
 
 def run_doctor() -> int:
     """Run all health checks and print a report. Returns exit code (0 = all ok)."""
-    console.print(Panel(
-        "[bold]Epistora Doctor[/bold]\nChecking your environment...",
-        border_style="blue",
-    ))
+    console.print(
+        Panel(
+            "[bold]Epistora Doctor[/bold]\nChecking your environment...",
+            border_style="blue",
+        )
+    )
     console.print()
 
     checks: list[Check] = []

@@ -16,7 +16,7 @@ def test_reset_generated_state_clears_generated_dirs_and_db(tmp_path: Path):
     agents = vault / "AGENTS.md"
     agents.write_text("# Vault Rules\n", encoding="utf-8")
 
-    raw_file = vault / "inbox" / "raw" / "articles" / "example.md"
+    raw_file = vault / "raw" / "articles" / "example.md"
     raw_file.write_text("# Raw Article\n", encoding="utf-8")
     source_file = vault / "wiki" / "sources" / "articles" / "example.md"
     source_file.write_text("# Source Note\n", encoding="utf-8")
@@ -63,7 +63,7 @@ def test_reset_generated_state_clears_generated_dirs_and_db(tmp_path: Path):
 
     archive_path = Path(str(result["archive_path"]))
     assert archive_path.exists()
-    assert (archive_path / "inbox" / "raw" / "articles" / "example.md").exists()
+    assert (archive_path / "raw" / "articles" / "example.md").exists()
     assert (archive_path / "wiki" / "sources" / "articles" / "example.md").exists()
 
     db = Database(db_path)

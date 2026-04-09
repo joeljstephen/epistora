@@ -50,7 +50,7 @@ class TestVaultWriter:
         update = writer.write_source_note(
             content=content,
             slug="test-article-about-ai",
-            raw_capture_path="inbox/raw/articles/test-article-about-ai.md",
+            raw_capture_path="raw/articles/test-article-about-ai.md",
             summary="A test summary",
             five_minute_read="A five minute read",
             detailed_reading_note="A detailed reading note",
@@ -93,7 +93,7 @@ class TestVaultWriter:
         update = writer.write_source_note(
             content=content,
             slug="docs-home",
-            raw_capture_path="inbox/raw/misc/docs-home.md",
+            raw_capture_path="raw/misc/docs-home.md",
             summary="Summary",
             five_minute_read="Briefing",
             detailed_reading_note="Detailed note",
@@ -130,7 +130,7 @@ class TestVaultWriter:
         update = writer.write_source_note(
             content=content,
             slug="missing-title",
-            raw_capture_path="inbox/raw/misc/missing-title.md",
+            raw_capture_path="raw/misc/missing-title.md",
             summary="Summary",
             five_minute_read="Briefing",
             detailed_reading_note="Detailed note",

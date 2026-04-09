@@ -38,7 +38,7 @@ def populated_vault(tmp_vault: Path) -> Path:
         writer.write_source_note(
             content=content,
             slug=slug,
-            raw_capture_path=f"inbox/raw/articles/{slug}.md",
+            raw_capture_path=f"raw/articles/{slug}.md",
             summary=f"Summary of {title}",
             five_minute_read=f"Briefing for {title}",
             detailed_reading_note=f"Reading note for {title}",
@@ -72,7 +72,7 @@ class TestStartHereFile:
         start_here = populated_vault / "wiki" / "indexes" / "START_HERE.md"
         content = start_here.read_text()
         assert "Vault Layers" in content
-        assert "inbox/raw/" in content
+        assert "raw/" in content
         assert "wiki/" in content
         assert "outputs/" in content
 
@@ -119,7 +119,7 @@ class TestAgentsMd:
         content = template_agents.read_text()
         assert "Navigation Sequence" in content or "Agent Navigation" in content
         assert "Step 1" in content or "Orient" in content
-        assert "inbox/raw/" in content
+        assert "raw/" in content
         assert "wiki/" in content
 
     def test_agents_md_contains_answer_structure(self):

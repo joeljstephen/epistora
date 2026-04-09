@@ -27,15 +27,18 @@ knowledge, follow this procedure:
 
 ```markdown
 ## Direct Findings
+
 ## Cross-Source Synthesis
+
 ## Gaps / Open Questions
+
 ## Relevant Notes to Read Next
 ```
 
 ### Key Rules
 
 - Ground claims in source notes, not raw captures
-- Escalate to `inbox/raw/` only for weak extraction or exact evidence
+- Escalate to `raw/` only for weak extraction or exact evidence
 - Surface contradictions explicitly
 - Do not invent missing evidence
 - Ignore `.system/` for knowledge answers

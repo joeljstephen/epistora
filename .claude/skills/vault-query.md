@@ -40,7 +40,7 @@ Follow this sequence:
 4. Read full body only of the most relevant notes
 5. Read hub pages (topic/entity/concept) as routing hubs
 6. Read source notes as primary evidence
-7. Escalate to raw captures (`inbox/raw/`) ONLY when:
+7. Escalate to raw captures (`raw/`) ONLY when:
    - extraction_quality is partial, metadata_only, or failed
    - exact wording matters
    - the compiled note is too compressed
@@ -52,15 +52,19 @@ Structure your answer as:
 
 ```markdown
 ## Direct Findings
+
 - Grounded claims with explicit source references
 
 ## Cross-Source Synthesis
+
 - Patterns, agreements, or tensions across multiple sources
 
 ## Gaps / Open Questions
+
 - What the vault does not cover or where evidence is weak
 
 ## Relevant Notes to Read Next
+
 - Note paths or [[wikilinks]] for follow-up
 ```
 
@@ -87,4 +91,4 @@ If the answer is particularly valuable, offer to save it:
 1. Compiled source notes (`wiki/sources/`) — primary evidence
 2. Synthesis notes (`wiki/synthesis/`) — prior cross-source work
 3. Hub pages (`wiki/topics/`, `wiki/entities/`, `wiki/concepts/`)
-4. Raw captures (`inbox/raw/`) — escalation only
+4. Raw captures (`raw/`) — escalation only

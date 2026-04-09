@@ -10,7 +10,7 @@ then follow the navigation sequence below.
 
 This vault has three layers with strictly different jobs. Never collapse them.
 
-### Layer 1: Immutable Evidence — `inbox/raw/`
+### Layer 1: Immutable Evidence — `raw/`
 
 - Contains the original captured source material: article archives, video
   transcripts, thread captures, PDF extractions.
@@ -106,7 +106,7 @@ answers. Each source note contains:
 
 ### Step 7: Escalate to Raw Captures Only When Needed
 
-Read raw captures (`inbox/raw/`) only when:
+Read raw captures (`raw/`) only when:
 
 - The source note's `extraction_quality` is `partial`, `metadata_only`, or
   `failed`
@@ -171,7 +171,7 @@ Trust sources in this order:
    source basis
 3. **Hub pages** (`wiki/topics/`, `wiki/entities/`, `wiki/concepts/`) — good
    for routing, may contain accumulated patterns
-4. **Raw captures** (`inbox/raw/`) — use only for escalation or verification
+4. **Raw captures** (`raw/`) — use only for escalation or verification
 
 ### Extraction Quality Signals
 
@@ -225,10 +225,10 @@ When a note contains `[[Some Topic]]`, look for `wiki/topics/some-topic.md`.
 
 | Content Type | Location | Note Type |
 |---|---|---|
-| Raw article archive | `inbox/raw/articles/` | raw |
-| Raw video transcript | `inbox/raw/videos/` | raw |
-| Raw thread capture | `inbox/raw/threads/` | raw |
-| Raw PDF text | `inbox/raw/pdfs/` | raw |
+| Raw article archive | `raw/articles/` | raw |
+| Raw video transcript | `raw/videos/` | raw |
+| Raw thread capture | `raw/threads/` | raw |
+| Raw PDF text | `raw/pdfs/` | raw |
 | Source note (article) | `wiki/sources/articles/` | source |
 | Source note (video) | `wiki/sources/videos/` | source |
 | Source note (thread) | `wiki/sources/threads/` | source |

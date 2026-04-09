@@ -47,9 +47,7 @@ def _prompt_raindrop() -> tuple[str, int]:
     """Ask the user for Raindrop.io configuration."""
     console.print()
     console.print("[bold]Raindrop.io Connector[/bold]")
-    console.print(
-        "Epistora syncs bookmarks from Raindrop.io. You need an API token to connect."
-    )
+    console.print("Epistora syncs bookmarks from Raindrop.io. You need an API token to connect.")
     console.print(
         "Get yours at: [link=https://app.raindrop.io/settings/integrations]"
         "https://app.raindrop.io/settings/integrations[/link]"
@@ -69,9 +67,7 @@ def _prompt_backend() -> dict:
     """Ask the user which backend to use."""
     console.print()
     console.print("[bold]Backend Selection[/bold]")
-    console.print(
-        "Epistora uses an LLM backend to analyze content and compile knowledge notes."
-    )
+    console.print("Epistora uses an LLM backend to analyze content and compile knowledge notes.")
     console.print("You need at least one backend configured.\n")
 
     table = Table(show_header=True, header_style="bold")
@@ -100,9 +96,7 @@ def _prompt_backend() -> dict:
         console.print("\n[bold]API Backend Configuration[/bold]")
         api_key = typer.prompt("API key (e.g. sk-...)", default="").strip()
         model = typer.prompt("Model name", default="gpt-4o-mini").strip()
-        base_url = typer.prompt(
-            "Base URL (leave empty for OpenAI)", default=""
-        ).strip()
+        base_url = typer.prompt("Base URL (leave empty for OpenAI)", default="").strip()
         config["api_enabled"] = "true"
         config["api_api_key"] = api_key
         config["api_model"] = model
@@ -167,9 +161,7 @@ def _prompt_automation() -> dict:
         table.add_row(mode, cost, desc)
     console.print(table)
 
-    mode = typer.prompt(
-        "\nDefault automation mode", default="safe"
-    ).strip().lower()
+    mode = typer.prompt("\nDefault automation mode", default="safe").strip().lower()
     if mode not in AUTOMATION_MODES:
         console.print(f"[yellow]Unknown mode '{mode}', using 'safe'[/yellow]")
         mode = "safe"
@@ -219,18 +211,37 @@ def _write_env_file(env_path: Path, config: dict) -> None:
         ("Core", ["VAULT_PATH", "DATABASE_URL", "LOG_LEVEL"]),
         ("Raindrop", ["RAINDROP_API_TOKEN", "RAINDROP_COLLECTION_ID"]),
         ("API Backend", ["API_ENABLED", "API_API_KEY", "API_MODEL", "API_BASE_URL"]),
-        ("CLI Backends", [
-            "OPENCODE_ENABLED", "OPENCODE_MODEL", "OPENCODE_BINARY",
-            "CLAUDE_CODE_ENABLED", "CLAUDE_CODE_MODEL", "CLAUDE_CODE_BINARY",
-            "CODEX_ENABLED", "CODEX_MODEL", "CODEX_BINARY",
-        ]),
-        ("Backend Order", [
-            "BACKEND_ORDER_INGEST", "BACKEND_ORDER_QUERY", "BACKEND_ORDER_LINT",
-        ]),
-        ("Automation", [
-            "AUTOMATION_ENABLED", "AUTOMATION_DEFAULT_MODE",
-            "AUTOMATION_DISCOVER_BATCH_LIMIT", "AUTOMATION_PROCESS_LIMIT",
-        ]),
+        (
+            "CLI Backends",
+            [
+                "OPENCODE_ENABLED",
+                "OPENCODE_MODEL",
+                "OPENCODE_BINARY",
+                "CLAUDE_CODE_ENABLED",
+                "CLAUDE_CODE_MODEL",
+                "CLAUDE_CODE_BINARY",
+                "CODEX_ENABLED",
+                "CODEX_MODEL",
+                "CODEX_BINARY",
+            ],
+        ),
+        (
+            "Backend Order",
+            [
+                "BACKEND_ORDER_INGEST",
+                "BACKEND_ORDER_QUERY",
+                "BACKEND_ORDER_LINT",
+            ],
+        ),
+        (
+            "Automation",
+            [
+                "AUTOMATION_ENABLED",
+                "AUTOMATION_DEFAULT_MODE",
+                "AUTOMATION_DISCOVER_BATCH_LIMIT",
+                "AUTOMATION_PROCESS_LIMIT",
+            ],
+        ),
     ]
 
     written_keys: set[str] = set()
@@ -273,7 +284,7 @@ def _default_agents_content() -> str:
 
         ## Vault Layers
 
-        - `inbox/raw/` contains immutable evidence captures.
+        - `raw/` contains immutable evidence captures.
         - `wiki/` contains maintained knowledge notes and indexes.
         - `outputs/` contains temporary answers and reports.
         - `.system/` is internal state and should not be used for knowledge answers.
@@ -285,7 +296,7 @@ def _default_agents_content() -> str:
         3. Read `wiki/indexes/QUERY_PROTOCOL.md`.
         4. Use `TOPICS.md`, `ENTITIES.md`, and `CONCEPTS.md` to find candidate notes.
         5. Prefer `wiki/sources/` for grounded evidence.
-        6. Escalate to `inbox/raw/` only when extraction quality is weak or exact text matters.
+        6. Escalate to `raw/` only when extraction quality is weak or exact text matters.
 
         ## Answer Rules
 
@@ -485,9 +496,7 @@ def run_setup_wizard(
         )
 
     auto_mode = automation_config.get("automation_default_mode", "safe")
-    summary_lines.append(
-        f"[green]✓[/green] [bold]Automation:[/bold] {auto_mode} mode"
-    )
+    summary_lines.append(f"[green]✓[/green] [bold]Automation:[/bold] {auto_mode} mode")
 
     console.print(
         Panel(

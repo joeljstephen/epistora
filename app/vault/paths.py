@@ -5,11 +5,11 @@ from pathlib import Path
 from app.models.source import SourceType
 
 VAULT_DIRS = [
-    "inbox/raw/articles",
-    "inbox/raw/videos",
-    "inbox/raw/threads",
-    "inbox/raw/pdfs",
-    "inbox/raw/misc",
+    "raw/articles",
+    "raw/videos",
+    "raw/threads",
+    "raw/pdfs",
+    "raw/misc",
     "wiki/sources/articles",
     "wiki/sources/videos",
     "wiki/sources/threads",
@@ -33,7 +33,7 @@ VAULT_DIRS = [
 ]
 
 RESETTABLE_DIRS = [
-    "inbox/raw",
+    "raw",
     "wiki/sources",
     "wiki/topics",
     "wiki/entities",
@@ -51,11 +51,11 @@ RESETTABLE_DIRS = [
 
 
 RAW_DIRS: dict[SourceType, str] = {
-    SourceType.ARTICLE: "inbox/raw/articles",
-    SourceType.YOUTUBE: "inbox/raw/videos",
-    SourceType.X_THREAD: "inbox/raw/threads",
-    SourceType.PDF: "inbox/raw/pdfs",
-    SourceType.GENERIC: "inbox/raw/misc",
+    SourceType.ARTICLE: "raw/articles",
+    SourceType.YOUTUBE: "raw/videos",
+    SourceType.X_THREAD: "raw/threads",
+    SourceType.PDF: "raw/pdfs",
+    SourceType.GENERIC: "raw/misc",
 }
 
 SOURCE_NOTE_DIRS: dict[SourceType, str] = {

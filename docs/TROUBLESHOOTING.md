@@ -140,7 +140,7 @@ epistora backend status
 # Try re-ingesting with force
 epistora ingest url --force "https://example.com/article"
 
-# Check the raw capture in inbox/raw/ for extraction quality
+# Check the raw capture in raw/ for extraction quality
 ```
 
 ---

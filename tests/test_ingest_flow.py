@@ -301,7 +301,7 @@ class TestWriteVault:
             mock_settings.return_value.vault_path = tmp_vault
             await _write_vault(state)
 
-        raw_file = tmp_vault / "inbox" / "raw" / "articles" / "readable-article.md"
+        raw_file = tmp_vault / "raw" / "articles" / "readable-article.md"
         source_file = tmp_vault / "wiki" / "sources" / "articles" / "readable-article.md"
 
         raw_text = raw_file.read_text(encoding="utf-8")
@@ -369,7 +369,7 @@ class TestWriteVault:
             await _write_vault(state)
 
         source_file = tmp_vault / "wiki" / "sources" / "videos" / "test-video.md"
-        raw_file = tmp_vault / "inbox" / "raw" / "videos" / "test-video.md"
+        raw_file = tmp_vault / "raw" / "videos" / "test-video.md"
         source_text = source_file.read_text(encoding="utf-8")
         raw_text = raw_file.read_text(encoding="utf-8")
 
@@ -401,7 +401,7 @@ class TestDeduplication:
                 source_type=mock_content.source.source_type.value,
                 title="Existing Source",
                 source_note_path="wiki/sources/articles/existing-source.md",
-                raw_capture_path="inbox/raw/articles/existing-source.md",
+                raw_capture_path="raw/articles/existing-source.md",
             )
         )
         db.close()
@@ -439,7 +439,7 @@ class TestDeduplication:
                 source_type=mock_content.source.source_type.value,
                 title=mock_content.source.title,
                 source_note_path="wiki/sources/articles/existing-source.md",
-                raw_capture_path="inbox/raw/articles/existing-source.md",
+                raw_capture_path="raw/articles/existing-source.md",
             )
         )
         db.close()
