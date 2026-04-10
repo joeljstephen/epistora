@@ -47,6 +47,7 @@ def source_note_md(
         "extraction_fallback_chain": content.extraction_fallback_chain,
         "raw_capture_path": raw_capture_path,
         "raw_capture_kind": content.raw_capture_kind,
+        "lifecycle": content.lifecycle.as_frontmatter(),
     }
     meta.update(_source_frontmatter_extras(content))
     if content.canonical_url and content.canonical_url != content.source.url:
@@ -271,6 +272,8 @@ def _source_frontmatter_extras(content: SourceContent) -> dict[str, object]:
         "archive_separation": "raw_evidence_and_compiled_note",
         "raw_storage_tier": content.raw_metadata.get("storage_tier", "warm"),
     }
+    if content.derived_work_kind or content.source.derived_work_kind:
+        extra["derived_work_kind"] = content.derived_work_kind or content.source.derived_work_kind
     if content.raw_metadata.get("blob_path"):
         extra["raw_blob_path"] = content.raw_metadata.get("blob_path")
     if content.raw_metadata.get("blob_storage_tier"):
@@ -309,6 +312,7 @@ def topic_note_md(
         "type": "topic",
         "slug": topic.slug,
         "updated_at": friendly_date(),
+        "lifecycle": topic.lifecycle.as_frontmatter(),
     }
 
     source_list = (
@@ -390,6 +394,7 @@ def entity_note_md(
         "entity_type": entity.entity_type,
         "slug": entity.slug,
         "updated_at": friendly_date(),
+        "lifecycle": entity.lifecycle.as_frontmatter(),
     }
 
     mentions = (
@@ -451,6 +456,7 @@ def concept_note_md(
         "type": "concept",
         "slug": concept.slug,
         "updated_at": friendly_date(),
+        "lifecycle": concept.lifecycle.as_frontmatter(),
     }
 
     sources = (
@@ -506,6 +512,7 @@ def synthesis_note_md(note: SynthesisNote) -> str:
         "type": "synthesis",
         "slug": note.slug,
         "created_at": friendly_date(note.created_at),
+        "lifecycle": note.lifecycle.as_frontmatter(),
     }
 
     basis = (

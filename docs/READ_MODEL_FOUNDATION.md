@@ -1,6 +1,6 @@
 # Read Model Foundation
 
-This document describes the Phase 3 read-model foundation.
+This document describes the v2 read-model retrieval foundation.
 
 ## Role
 
@@ -23,20 +23,20 @@ This keeps it:
 - local-first
 - rebuildable from files
 - separate from the operational ingest ledger
-- separate from the FTS search database
+- self-contained as the only runtime retrieval database
 
 ## What It Stores
 
-Phase 3 stores:
+The read model stores:
 
 - note catalog rows
 - note type metadata
+- bounded note body excerpts for retrieval context
 - frontmatter-derived topic/entity/concept associations
-- wikilink edges
-- source-to-topic/entity/concept edges
-- backlink-equivalent incoming edge queries
+- typed relationship edges
+- integrated lexical search rows
 - per-note `indexed_at` and file mtime
-- global refresh state such as last full rebuild and last incremental refresh
+- global refresh state such as schema migration time, last full rebuild, and last incremental refresh
 
 ## Current Schema Shape
 
@@ -44,14 +44,17 @@ Main tables:
 
 - `read_model_notes`
 - `read_model_edges`
+- `read_model_fts`
 - `read_model_state`
 
 Relationship types currently included:
 
-- `wikilink`
-- `source_topic`
-- `source_entity`
-- `source_concept`
+- `topic_membership`
+- `entity_mention`
+- `concept_relationship`
+- `backlink`
+- `source_support`
+- `derived_from`
 
 ## Refresh Strategy
 
@@ -63,19 +66,21 @@ Current behavior:
 - index files rebuilt by the markdown sink are also refreshed into the catalog
 - if a changed note title changes, the store falls back to a full rebuild because title-based link resolution may affect other notes
 
-This keeps the implementation simple and safe without introducing a graph database or heavy indexing platform.
+Lexical search is part of this same read-model database. The old standalone
+`search.db` path has been retired.
 
 ## Query Helpers
 
-The current read-model store provides internal helper methods for:
+The read-model store now provides the retrieval/query substrate for:
 
 - listing notes
 - fetching a note record
 - fetching edges by source/target/relation type
 - fetching backlinks as inverse edge queries
 - fetching related edges for a source note
-
-These helpers are foundation-level utilities, not a full query product.
+- structured candidate resolution
+- lexical support search inside the read model
+- excerpt generation for query context
 
 ## Intentionally Not Done
 

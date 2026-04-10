@@ -20,6 +20,7 @@ from app.automation.queue_store import (
     QueueRepository,
 )
 from app.config import Settings, get_settings
+from app.events import EventType, publish
 from app.storage.sqlite import Database
 from app.utils.dates import utcnow
 
@@ -452,6 +453,16 @@ async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:
         )
     finally:
         db.close()
+
+    publish(
+        EventType.SOURCE_INGESTED,
+        source_url=content.source.url,
+        source_title=content.source.title or item.url,
+        source_type=content.source.source_type.value,
+        source_note_path=source_update.path,
+        raw_capture_path=raw_update.path,
+        deduplicated=False,
+    )
 
     return ProcessResult(
         queued_item_id=item.id or 0,

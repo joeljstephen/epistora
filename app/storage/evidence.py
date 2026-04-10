@@ -173,6 +173,7 @@ def _blob_subdir(source_type: SourceType) -> str:
         SourceType.X_THREAD: "threads",
         SourceType.PDF: "pdfs",
         SourceType.GENERIC: "misc",
+        SourceType.DERIVED_WORK: "derived",
     }[source_type]
 
 

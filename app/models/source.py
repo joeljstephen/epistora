@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.models.lifecycle import LifecycleMetadata
+
 
 class SourceType(StrEnum):
     ARTICLE = "article"
@@ -13,6 +15,13 @@ class SourceType(StrEnum):
     X_THREAD = "x_thread"
     PDF = "pdf"
     GENERIC = "generic"
+    DERIVED_WORK = "derived_work"
+
+
+class DerivedWorkKind(StrEnum):
+    DERIVED_ANALYSIS = "derived_analysis"
+    SESSION_DIGEST = "session_digest"
+    CRYSTALLIZED_OUTPUT = "crystallized_output"
 
 
 class ExtractionQuality(StrEnum):
@@ -35,6 +44,7 @@ class SourceItem(BaseModel):
     external_id: str = ""
     provider_metadata: dict[str, Any] = Field(default_factory=dict)
     extra: dict[str, Any] = Field(default_factory=dict)
+    derived_work_kind: str = ""
 
 
 class SourceContent(BaseModel):
@@ -57,3 +67,5 @@ class SourceContent(BaseModel):
     canonical_url: str = ""
     content_hash: str = ""
     url_hash: str = ""
+    derived_work_kind: str = ""
+    lifecycle: LifecycleMetadata = Field(default_factory=LifecycleMetadata)

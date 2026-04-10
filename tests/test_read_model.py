@@ -7,10 +7,11 @@ from pathlib import Path
 from app.artifacts import build_artifact_bundle
 from app.models.source import SourceContent, SourceItem, SourceType
 from app.read_model import (
-    RELATION_SOURCE_CONCEPT,
-    RELATION_SOURCE_ENTITY,
-    RELATION_SOURCE_TOPIC,
-    RELATION_WIKILINK,
+    RELATION_BACKLINK,
+    RELATION_CONCEPT_RELATIONSHIP,
+    RELATION_ENTITY_MENTION,
+    RELATION_SOURCE_SUPPORT,
+    RELATION_TOPIC_MEMBERSHIP,
     ReadModelStore,
 )
 from app.sinks.markdown_vault import MarkdownVaultSink
@@ -122,26 +123,31 @@ def test_read_model_rebuild_creates_edges_and_backlinks(tmp_vault: Path):
     source_path = "wiki/sources/articles/agent-memory-systems.md"
     topic_path = "wiki/topics/agent-memory.md"
 
-    wikilinks = store.get_edges(from_note_path=source_path, relation_type=RELATION_WIKILINK)
-    source_topics = store.get_edges(
+    backlinks = store.get_edges(from_note_path=source_path, relation_type=RELATION_BACKLINK)
+    topic_memberships = store.get_edges(
         from_note_path=source_path,
-        relation_type=RELATION_SOURCE_TOPIC,
+        relation_type=RELATION_TOPIC_MEMBERSHIP,
     )
-    source_entities = store.get_edges(
+    entity_mentions = store.get_edges(
         from_note_path=source_path,
-        relation_type=RELATION_SOURCE_ENTITY,
+        relation_type=RELATION_ENTITY_MENTION,
     )
-    source_concepts = store.get_edges(
+    concept_relationships = store.get_edges(
         from_note_path=source_path,
-        relation_type=RELATION_SOURCE_CONCEPT,
+        relation_type=RELATION_CONCEPT_RELATIONSHIP,
     )
-    backlinks = store.get_backlinks(topic_path)
+    topic_support = store.get_edges(
+        from_note_path=topic_path,
+        relation_type=RELATION_SOURCE_SUPPORT,
+    )
+    incoming_backlinks = store.get_backlinks(topic_path)
 
-    assert any(edge.to_note_path == topic_path for edge in wikilinks)
-    assert any(edge.target_title == "Agent Memory" for edge in source_topics)
-    assert any(edge.target_title == "OpenAI" for edge in source_entities)
-    assert any(edge.target_title == "Durable memory" for edge in source_concepts)
-    assert any(edge.from_note_path == source_path for edge in backlinks)
+    assert any(edge.to_note_path == topic_path for edge in backlinks)
+    assert any(edge.target_title == "Agent Memory" for edge in topic_memberships)
+    assert any(edge.target_title == "OpenAI" for edge in entity_mentions)
+    assert any(edge.target_title == "Durable memory" for edge in concept_relationships)
+    assert any(edge.to_note_path == source_path for edge in topic_support)
+    assert any(edge.from_note_path == source_path for edge in incoming_backlinks)
 
 
 def test_read_model_incremental_refresh_updates_edges(tmp_vault: Path):
@@ -163,7 +169,10 @@ def test_read_model_incremental_refresh_updates_edges(tmp_vault: Path):
     source_path = "wiki/sources/articles/agent-memory-systems.md"
     assert any(
         edge.target_title == "Agent Memory"
-        for edge in store.get_edges(from_note_path=source_path, relation_type=RELATION_SOURCE_TOPIC)
+        for edge in store.get_edges(
+            from_note_path=source_path,
+            relation_type=RELATION_TOPIC_MEMBERSHIP,
+        )
     )
 
     second_bundle = build_artifact_bundle(
@@ -179,7 +188,7 @@ def test_read_model_incremental_refresh_updates_edges(tmp_vault: Path):
 
     refreshed_edges = store.get_edges(
         from_note_path=source_path,
-        relation_type=RELATION_SOURCE_TOPIC,
+        relation_type=RELATION_TOPIC_MEMBERSHIP,
     )
     assert any(edge.target_title == "Agents" for edge in refreshed_edges)
     assert not any(edge.target_title == "Agent Memory" for edge in refreshed_edges)
@@ -224,3 +233,39 @@ def test_read_model_rebuild_from_existing_vault_state(tmp_vault: Path):
     source_notes = store.list_notes(note_type="source")
     assert len(source_notes) == 2
     assert all(note.note_path.startswith("wiki/sources/articles/") for note in source_notes)
+
+
+def test_read_model_migration_retires_legacy_search_state(tmp_vault: Path):
+    writer = VaultWriter(tmp_vault)
+    content = _sample_content("Migrated Source", "https://example.com/migrated")
+    writer.write_raw_capture(content, "migrated-source")
+    writer.write_source_note(
+        content=content,
+        slug="migrated-source",
+        raw_capture_path="raw/articles/migrated-source.md",
+        summary="Summary",
+        five_minute_read="Briefing",
+        detailed_reading_note="Detailed note",
+        key_ideas="- Key idea",
+        detailed_outline="## Overview\n- Point",
+        important_examples="- Example",
+        actionable_takeaways="- Action",
+        notable_quotes="- None captured verbatim.",
+        best_for="- Builders",
+        consume_recommendation="Read the original for more detail.",
+        why_it_matters="It matters.",
+        open_questions="- Question",
+        topics=["Migration"],
+        entities=[],
+        concepts=[],
+    )
+
+    legacy_search_db = tmp_vault / ".system" / "state" / "search.db"
+    legacy_search_db.parent.mkdir(parents=True, exist_ok=True)
+    legacy_search_db.write_text("legacy", encoding="utf-8")
+
+    store = ReadModelStore(tmp_vault)
+    store.rebuild()
+
+    assert not legacy_search_db.exists()
+    assert store.get_state("schema_version") == "2"

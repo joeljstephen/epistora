@@ -643,28 +643,12 @@ def sync_inbox(
 # ---------------------------------------------------------------------------
 
 
-@app.command(deprecated=True)
+@app.command()
 def query(
     question: str = typer.Argument(..., help="Question to ask the vault"),
     save: bool = typer.Option(False, "--save", "-s", help="Save answer to outputs/"),
 ):
-    """[DEPRECATED] Query the knowledge vault with a question.
-
-    Prefer pointing Claude Code or OpenCode at the vault directory directly.
-    See AGENTS.md and wiki/indexes/START_HERE.md for the agent-first workflow.
-    """
-    import warnings
-
-    warnings.warn(
-        "`epistora query` is deprecated. Use Claude Code or OpenCode directly on the "
-        "vault directory instead. See AGENTS.md for guidance.",
-        DeprecationWarning,
-        stacklevel=2,
-    )
-    console.print(
-        "[yellow]Warning: `epistora query` is deprecated. "
-        "Use Claude Code or OpenCode directly on the vault directory.[/yellow]\n"
-    )
+    """Query the vault through the v2 read-model retrieval path."""
 
     from app.services.query_service import query_vault
 
@@ -1206,9 +1190,13 @@ def automation_process_pending(
 @automation_app.command("maintain")
 def automation_maintain(
     lint: bool = typer.Option(None, "--lint/--no-lint", help="Run vault lint"),
-    rebuild: bool = typer.Option(None, "--rebuild/--no-rebuild", help="Rebuild indexes"),
+    rebuild: bool = typer.Option(
+        None,
+        "--rebuild/--no-rebuild",
+        help="Force a full read-model refresh and structural index rebuild",
+    ),
 ):
-    """Run maintenance tasks (lint, index rebuild)."""
+    """Run bounded vault maintenance and optional lint."""
     from app.automation.runner import run_maintenance
 
     console.print("[blue]Running maintenance tasks...[/blue]")

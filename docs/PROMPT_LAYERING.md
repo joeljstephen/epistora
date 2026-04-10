@@ -9,7 +9,7 @@ The implementation lives in:
 The compiler paths now use composed prompts in:
 
 - [`app/compiler/ingest_graph.py`](/Users/joeljacobstephen/Code/projects/epistora/app/compiler/ingest_graph.py)
-- [`app/compiler/query_graph.py`](/Users/joeljacobstephen/Code/projects/epistora/app/compiler/query_graph.py)
+- [`app/services/query_service.py`](/Users/joeljacobstephen/Code/projects/epistora/app/services/query_service.py)
 - [`app/compiler/lint_graph.py`](/Users/joeljacobstephen/Code/projects/epistora/app/compiler/lint_graph.py)
 
 ## Precedence Model

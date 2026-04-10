@@ -88,6 +88,7 @@ def legacy_topic(topic: TopicArtifact, *, bundle: ArtifactBundle) -> Topic:
         source_ids=list(topic.source_artifact_ids),
         related_concepts=related_concepts,
         related_entities=related_entities,
+        lifecycle=topic.lifecycle,
     )
 
 
@@ -105,6 +106,7 @@ def legacy_entity(entity: EntityArtifact, *, bundle: ArtifactBundle) -> Entity:
         description=entity.summary,
         source_ids=list(entity.source_artifact_ids),
         related_concepts=related_concepts,
+        lifecycle=entity.lifecycle,
     )
 
 
@@ -121,6 +123,7 @@ def legacy_concept(concept: ConceptArtifact, *, bundle: ArtifactBundle) -> Conce
         definition=concept.definition,
         source_ids=list(concept.source_artifact_ids),
         related_concepts=related_concepts,
+        lifecycle=concept.lifecycle,
     )
 
 
@@ -136,4 +139,5 @@ def legacy_synthesis(note: SynthesisArtifact) -> SynthesisNote:
             note.reusable_takeaways,
             "_No reusable takeaways captured yet._",
         ),
+        lifecycle=note.lifecycle,
     )

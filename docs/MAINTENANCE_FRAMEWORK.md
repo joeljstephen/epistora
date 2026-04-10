@@ -15,19 +15,42 @@ Epistora now has explicit first-pass maintenance classes:
 - synthesis
 - storage
 
-## What Each Class Does In Phase 6
+## Task Contract
+
+The v2 pre-release hardening pass stabilizes maintenance around one bounded task
+set:
+
+- `artifact_neighborhood_refresh`
+- `structural_repair`
+- `hub_refresh`
+- `backlink_repair`
+- `candidate_synthesis_refresh`
+- `read_model_refresh`
+- `search_refresh`
+
+Each task now has explicit:
+
+- trigger metadata
+- scope paths
+- bounded write scope
+- idempotency defaults
+- per-task logging through `MaintenanceTaskResult`
+- deterministic ordering in the planner
+
+## What Each Class Does
 
 Structural maintenance:
 
+- plans and records the bounded artifact neighborhood before writes
 - runs a deterministic structural audit
-- rebuilds vault indexes
+- rebuilds vault indexes as part of `structural_repair`
 - records maintenance output in `wiki/logs/maintenance-log.md`
 
 Semantic maintenance:
 
-- refreshes targeted topic/entity/concept hub pages
-- improves backlink visibility with explicit `Backlinks` sections
-- refreshes thin hub pages with supporting sources and maintenance notes
+- refreshes targeted topic/entity/concept hub pages through `hub_refresh`
+- repairs backlink sections through `backlink_repair`
+- keeps writes limited to maintenance-managed sections and frontmatter
 
 Synthesis maintenance:
 
@@ -36,29 +59,31 @@ Synthesis maintenance:
 
 Storage maintenance:
 
-- repairs or refreshes the read model
-- in deep mode, rebuilds the FTS search index
+- refreshes the read model as the primary derived substrate
+- refreshes lexical support inside `read_model_fts`
+- retires obsolete legacy search state as part of the read-model lifecycle
 
 ## Mode Differences
 
 Safe:
 
-- structural audit
-- index refresh
+- artifact neighborhood refresh (read-only)
+- structural repair
 - read-model refresh
+- search refresh
 
 Balanced:
 
 - safe-mode structural/storage maintenance
-- targeted hub refresh for changed note neighborhoods
+- first-degree neighborhood expansion from changed notes
+- hub refresh and backlink repair for touched hubs
 
 Deep:
 
-- broader neighborhood expansion
-- hub refresh
-- synthesis candidate generation
-- full read-model rebuild
-- FTS rebuild
+- second-degree neighborhood expansion from changed notes
+- hub refresh and backlink repair across the deeper neighborhood
+- candidate synthesis generation for multi-source topics
+- full read-model rebuild plus search refresh
 
 This makes Deep materially different from Balanced in actual behavior, not only in budget policy.
 
@@ -70,11 +95,47 @@ The planner expands that scope into a bounded neighborhood using the read model:
 
 - changed source notes pull in their related topic/entity/concept hubs
 - changed hubs pull in supporting source notes
-- deep mode expands one step further than balanced mode
+- deep mode expands a second degree and can produce candidate synthesis drafts
 
 ## Automation Integration
 
 Queue processing now carries changed note paths forward, and `run_automation(...)` passes them into maintenance. That means balanced and deep maintenance focus on the notes that actually changed during processing instead of running as an unbounded global rewrite.
+
+## Event Hooks
+
+The hardening pass also adds a minimal internal event taxonomy in
+[`app/events.py`](/Users/joeljacobstephen/Code/projects/epistora/app/events.py):
+
+- `source_ingested`
+- `artifact_written`
+- `maintenance_completed`
+- `query_answer_saved`
+- `scheduled_maintenance_tick`
+
+These hooks are intentionally small. They are there to support future
+automation growth without forcing a later migration through the maintenance
+runtime.
+
+## Lifecycle And Derived Work Hooks
+
+Lifecycle metadata is now present as a nested `lifecycle` block on source and
+knowledge artifacts. The current fields are:
+
+- `confidence`
+- `last_confirmed_at`
+- `supersedes`
+- `superseded_by`
+- `staleness_status`
+- `reinforcement_count`
+
+This is structural only. It is not a full confidence or retention engine yet.
+
+Epistora also now reserves a clean source/artifact lane for work-derived
+knowledge through `source_type: derived_work`, with bounded kinds such as:
+
+- `derived_analysis`
+- `session_digest`
+- `crystallized_output`
 
 ## Safety Boundaries
 

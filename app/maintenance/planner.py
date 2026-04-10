@@ -5,19 +5,26 @@ from __future__ import annotations
 from pathlib import Path
 
 from app.automation.models import AutomationMode
-from app.maintenance.models import MaintenanceClass, MaintenancePlan, MaintenanceTask
+from app.maintenance.models import (
+    MaintenanceClass,
+    MaintenancePlan,
+    MaintenanceTask,
+    MaintenanceTaskName,
+    MaintenanceTrigger,
+)
 from app.read_model.store import (
-    RELATION_SOURCE_CONCEPT,
-    RELATION_SOURCE_ENTITY,
-    RELATION_SOURCE_TOPIC,
+    RELATION_CONCEPT_RELATIONSHIP,
+    RELATION_ENTITY_MENTION,
+    RELATION_SOURCE_SUPPORT,
+    RELATION_TOPIC_MEMBERSHIP,
     ReadModelStore,
 )
 
 _HUB_TYPES = {"topic", "entity", "concept"}
-_SOURCE_RELATIONS = {
-    RELATION_SOURCE_TOPIC,
-    RELATION_SOURCE_ENTITY,
-    RELATION_SOURCE_CONCEPT,
+_SOURCE_FORWARD_RELATIONS = {
+    RELATION_TOPIC_MEMBERSHIP,
+    RELATION_ENTITY_MENTION,
+    RELATION_CONCEPT_RELATIONSHIP,
 }
 
 
@@ -35,6 +42,7 @@ class MaintenancePlanner:
         scope_paths: list[str] | None = None,
         force_rebuild: bool = False,
     ) -> MaintenancePlan:
+        self.read_model.ensure_populated()
         normalized_scope = sorted(
             {
                 path
@@ -44,13 +52,33 @@ class MaintenancePlanner:
         )
         neighborhood = self._expand_scope(normalized_scope, mode)
         hub_paths = self._hub_paths(neighborhood)
-        synthesis_topics = self._topic_paths(neighborhood)
+        topic_paths = self._topic_paths(neighborhood)
+        trigger = self._trigger_for(
+            mode=mode,
+            normalized_scope=normalized_scope,
+            force_rebuild=force_rebuild,
+        )
 
         tasks = [
             MaintenanceTask(
                 maintenance_class=MaintenanceClass.STRUCTURAL,
-                task_name="structural_audit",
+                task_name=MaintenanceTaskName.ARTIFACT_NEIGHBORHOOD_REFRESH,
+                trigger=trigger,
                 scope_paths=normalized_scope,
+                writes_enabled=False,
+                write_scope="none",
+                details={
+                    "neighborhood_paths": neighborhood,
+                    "depth": 2 if mode == AutomationMode.DEEP else 1,
+                },
+            ),
+            MaintenanceTask(
+                maintenance_class=MaintenanceClass.STRUCTURAL,
+                task_name=MaintenanceTaskName.STRUCTURAL_REPAIR,
+                trigger=trigger,
+                scope_paths=normalized_scope,
+                writes_enabled=True,
+                write_scope="wiki/indexes and maintenance-managed frontmatter only",
             ),
         ]
 
@@ -58,47 +86,72 @@ class MaintenancePlanner:
             tasks.append(
                 MaintenanceTask(
                     maintenance_class=MaintenanceClass.SEMANTIC,
-                    task_name="refresh_hub_pages",
+                    task_name=MaintenanceTaskName.HUB_REFRESH,
+                    trigger=trigger,
                     scope_paths=hub_paths,
                     max_items=12 if mode == AutomationMode.BALANCED else 20,
+                    writes_enabled=True,
+                    write_scope="maintenance-managed hub sections excluding backlinks",
+                )
+            )
+            tasks.append(
+                MaintenanceTask(
+                    maintenance_class=MaintenanceClass.SEMANTIC,
+                    task_name=MaintenanceTaskName.BACKLINK_REPAIR,
+                    trigger=trigger,
+                    scope_paths=hub_paths,
+                    max_items=12 if mode == AutomationMode.BALANCED else 20,
+                    writes_enabled=True,
+                    write_scope="Backlinks sections on touched hub pages only",
                 )
             )
 
-        if mode == AutomationMode.DEEP:
+        if mode == AutomationMode.DEEP and topic_paths:
             tasks.append(
                 MaintenanceTask(
                     maintenance_class=MaintenanceClass.SYNTHESIS,
-                    task_name="generate_synthesis_candidates",
-                    scope_paths=synthesis_topics,
+                    task_name=MaintenanceTaskName.CANDIDATE_SYNTHESIS_REFRESH,
+                    trigger=MaintenanceTrigger.DEEP_MODE,
+                    scope_paths=topic_paths,
                     max_items=3,
+                    writes_enabled=True,
+                    write_scope="candidate synthesis notes under wiki/synthesis only",
                 )
             )
 
-        tasks.append(
-            MaintenanceTask(
-                maintenance_class=MaintenanceClass.STRUCTURAL,
-                task_name="refresh_indexes",
-                scope_paths=hub_paths or normalized_scope,
-            )
-        )
-
-        storage_strategy = "full" if mode == AutomationMode.DEEP or force_rebuild else "incremental"
+        refresh_scope = neighborhood or normalized_scope
+        storage_trigger = MaintenanceTrigger.FORCE_REBUILD if force_rebuild else trigger
         tasks.append(
             MaintenanceTask(
                 maintenance_class=MaintenanceClass.STORAGE,
-                task_name="refresh_read_model",
-                scope_paths=neighborhood or normalized_scope,
-                details={"strategy": storage_strategy},
+                task_name=MaintenanceTaskName.READ_MODEL_REFRESH,
+                trigger=storage_trigger,
+                scope_paths=refresh_scope,
+                writes_enabled=True,
+                write_scope="derived read-model DB only",
+                details={
+                    "strategy": (
+                        "full"
+                        if mode == AutomationMode.DEEP or force_rebuild
+                        else "incremental"
+                    )
+                },
             )
         )
-        if mode == AutomationMode.DEEP or force_rebuild:
-            tasks.append(
-                MaintenanceTask(
-                    maintenance_class=MaintenanceClass.STORAGE,
-                    task_name="refresh_search_index",
-                    scope_paths=neighborhood or normalized_scope,
-                )
+        tasks.append(
+            MaintenanceTask(
+                maintenance_class=MaintenanceClass.STORAGE,
+                task_name=MaintenanceTaskName.SEARCH_REFRESH,
+                trigger=storage_trigger,
+                scope_paths=refresh_scope,
+                writes_enabled=True,
+                write_scope="integrated lexical state inside read-model DB only",
+                details={
+                    "search_backend": "read_model_fts",
+                    "retire_legacy_search_db": True,
+                },
             )
+        )
 
         return MaintenancePlan(
             mode=mode,
@@ -121,7 +174,7 @@ class MaintenancePlanner:
 
             if note.note_type == "source":
                 for edge in self.read_model.get_related_for_source(scope_path):
-                    if edge.relation_type in _SOURCE_RELATIONS and edge.to_note_path:
+                    if edge.relation_type in _SOURCE_FORWARD_RELATIONS and edge.to_note_path:
                         neighborhood.add(edge.to_note_path)
             elif note.note_type in _HUB_TYPES:
                 for edge in self.read_model.get_backlinks(scope_path):
@@ -139,6 +192,12 @@ class MaintenancePlanner:
                         if edge.to_note_path:
                             second_degree.add(edge.to_note_path)
                 elif note.note_type in _HUB_TYPES:
+                    for edge in self.read_model.get_edges(
+                        from_note_path=note_path,
+                        relation_type=RELATION_SOURCE_SUPPORT,
+                    ):
+                        if edge.to_note_path:
+                            second_degree.add(edge.to_note_path)
                     for edge in self.read_model.get_backlinks(note_path):
                         if edge.from_note_path:
                             second_degree.add(edge.from_note_path)
@@ -174,3 +233,18 @@ class MaintenancePlanner:
             if len(thin) >= limit:
                 break
         return thin
+
+    def _trigger_for(
+        self,
+        *,
+        mode: str,
+        normalized_scope: list[str],
+        force_rebuild: bool,
+    ) -> str:
+        if force_rebuild:
+            return MaintenanceTrigger.FORCE_REBUILD
+        if mode == AutomationMode.DEEP:
+            return MaintenanceTrigger.DEEP_MODE
+        if normalized_scope:
+            return MaintenanceTrigger.POST_INGEST
+        return MaintenanceTrigger.AUTOMATION_TICK

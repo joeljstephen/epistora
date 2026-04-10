@@ -6,7 +6,13 @@ import pytest
 
 from app.artifacts import build_artifact_bundle
 from app.models.knowledge import Concept, Entity, Topic
-from app.models.source import SourceContent, SourceItem, SourceType
+from app.models.lifecycle import LifecycleMetadata
+from app.models.source import (
+    DerivedWorkKind,
+    SourceContent,
+    SourceItem,
+    SourceType,
+)
 from app.storage.evidence import EvidenceStoragePolicy
 from app.utils.markdown import parse_frontmatter
 from app.vault.writer import VaultWriter
@@ -78,6 +84,9 @@ class TestVaultWriter:
         assert "[[AI]]" in text
         assert "[[Test Author]]" in text
         assert "source_url" in text
+        meta, _ = parse_frontmatter(text)
+        assert meta["lifecycle"]["staleness_status"] == "unknown"
+        assert meta["lifecycle"]["reinforcement_count"] == 0
 
     def test_write_generic_source_note_to_misc(self, writer: VaultWriter):
         item = SourceItem(
@@ -154,6 +163,66 @@ class TestVaultWriter:
         text = (writer.vault_path / update.path).read_text(encoding="utf-8")
         assert "title: https://example.com/missing-title" in text
         assert "# https://example.com/missing-title" in text
+
+    def test_write_derived_work_source_note_uses_derived_paths_and_lifecycle(
+        self,
+        writer: VaultWriter,
+    ):
+        item = SourceItem(
+            url="epistora://sessions/analysis-1",
+            title="Architecture Analysis",
+            source_type=SourceType.DERIVED_WORK,
+            derived_work_kind=DerivedWorkKind.DERIVED_ANALYSIS,
+        )
+        content = SourceContent(
+            source=item,
+            raw_text="Working notes",
+            cleaned_text="Structured analysis of the maintenance architecture.",
+            archived_markdown="# Analysis\n\nWorking notes",
+            extraction_quality="full",
+            url_hash="derived-analysis-1",
+            derived_work_kind=DerivedWorkKind.DERIVED_ANALYSIS,
+            lifecycle=LifecycleMetadata(
+                confidence=0.82,
+                last_confirmed_at="2026-04-10T00:00:00+00:00",
+                supersedes=["wiki/synthesis/old-analysis.md"],
+                reinforcement_count=2,
+            ),
+        )
+
+        raw_update = writer.write_raw_capture(content, "architecture-analysis")
+        source_update = writer.write_source_note(
+            content=content,
+            slug="architecture-analysis",
+            raw_capture_path=raw_update.path,
+            summary="A durable analysis artifact.",
+            five_minute_read="Short brief.",
+            detailed_reading_note="Longer note.",
+            key_ideas="- Durable output",
+            detailed_outline="## Outline\n- Point",
+            important_examples="- Example",
+            actionable_takeaways="- Follow up",
+            notable_quotes="- None captured verbatim.",
+            best_for="- Maintainers",
+            consume_recommendation="Read when updating maintenance.",
+            why_it_matters="This preserves work-derived knowledge.",
+            open_questions="- Should this be promoted?",
+            topics=["Maintenance"],
+            entities=[],
+            concepts=["Derived Knowledge"],
+        )
+
+        assert raw_update.path == "raw/derived/architecture-analysis.md"
+        assert source_update.path == "wiki/sources/derived/architecture-analysis.md"
+
+        meta, _ = parse_frontmatter(
+            (writer.vault_path / source_update.path).read_text(encoding="utf-8")
+        )
+        assert meta["source_type"] == "derived_work"
+        assert meta["derived_work_kind"] == "derived_analysis"
+        assert meta["lifecycle"]["confidence"] == 0.82
+        assert meta["lifecycle"]["supersedes"] == ["wiki/synthesis/old-analysis.md"]
+        assert meta["lifecycle"]["reinforcement_count"] == 2
 
     def test_write_topic(self, writer: VaultWriter):
         topic = Topic(name="Machine Learning", slug="machine-learning", summary="ML is cool")

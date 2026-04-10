@@ -8,22 +8,22 @@ from pathlib import Path
 
 from app.automation.models import AutomationMode
 from app.compiler.lint_graph import _structural_lint
+from app.events import EventType, publish
 from app.maintenance.models import (
     MaintenanceClass,
     MaintenancePlan,
     MaintenanceResult,
     MaintenanceTask,
+    MaintenanceTaskName,
     MaintenanceTaskResult,
 )
 from app.maintenance.planner import MaintenancePlanner
+from app.models.lifecycle import LifecycleMetadata, StalenessStatus
 from app.models.results import LintIssue
 from app.read_model.store import (
-    RELATION_SOURCE_CONCEPT,
-    RELATION_SOURCE_ENTITY,
-    RELATION_SOURCE_TOPIC,
+    RELATION_TOPIC_MEMBERSHIP,
     ReadModelStore,
 )
-from app.retrieval.indexer import VaultIndexer
 from app.utils.dates import friendly_date, utcnow
 from app.utils.markdown import build_frontmatter_doc, parse_markdown_file, wikilink
 from app.vault.index_updater import rebuild_indexes
@@ -38,10 +38,11 @@ _SUMMARY_HEADINGS = (
     "## Concise Summary",
     "## Summary",
 )
+_HUB_TYPES = {"topic", "entity", "concept"}
 _SOURCE_RELATIONS_BY_TYPE = {
-    "topic": RELATION_SOURCE_TOPIC,
-    "entity": RELATION_SOURCE_ENTITY,
-    "concept": RELATION_SOURCE_CONCEPT,
+    "topic": RELATION_TOPIC_MEMBERSHIP,
+    "entity": "entity_mention",
+    "concept": "concept_relationship",
 }
 
 
@@ -57,6 +58,14 @@ async def maintain_vault(
     plan = planner.plan(mode=mode, scope_paths=scope_paths, force_rebuild=force_rebuild)
     result = await _execute_plan(vault_path=vault_path, plan=plan)
     result.log_path = write_maintenance_log(vault_path, result)
+    publish(
+        EventType.MAINTENANCE_COMPLETED,
+        mode=mode,
+        scope_paths=result.scope_paths,
+        changed_paths=result.changed_paths,
+        planned_tasks=result.planned_tasks,
+        log_path=result.log_path,
+    )
     return result
 
 
@@ -69,10 +78,23 @@ async def _execute_plan(*, vault_path: Path, plan: MaintenancePlan) -> Maintenan
 
     changed_paths: list[str] = []
     for task in plan.tasks:
+        logger.info(
+            "Maintenance task start: %s trigger=%s scope=%d writes=%s",
+            task.task_name,
+            task.trigger,
+            len(task.scope_paths),
+            task.writes_enabled,
+        )
         task_result = await _execute_task(
             vault_path=vault_path,
             task=task,
             aggregate_changed_paths=changed_paths,
+        )
+        logger.info(
+            "Maintenance task done: %s status=%s changed=%d",
+            task.task_name,
+            task_result.status,
+            len(task_result.changed_paths),
         )
         result.task_results.append(task_result)
         changed_paths.extend(task_result.changed_paths)
@@ -88,17 +110,20 @@ async def _execute_task(
     aggregate_changed_paths: list[str],
 ) -> MaintenanceTaskResult:
     try:
-        if task.task_name == "structural_audit":
-            return await _run_structural_audit(vault_path, task)
-        if task.task_name == "refresh_hub_pages":
+        task_name = task.task_name
+        if task_name == MaintenanceTaskName.ARTIFACT_NEIGHBORHOOD_REFRESH:
+            return _run_artifact_neighborhood_refresh(task)
+        if task_name == MaintenanceTaskName.STRUCTURAL_REPAIR:
+            return await _run_structural_repair(vault_path, task)
+        if task_name == MaintenanceTaskName.HUB_REFRESH:
             return _run_hub_refresh(vault_path, task)
-        if task.task_name == "generate_synthesis_candidates":
-            return _run_synthesis_candidates(vault_path, task)
-        if task.task_name == "refresh_indexes":
-            return _run_index_refresh(vault_path, task)
-        if task.task_name == "refresh_read_model":
+        if task_name == MaintenanceTaskName.BACKLINK_REPAIR:
+            return _run_backlink_repair(vault_path, task)
+        if task_name == MaintenanceTaskName.CANDIDATE_SYNTHESIS_REFRESH:
+            return _run_candidate_synthesis_refresh(vault_path, task)
+        if task_name == MaintenanceTaskName.READ_MODEL_REFRESH:
             return _run_read_model_refresh(vault_path, task, aggregate_changed_paths)
-        if task.task_name == "refresh_search_index":
+        if task_name == MaintenanceTaskName.SEARCH_REFRESH:
             return _run_search_refresh(vault_path, task)
         raise ValueError(f"Unknown maintenance task '{task.task_name}'")
     except Exception as exc:  # pragma: no cover - defensive isolation
@@ -106,13 +131,29 @@ async def _execute_task(
         return MaintenanceTaskResult(
             maintenance_class=task.maintenance_class,
             task_name=task.task_name,
+            trigger=task.trigger,
             status="error",
             scope_paths=task.scope_paths,
             error=str(exc),
         )
 
 
-async def _run_structural_audit(vault_path: Path, task: MaintenanceTask) -> MaintenanceTaskResult:
+def _run_artifact_neighborhood_refresh(task: MaintenanceTask) -> MaintenanceTaskResult:
+    neighborhood = list(task.details.get("neighborhood_paths", []))
+    return MaintenanceTaskResult(
+        maintenance_class=MaintenanceClass.STRUCTURAL,
+        task_name=task.task_name,
+        trigger=task.trigger,
+        scope_paths=task.scope_paths,
+        details={
+            "neighborhood_paths": neighborhood,
+            "neighborhood_size": len(neighborhood),
+            "depth": task.details.get("depth", 1),
+        },
+    )
+
+
+async def _run_structural_repair(vault_path: Path, task: MaintenanceTask) -> MaintenanceTaskResult:
     notes = scan_vault(vault_path)
     state = {"vault_path": str(vault_path), "notes": notes}
     audit_result = await _structural_lint(state)
@@ -121,22 +162,23 @@ async def _run_structural_audit(vault_path: Path, task: MaintenanceTask) -> Main
     for issue in issues:
         issue_counts[issue.category] = issue_counts.get(issue.category, 0) + 1
 
+    changed_paths = rebuild_indexes(vault_path)
     return MaintenanceTaskResult(
         maintenance_class=MaintenanceClass.STRUCTURAL,
         task_name=task.task_name,
+        trigger=task.trigger,
         scope_paths=task.scope_paths,
+        changed_paths=sorted(dict.fromkeys(changed_paths)),
         details={
             "issues_found": len(issues),
             "issue_counts": issue_counts,
+            "indexes_updated": len(changed_paths),
         },
     )
 
 
 def _run_hub_refresh(vault_path: Path, task: MaintenanceTask) -> MaintenanceTaskResult:
-    note_lookup = {
-        note.rel_path: note
-        for note in scan_vault(vault_path)
-    }
+    note_lookup = {note.rel_path: note for note in scan_vault(vault_path)}
     store = ReadModelStore(vault_path)
     changed_paths: list[str] = []
     attempted = 0
@@ -146,7 +188,7 @@ def _run_hub_refresh(vault_path: Path, task: MaintenanceTask) -> MaintenanceTask
         if note is None or note.note_type not in _SOURCE_RELATIONS_BY_TYPE:
             continue
         attempted += 1
-        updated = _refresh_hub_note(vault_path, note, note_lookup, store)
+        updated = _refresh_hub_note(vault_path, note, note_lookup, store, include_backlinks=False)
         if updated:
             changed_paths.append(updated)
         if task.max_items and attempted >= task.max_items:
@@ -155,17 +197,45 @@ def _run_hub_refresh(vault_path: Path, task: MaintenanceTask) -> MaintenanceTask
     return MaintenanceTaskResult(
         maintenance_class=MaintenanceClass.SEMANTIC,
         task_name=task.task_name,
+        trigger=task.trigger,
         scope_paths=task.scope_paths,
         changed_paths=sorted(dict.fromkeys(changed_paths)),
         details={"hubs_refreshed": len(changed_paths)},
     )
 
 
-def _run_synthesis_candidates(vault_path: Path, task: MaintenanceTask) -> MaintenanceTaskResult:
-    note_lookup = {
-        note.rel_path: note
-        for note in scan_vault(vault_path)
-    }
+def _run_backlink_repair(vault_path: Path, task: MaintenanceTask) -> MaintenanceTaskResult:
+    note_lookup = {note.rel_path: note for note in scan_vault(vault_path)}
+    store = ReadModelStore(vault_path)
+    changed_paths: list[str] = []
+    attempted = 0
+
+    for note_path in task.scope_paths:
+        note = note_lookup.get(note_path)
+        if note is None or note.note_type not in _HUB_TYPES:
+            continue
+        attempted += 1
+        updated = _refresh_hub_backlinks(vault_path, note, note_lookup, store)
+        if updated:
+            changed_paths.append(updated)
+        if task.max_items and attempted >= task.max_items:
+            break
+
+    return MaintenanceTaskResult(
+        maintenance_class=MaintenanceClass.SEMANTIC,
+        task_name=task.task_name,
+        trigger=task.trigger,
+        scope_paths=task.scope_paths,
+        changed_paths=sorted(dict.fromkeys(changed_paths)),
+        details={"backlink_sections_repaired": len(changed_paths)},
+    )
+
+
+def _run_candidate_synthesis_refresh(
+    vault_path: Path,
+    task: MaintenanceTask,
+) -> MaintenanceTaskResult:
+    note_lookup = {note.rel_path: note for note in scan_vault(vault_path)}
     store = ReadModelStore(vault_path)
     changed_paths: list[str] = []
 
@@ -190,20 +260,10 @@ def _run_synthesis_candidates(vault_path: Path, task: MaintenanceTask) -> Mainte
     return MaintenanceTaskResult(
         maintenance_class=MaintenanceClass.SYNTHESIS,
         task_name=task.task_name,
+        trigger=task.trigger,
         scope_paths=task.scope_paths,
         changed_paths=sorted(dict.fromkeys(changed_paths)),
         details={"candidates_written": len(changed_paths)},
-    )
-
-
-def _run_index_refresh(vault_path: Path, task: MaintenanceTask) -> MaintenanceTaskResult:
-    paths = rebuild_indexes(vault_path)
-    return MaintenanceTaskResult(
-        maintenance_class=MaintenanceClass.STRUCTURAL,
-        task_name=task.task_name,
-        scope_paths=task.scope_paths,
-        changed_paths=sorted(dict.fromkeys(paths)),
-        details={"indexes_updated": len(paths)},
     )
 
 
@@ -231,6 +291,7 @@ def _run_read_model_refresh(
     return MaintenanceTaskResult(
         maintenance_class=MaintenanceClass.STORAGE,
         task_name=task.task_name,
+        trigger=task.trigger,
         status=status,
         scope_paths=task.scope_paths,
         changed_paths=refresh_paths,
@@ -239,12 +300,18 @@ def _run_read_model_refresh(
 
 
 def _run_search_refresh(vault_path: Path, task: MaintenanceTask) -> MaintenanceTaskResult:
-    indexed_count = VaultIndexer(vault_path).rebuild()
+    store = ReadModelStore(vault_path)
+    stats = store.search_stats()
     return MaintenanceTaskResult(
         maintenance_class=MaintenanceClass.STORAGE,
         task_name=task.task_name,
+        trigger=task.trigger,
         scope_paths=task.scope_paths,
-        details={"indexed_notes": indexed_count},
+        details={
+            "search_backend": task.details.get("search_backend", "read_model_fts"),
+            "search_documents": stats["documents"],
+            "legacy_search_db_retired": stats["legacy_search_db_retired"],
+        },
     )
 
 
@@ -253,6 +320,8 @@ def _refresh_hub_note(
     note: VaultNote,
     note_lookup: dict[str, VaultNote],
     store: ReadModelStore,
+    *,
+    include_backlinks: bool,
 ) -> str | None:
     source_notes = _source_notes_for_hub(note, note_lookup, store)
     backlinks = _backlink_titles(note, note_lookup, store)
@@ -319,21 +388,48 @@ def _refresh_hub_note(
             _render_bullets(_summary_snippets(source_notes)),
         )
 
-    updated_body = _replace_or_append_section(
-        updated_body,
-        "Backlinks",
-        _render_bullets(backlinks),
-    )
+    if include_backlinks:
+        updated_body = _replace_or_append_section(
+            updated_body,
+            "Backlinks",
+            _render_bullets(backlinks),
+        )
+
     updated_body = _replace_or_append_section(
         updated_body,
         "Maintenance Notes",
         maintenance_notes,
     )
 
-    meta["updated_at"] = friendly_date()
-    meta["last_maintenance_at"] = utcnow().isoformat()
-    meta["maintenance_classes"] = [MaintenanceClass.SEMANTIC.value]
+    _update_maintenance_meta(
+        meta,
+        maintenance_class=MaintenanceClass.SEMANTIC,
+        reinforcement_count=max(1, len(source_notes)),
+    )
 
+    new_text = build_frontmatter_doc(meta, updated_body.strip())
+    old_text = path.read_text(encoding="utf-8")
+    if new_text == old_text:
+        return None
+    path.write_text(new_text, encoding="utf-8")
+    return note.rel_path
+
+
+def _refresh_hub_backlinks(
+    vault_path: Path,
+    note: VaultNote,
+    note_lookup: dict[str, VaultNote],
+    store: ReadModelStore,
+) -> str | None:
+    path = vault_path / note.rel_path
+    meta, body = parse_markdown_file(path)
+    backlinks = _backlink_titles(note, note_lookup, store)
+    updated_body = _replace_or_append_section(body, "Backlinks", _render_bullets(backlinks))
+    _update_maintenance_meta(
+        meta,
+        maintenance_class=MaintenanceClass.SEMANTIC,
+        reinforcement_count=max(1, len(backlinks)),
+    )
     new_text = build_frontmatter_doc(meta, updated_body.strip())
     old_text = path.read_text(encoding="utf-8")
     if new_text == old_text:
@@ -347,17 +443,19 @@ def _source_notes_for_hub(
     note_lookup: dict[str, VaultNote],
     store: ReadModelStore,
 ) -> list[VaultNote]:
-    relation_type = _SOURCE_RELATIONS_BY_TYPE.get(note.note_type)
-    if not relation_type:
-        return []
-    source_paths = [
-        edge.from_note_path
-        for edge in store.get_edges(
-            to_note_path=note.rel_path,
-            relation_type=relation_type,
-        )
-        if edge.from_note_path
-    ]
+    support_edges = store.get_edges(from_note_path=note.rel_path, relation_type="source_support")
+    if support_edges:
+        source_paths = [edge.to_note_path for edge in support_edges if edge.to_note_path]
+    else:
+        relation_type = _SOURCE_RELATIONS_BY_TYPE.get(note.note_type)
+        source_paths = [
+            edge.from_note_path
+            for edge in store.get_edges(
+                to_note_path=note.rel_path,
+                relation_type=relation_type,
+            )
+            if edge.from_note_path
+        ]
     return [note_lookup[path] for path in source_paths if path in note_lookup]
 
 
@@ -421,9 +519,7 @@ def _maintenance_notes(
     thin = note_words < 120 or len(source_notes) < 2
     lines = [
         f"- Last refreshed: {friendly_date()}",
-        (
-            f"- Supporting sources: {len(source_notes)}"
-        ),
+        f"- Supporting sources: {len(source_notes)}",
         f"- Backlinks: {len(backlinks)}",
         f"- Thin page: {'yes' if thin else 'no'}",
     ]
@@ -453,6 +549,12 @@ def _write_candidate_synthesis(
         "candidate_topic": topic_note.title,
         "source_basis": [source.title for source in source_notes],
         "updated_at": friendly_date(),
+        "lifecycle": LifecycleMetadata(
+            confidence=None,
+            last_confirmed_at=utcnow().isoformat(),
+            staleness_status=StalenessStatus.NEEDS_REVIEW,
+            reinforcement_count=len(source_notes),
+        ).as_frontmatter(),
     }
     patterns = _render_bullets(_summary_snippets(source_notes))
     basis = _render_bullets(source.title for source in source_notes)
@@ -476,15 +578,32 @@ def _write_candidate_synthesis(
         ]
     )
     new_text = build_frontmatter_doc(meta, body)
-    action = "created"
     if path.exists():
         old_text = path.read_text(encoding="utf-8")
         if old_text == new_text:
             return None
-        action = "updated"
     path.write_text(new_text, encoding="utf-8")
-    _ = action
     return str(path.relative_to(path.parents[2]))
+
+
+def _update_maintenance_meta(
+    meta: dict[str, object],
+    *,
+    maintenance_class: MaintenanceClass,
+    reinforcement_count: int,
+) -> None:
+    meta["updated_at"] = friendly_date()
+    meta["last_maintenance_at"] = utcnow().isoformat()
+    classes = list(meta.get("maintenance_classes", []) or [])
+    if maintenance_class.value not in classes:
+        classes.append(maintenance_class.value)
+    meta["maintenance_classes"] = classes
+
+    lifecycle = LifecycleMetadata(**dict(meta.get("lifecycle", {}) or {}))
+    lifecycle.last_confirmed_at = utcnow().isoformat()
+    lifecycle.staleness_status = StalenessStatus.CURRENT
+    lifecycle.reinforcement_count = max(reinforcement_count, lifecycle.reinforcement_count)
+    meta["lifecycle"] = lifecycle.as_frontmatter()
 
 
 def _replace_or_append_section(body: str, heading: str, content: str) -> str:

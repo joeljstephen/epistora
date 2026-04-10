@@ -10,6 +10,7 @@ from app.automation.models import AutomationMode, AutomationRun
 from app.automation.processing import process_pending_items
 from app.automation.queue_store import AutomationRunRepository, QueueRepository
 from app.config import get_settings
+from app.events import EventType, publish
 from app.maintenance.service import maintain_vault
 from app.storage.sqlite import Database
 from app.utils.dates import utcnow
@@ -96,6 +97,12 @@ async def run_maintenance(
     do_rebuild = (
         run_rebuild if run_rebuild is not None else settings.automation_run_rebuild_indexes
     )
+    publish(
+        EventType.SCHEDULED_MAINTENANCE_TICK,
+        mode=effective_mode,
+        scope_paths=scope_paths or [],
+        force_rebuild=bool(do_rebuild),
+    )
 
     maintenance = await maintain_vault(
         vault_path=settings.vault_path,
@@ -107,7 +114,7 @@ async def run_maintenance(
     results = maintenance.model_dump()
     results["status"] = "ok"
     for task_result in maintenance.task_results:
-        if task_result.task_name == "refresh_indexes":
+        if task_result.task_name == "structural_repair":
             results["rebuild_indexes"] = {
                 "status": task_result.status,
                 "indexes_updated": task_result.details.get("indexes_updated", 0),

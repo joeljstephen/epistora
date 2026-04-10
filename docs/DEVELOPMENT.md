@@ -114,7 +114,7 @@ epistora automation list-pending
 # Retry failed items
 epistora automation retry-failed --mode balanced
 
-# Run maintenance tasks
+# Run bounded maintenance tasks
 epistora automation maintain --lint --rebuild
 
 # Generate OS scheduler helpers
@@ -129,8 +129,8 @@ The short alias is `eps`.
 | Mode | LLM Usage | Description |
 |------|-----------|-------------|
 | `safe` | None | Fetch + archive only. No LLM cost. Good for default scheduled runs. |
-| `balanced` | Capped | Safe mode + limited LLM enrichment per run. Controlled cost. |
-| `deep` | Full | Full ingest graph with topic/entity/concept updates. Opt-in. |
+| `balanced` | Capped | Safe mode + limited LLM enrichment per run, then first-degree hub maintenance. |
+| `deep` | Full | Full ingest graph with deeper neighborhood maintenance and bounded candidate synthesis refresh. |
 
 ### Cross-Platform Scheduling
 
@@ -147,7 +147,7 @@ This generates:
 - Windows: Task Scheduler XML
 - Instructions: SCHEDULING.md
 
-### Querying the Vault (Agent-First)
+### Querying the Vault
 
 The recommended way to query the vault is to use Claude Code or OpenCode
 directly on the vault directory:
@@ -164,7 +164,9 @@ The agent reads `AGENTS.md` and navigates the vault using the index files.
 See `wiki/indexes/START_HERE.md` and `wiki/indexes/QUERY_PROTOCOL.md` for
 the navigation procedure.
 
-The legacy `epistora query` command is deprecated but still functional.
+For tool-driven query flows, `epistora query` and `POST /query` now resolve
+retrieval context from the read model first, expand across typed relationships,
+and use lexical search only as a supporting signal.
 
 ### API Server
 

@@ -723,7 +723,7 @@ class TestAutomationRunner:
             mock_maintain.return_value = MagicMock()
             mock_maintain.return_value.model_dump.return_value = {
                 "mode": "deep",
-                "planned_tasks": ["structural_audit", "generate_synthesis_candidates"],
+                "planned_tasks": ["structural_repair", "candidate_synthesis_refresh"],
                 "task_results": [],
                 "changed_paths": [],
                 "log_path": "wiki/logs/maintenance-log.md",
@@ -736,7 +736,7 @@ class TestAutomationRunner:
 
         mock_maintain.assert_called_once()
         assert result["mode"] == "deep"
-        assert "generate_synthesis_candidates" in result["planned_tasks"]
+        assert "candidate_synthesis_refresh" in result["planned_tasks"]
 
     @pytest.mark.asyncio
     async def test_idempotent_across_repeated_runs(self):

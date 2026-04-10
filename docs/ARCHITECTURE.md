@@ -9,8 +9,8 @@ filesystem-capable agents.
 Today the system has four primary runtime paths:
 
 1. Ingest a single URL or recent inbox items into the vault.
-2. Query the vault through direct agent navigation, with a deprecated built-in
-   query graph still available for compatibility.
+2. Query the vault through direct agent navigation or the read-model-native
+   query service.
 3. Lint the vault for structural and semantic quality issues.
 4. Discover and process queued items through the queue-based automation system.
 
@@ -32,6 +32,13 @@ SourceItem -> SourceContent -> ArtifactBundle -> configured sinks
 That means Epistora is no longer only a markdown writer internally, even though
 the markdown vault remains the primary default output.
 
+The pre-release hardening pass also adds three small but durable seams around
+that core:
+
+- a bounded maintenance contract
+- a minimal internal event taxonomy
+- lifecycle and derived-work metadata hooks
+
 ## Architectural Principles
 
 - Local-first outputs: the durable product is the vault on disk, not an API
@@ -43,7 +50,7 @@ the markdown vault remains the primary default output.
 - Scratch outputs stay separate: `outputs/` is for temporary answers and other
   generated artifacts that are not yet promoted into durable knowledge.
 - State is explicit: SQLite stores processing state, sync cursors, queue state,
-  and search state, but not the knowledge content itself.
+  and the derived read model, but not the knowledge content itself.
 - Backend-agnostic reasoning: ingest, query, and lint call a backend router
   rather than hard-coding one LLM path.
 - Agent-first querying: the preferred query workflow is to point Claude Code,
@@ -67,7 +74,7 @@ the markdown vault remains the primary default output.
                        |                           |
                        v                           v
                 Backend Router                SQLite State
-         (API / OpenCode / Claude / Codex)    + Search DB
+         (API / OpenCode / Claude / Codex)    + Read Model
                        |
                        v
                  Markdown Vault
@@ -87,7 +94,7 @@ the markdown vault remains the primary default output.
 | Sinks | `app/sinks/` | Output publishing for markdown vault and JSON export |
 | Vault | `app/vault/` | Vault paths, templates, writes, parsing, indexes, logs |
 | Read Model | `app/read_model/` | Derived relationship/index helper DB from vault files |
-| Retrieval | `app/retrieval/` | Vault search and lightweight resolution helpers |
+| Retrieval | `app/retrieval/` | Read-model-native retrieval orchestration |
 | Storage | `app/storage/` | SQLite schema and repositories for persistent state |
 | Automation | `app/automation/` | Queue discovery/processing and legacy worker scheduling |
 | Plugins | `app/plugins/` | Local manifest discovery and extension loading |
@@ -114,8 +121,8 @@ groups are:
 - `epistora vault show`
 - `epistora vault use <path>`
 
-The deprecated CLI query path still exists as `epistora query`, but the
-recommended query path is direct agent access to the vault.
+`epistora query` remains available as the built-in tool-driven query entry
+point, but the recommended path is still direct agent access to the vault.
 
 ### FastAPI
 
@@ -125,7 +132,7 @@ recommended query path is direct agent access to the vault.
 - `POST /ingest/url`
 - `POST /ingest/inbox/sync`
 - `POST /ingest/raindrop/sync`
-- `POST /query` (deprecated)
+- `POST /query`
 - `POST /lint`
 - `GET /automation/status`
 - `POST /automation/discover`
@@ -148,6 +155,9 @@ Epistora currently supports two automation styles:
   recommended path and the basis for OS scheduler integration.
 - The legacy interval worker in `app/automation/worker.py`, which runs
   recurring sync/lint/index jobs in-process behind a file lock.
+
+The queue-based runner is the v2-first path. It now feeds a bounded maintenance
+plan rather than a loose set of post-processing tasks.
 
 ## Configuration Model
 
@@ -187,7 +197,9 @@ database inside the vault at `VAULT_PATH/.system/epistora.db`.
 
 - `SourceItem`: metadata before content extraction
 - `SourceContent`: normalized extracted content after fetch
-- `SourceType`: `article`, `youtube`, `x_thread`, `pdf`, `generic`
+- `SourceType`: `article`, `youtube`, `x_thread`, `pdf`, `generic`, `derived_work`
+- `DerivedWorkKind`: `derived_analysis`, `session_digest`,
+  `crystallized_output`
 - `ExtractionQuality`: `full`, `mostly_full`, `partial`,
   `metadata_only`, `failed`
 
@@ -199,6 +211,10 @@ database inside the vault at `VAULT_PATH/.system/epistora.db`.
 
 That keeps state persistence decoupled from any single inbox provider.
 
+`SourceContent` also now carries minimal `lifecycle` metadata so later
+confidence, supersession, and staleness work can evolve without a breaking
+schema jump.
+
 ### Knowledge Models
 
 `app/models/knowledge.py` defines:
@@ -207,6 +223,8 @@ That keeps state persistence decoupled from any single inbox provider.
 - `Entity`
 - `Concept`
 - `SynthesisNote`
+
+These models now also carry the same minimal `lifecycle` metadata block.
 
 ### Result Models
 
@@ -685,29 +703,25 @@ Epistora is architected for agent-first querying. The recommended path is:
 The knowledge vault template under `knowledge_vault_template/` seeds that
 navigation layer when a vault is initialized.
 
-### Deprecated Built-In Query Graph
+### Query Service
 
-The built-in query graph still exists and is not dead code. It lives in
-`app/compiler/query_graph.py` and is used by:
+The built-in query path now lives in `app/services/query_service.py` and uses
+`app/retrieval/orchestrator.py`.
 
-- `app/services/query_service.py`
-- the deprecated CLI command `epistora query`
-- the deprecated HTTP endpoint `POST /query`
-
-Current query graph flow:
+Current flow:
 
 ```text
-resolve_context -> generate_answer -> maybe_save
+read-model candidates -> typed relationship expansion -> lexical support ->
+LLM answer -> optional save
 ```
 
 What it does:
 
-- reads previews from the index files
-- rebuilds the FTS search DB on each query attempt
-- searches the vault with FTS5
-- falls back to filename/frontmatter/body keyword matching
-- constructs an LLM context block from relevant note snippets
-- asks the configured query backend for an answer
+- resolves initial candidates from the derived read model
+- expands to related artifacts using typed edges such as topic membership,
+  source support, backlinks, and derived-from relationships
+- uses lexical search from `read_model_fts` only as a supporting signal
+- constructs structured context for the configured query backend
 - optionally saves the answer to `outputs/answers/<slug>.md`
 
 Important nuance: query saving writes to `outputs/answers/`, not to
@@ -715,19 +729,56 @@ Important nuance: query saving writes to `outputs/answers/`, not to
 
 ### Retrieval Stack
 
-`app/retrieval/search.py` and `app/retrieval/indexer.py` provide the search
-layer.
+`app/retrieval/orchestrator.py` coordinates retrieval, and
+`app/read_model/store.py` owns both the relationship layer and lexical support.
 
 Current behavior:
 
-- FTS5 index lives at `.system/state/search.db`
+- the read model lives at `.system/state/read_model.db`
 - searchable note types are `source`, `topic`, `entity`, `concept`, and
   `synthesis`
-- `search_vault(...)` attempts a full FTS rebuild before searching
-- if FTS yields nothing, fallback search scores title, topics, and body text
+- the markdown sink refreshes the read model incrementally after publish
+- maintenance can trigger a full read-model rebuild when needed
+- lexical support lives in the same derived state as the relationship layer
+- the legacy standalone `search.db` runtime has been retired
 
-`app/retrieval/resolver.py` is a simple slug-based page resolver for topic,
-entity, and concept names.
+## Maintenance Architecture
+
+`app/maintenance/` now behaves as a real subsystem with explicit task types and
+bounded write scopes.
+
+The current task set is:
+
+- `artifact_neighborhood_refresh`
+- `structural_repair`
+- `hub_refresh`
+- `backlink_repair`
+- `candidate_synthesis_refresh`
+- `read_model_refresh`
+- `search_refresh`
+
+Planning is read-model-aware, ordered, and mode-sensitive:
+
+- `safe` runs structural and storage maintenance only
+- `balanced` expands to first-degree hub neighborhoods
+- `deep` expands farther and can write candidate synthesis notes
+
+Deep mode is still not a separate ingest compiler, but it is no longer only
+"balanced plus a bigger budget". The deeper maintenance neighborhood and
+candidate synthesis refresh make it materially different in runtime behavior.
+
+## Event Hooks
+
+`app/events.py` defines a small internal taxonomy for future automation and
+integration growth:
+
+- `source_ingested`
+- `artifact_written`
+- `maintenance_completed`
+- `query_answer_saved`
+- `scheduled_maintenance_tick`
+
+These are internal hooks, not a public event bus contract yet.
 
 ## Lint Architecture
 
@@ -851,9 +902,10 @@ As implemented today:
 - `deep` also uses the full ingest graph with LLM enrichment, with its own
   default backend ordering and the same budget machinery.
 
-The important nuance is that `balanced` and `deep` do not currently use
-different ingest graphs. The main difference is operational policy and backend
-ordering, not a separate compilation pipeline.
+The important nuance is that `balanced` and `deep` still do not use different
+ingest graphs. The difference now lives in maintenance behavior as well as
+operational policy: deep mode expands a broader neighborhood and can generate
+candidate synthesis drafts, while balanced mode does not.
 
 ### One-Shot Automation Runner
 
@@ -866,8 +918,9 @@ discover -> process_pending -> optional maintenance
 
 It records a run in `automation_runs`, emits progress events, and can also run:
 
-- lint maintenance
-- index rebuild maintenance
+- bounded maintenance planning/execution
+- optional lint
+- structural index rebuilds and read-model refresh work through the maintenance contract
 
 ### Legacy Worker
 
@@ -924,13 +977,14 @@ database:
 - `automation_runs`
 - `item_attempts`
 
-### Search Database
+### Read-Model Retrieval State
 
-Search uses a separate SQLite FTS5 database at:
+Retrieval uses the derived read-model database at:
 
-- `.system/state/search.db`
+- `.system/state/read_model.db`
 
-This keeps full-text retrieval state separate from the main operational ledger.
+That database contains both typed relationship edges and the integrated lexical
+search table used by the built-in query service.
 
 ## Vault Parsing And Read Model
 
@@ -1018,13 +1072,14 @@ agent reads AGENTS.md
   -> raw evidence only if needed
 ```
 
-### Deprecated Built-In Query
+### Built-In Query
 
 ```text
 epistora query / POST /query
-  -> rebuild FTS
-  -> search vault
-  -> build snippet context
+  -> resolve read-model candidates
+  -> expand typed relationships
+  -> apply lexical support
+  -> build structured context
   -> query backend answer
   -> optionally save to outputs/answers
 ```
@@ -1066,16 +1121,12 @@ add it to backend ordering config.
 
 The vault is the durable product, so additional read-side features should
 usually derive from `scan_vault(...)`, existing frontmatter conventions, or the
-search index rather than duplicating knowledge into a second database.
+read model rather than duplicating knowledge into a second database.
 
 ## Known Architectural Tensions
 
-- The built-in query graph still exists even though the recommended query model
-  is agent-first. Both paths are real and need to be understood separately.
 - `balanced` and `deep` automation currently share the same enriched ingest
   implementation, so their difference is mostly budget and backend policy.
-- Retrieval currently rebuilds the FTS index during query, which keeps search
-  fresh but adds work to each built-in query.
 - The main DB and queue tables coexist cleanly, but the vault itself remains
   the true knowledge store, so features that need complete knowledge must still
   read markdown rather than relying only on SQLite.

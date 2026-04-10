@@ -105,18 +105,33 @@ class TestIngestServiceWithMockedBackend:
 class TestQueryServiceWithMockedBackend:
     @pytest.mark.asyncio
     async def test_generate_answer_uses_router(self, tmp_path: Path):
-        """The query graph _generate_answer node calls run_text correctly."""
-        from app.compiler.query_graph import QueryState, _generate_answer
+        """The query service answer generator calls run_text correctly."""
+        from app.read_model.models import ReadModelNote
+        from app.retrieval.orchestrator import RetrievalContext, RetrievedArtifact
+        from app.services.query_service import _generate_answer
 
-        state: QueryState = {
-            "question": "What is AI?",
-            "vault_path": str(tmp_path),
-            "relevant_notes": [{"title": "AI Note", "snippet": "AI is...", "type": "source"}],
-            "context": "### AI Note\nAI is...",
-        }
+        retrieval = RetrievalContext(
+            question="What is AI?",
+            artifacts=[
+                RetrievedArtifact(
+                    note=ReadModelNote(
+                        note_path="wiki/sources/articles/ai-note.md",
+                        note_type="source",
+                        title="AI Note",
+                        body="AI is...",
+                    ),
+                    score=5.0,
+                    reasons=["title phrase match"],
+                    snippet="AI is...",
+                )
+            ],
+            source_references=["wiki/sources/articles/ai-note.md"],
+            topics_consulted=[],
+            text_context="### source: AI Note\nAI is...",
+        )
 
         with patch(
-            "app.compiler.query_graph.run_text",
+            "app.services.query_service.run_text",
             new_callable=AsyncMock,
             return_value=BackendResponse(
                 text="AI stands for Artificial Intelligence.",
@@ -125,9 +140,9 @@ class TestQueryServiceWithMockedBackend:
                 model_used="test-model",
             ),
         ):
-            result = await _generate_answer(state)
+            result = await _generate_answer(vault_path=tmp_path, retrieval=retrieval)
 
-        assert "Artificial Intelligence" in result["answer"]
+        assert "Artificial Intelligence" in result
 
 
 class TestLintServiceWithMockedBackend:

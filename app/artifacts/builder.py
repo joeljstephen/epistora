@@ -14,6 +14,7 @@ from app.artifacts.models import (
     SourceArtifact,
     TopicArtifact,
 )
+from app.models.lifecycle import LifecycleMetadata, StalenessStatus
 from app.models.source import SourceContent
 from app.utils.slugify import slugify
 
@@ -113,6 +114,7 @@ def build_artifact_bundle(
         title=content.source.title or content.source.url,
         source_type=content.source.source_type.value,
         source_url=content.source.url,
+        derived_work_kind=content.derived_work_kind or content.source.derived_work_kind,
         canonical_url=content.canonical_url,
         author=content.author,
         published_at=content.published_date,
@@ -138,6 +140,7 @@ def build_artifact_bundle(
         extraction_fallback_chain=list(content.extraction_fallback_chain),
         tags=list(content.source.tags),
         word_count=content.word_count,
+        lifecycle=_source_lifecycle(content),
         metadata={
             "extraction_notes": content.extraction_notes,
             "raw_capture_kind": content.raw_capture_kind,
@@ -194,6 +197,11 @@ def _build_topic_artifacts(
                 source_artifact_ids=[source_id],
                 related_entity_ids=list(dict.fromkeys(entity_ids)),
                 related_concept_ids=list(dict.fromkeys(concept_ids)),
+                lifecycle=LifecycleMetadata(
+                    confidence=0.5,
+                    staleness_status=StalenessStatus.UNKNOWN,
+                    reinforcement_count=1,
+                ),
             )
         )
     return topic_artifacts
@@ -240,6 +248,11 @@ def _build_entity_artifacts(
                 source_artifact_ids=[source_id],
                 related_concept_ids=list(dict.fromkeys(concept_ids)),
                 related_topic_ids=list(dict.fromkeys(topic_ids)),
+                lifecycle=LifecycleMetadata(
+                    confidence=0.5,
+                    staleness_status=StalenessStatus.UNKNOWN,
+                    reinforcement_count=1,
+                ),
             )
         )
     return entities
@@ -266,6 +279,11 @@ def _build_concept_artifacts(
                 title=resolved,
                 definition=concept_data.get("definition", "").strip(),
                 source_artifact_ids=[source_id],
+                lifecycle=LifecycleMetadata(
+                    confidence=0.5,
+                    staleness_status=StalenessStatus.UNKNOWN,
+                    reinforcement_count=1,
+                ),
             )
         )
 
@@ -429,3 +447,15 @@ def _quality_confidence(quality: str) -> float:
         "metadata_only": 0.35,
         "failed": 0.1,
     }.get(quality, 0.5)
+
+
+def _source_lifecycle(content: SourceContent) -> LifecycleMetadata:
+    lifecycle = content.lifecycle.model_copy(deep=True)
+    if lifecycle.confidence is None:
+        lifecycle.confidence = _quality_confidence(content.extraction_quality)
+    if not lifecycle.last_confirmed_at:
+        lifecycle.last_confirmed_at = content.source.saved_at.isoformat()
+    if lifecycle.staleness_status == StalenessStatus.UNKNOWN:
+        lifecycle.staleness_status = StalenessStatus.CURRENT
+    lifecycle.reinforcement_count = max(1, lifecycle.reinforcement_count)
+    return lifecycle

@@ -1,13 +1,14 @@
-"""Tests for the query flow against a fixture vault."""
+"""Tests for the v2-native retrieval and query flow."""
 
 from __future__ import annotations
 
-import warnings
 from pathlib import Path
 
 import pytest
 
 from app.models.knowledge import Topic
+from app.read_model import ReadModelStore
+from app.retrieval import build_retrieval_context
 from app.vault.index_updater import rebuild_indexes
 from app.vault.writer import VaultWriter
 
@@ -63,61 +64,55 @@ def populated_vault(tmp_vault: Path) -> Path:
     writer.write_topic(topic, ["Introduction to RAG", "LangChain Deep Dive"])
 
     rebuild_indexes(tmp_vault)
+    ReadModelStore(tmp_vault).rebuild()
     return tmp_vault
 
 
-class TestQuerySearch:
-    def test_search_finds_relevant_notes(self, populated_vault: Path):
-        from app.retrieval.search import search_vault
+class TestReadModelRetrieval:
+    def test_structured_resolution_centers_on_read_model(self, populated_vault: Path):
+        context = build_retrieval_context(populated_vault, "What do I know about RAG?")
 
-        results = search_vault(populated_vault, "RAG")
-        assert len(results) > 0
-        titles = [r["title"] for r in results]
-        assert any("RAG" in t for t in titles)
+        assert context.artifacts
+        assert any(artifact.note.note_type == "topic" for artifact in context.artifacts)
+        assert any(ref.endswith(".md") for ref in context.source_references)
 
-    def test_search_returns_snippets(self, populated_vault: Path):
-        from app.retrieval.search import search_vault
+    def test_lexical_support_is_available_from_read_model(self, populated_vault: Path):
+        results = ReadModelStore(populated_vault).search_lexical("LangChain", limit=5)
 
-        results = search_vault(populated_vault, "LangChain")
-        assert len(results) > 0
-        assert results[0].get("snippet")
+        assert results
+        assert results[0]["snippet"]
 
-    def test_fallback_search(self, populated_vault: Path):
-        from app.retrieval.search import _fallback_search
+    def test_relationship_expansion_pulls_supporting_sources(self, populated_vault: Path):
+        context = build_retrieval_context(populated_vault, "RAG")
+        note_types = {artifact.note.note_type for artifact in context.artifacts}
 
-        results = _fallback_search(populated_vault, "vector databases", limit=5)
-        assert len(results) > 0
-
-
-class TestQueryGraph:
-    @pytest.mark.asyncio
-    async def test_resolve_context(self, populated_vault: Path):
-        from app.compiler.query_graph import _resolve_context
-
-        state = {
-            "question": "What do I know about RAG?",
-            "vault_path": str(populated_vault),
-        }
-        result = await _resolve_context(state)
-        assert result["context"] != ""
-        assert len(result["source_references"]) > 0
-        assert all(ref.endswith(".md") for ref in result["source_references"])
+        assert "topic" in note_types
+        assert "source" in note_types
 
 
-class TestQueryDeprecation:
-    def test_query_cli_shows_deprecation_warning(self):
+class TestQueryService:
+    def test_query_context_contains_rendered_context(self, populated_vault: Path):
+        from app.services.query_service import _resolve_context
+
+        result = _resolve_context(vault_path=populated_vault, question="What do I know about RAG?")
+        assert result.text_context != ""
+        assert result.source_references
+        assert all(ref.endswith(".md") for ref in result.source_references)
+
+
+class TestQueryInterfaces:
+    def test_query_cli_help_is_available(self):
         from typer.testing import CliRunner
 
         from app.cli.main import app
 
         runner = CliRunner()
-        with warnings.catch_warnings(record=True):
-            warnings.simplefilter("always")
-            result = runner.invoke(app, ["query", "--help"])
-            assert result.exit_code == 0
+        result = runner.invoke(app, ["query", "--help"])
+        assert result.exit_code == 0
+        assert "query" in result.output.lower()
 
-    def test_query_api_has_deprecation(self):
+    def test_query_api_is_not_marked_deprecated(self):
         from app.api.routes_query import router
 
         route = router.routes[0]
-        assert route.deprecated is True
+        assert not route.deprecated

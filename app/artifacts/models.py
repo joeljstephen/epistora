@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.models.lifecycle import LifecycleMetadata
+
 
 class EvidenceReference(BaseModel):
     """Traceable support pointing back to preserved source evidence."""
@@ -40,6 +42,7 @@ class SourceArtifact(BaseModel):
     title: str
     source_type: str
     source_url: str
+    derived_work_kind: str = ""
     canonical_url: str = ""
     author: str = ""
     published_at: str = ""
@@ -66,6 +69,7 @@ class SourceArtifact(BaseModel):
     extraction_fallback_chain: list[str] = Field(default_factory=list)
     tags: list[str] = Field(default_factory=list)
     word_count: int = 0
+    lifecycle: LifecycleMetadata = Field(default_factory=LifecycleMetadata)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -83,6 +87,7 @@ class TopicArtifact(BaseModel):
     patterns: list[str] = Field(default_factory=list)
     conflicts: list[str] = Field(default_factory=list)
     gaps: list[str] = Field(default_factory=list)
+    lifecycle: LifecycleMetadata = Field(default_factory=LifecycleMetadata)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -98,6 +103,7 @@ class EntityArtifact(BaseModel):
     source_artifact_ids: list[str] = Field(default_factory=list)
     related_concept_ids: list[str] = Field(default_factory=list)
     related_topic_ids: list[str] = Field(default_factory=list)
+    lifecycle: LifecycleMetadata = Field(default_factory=LifecycleMetadata)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -112,6 +118,7 @@ class ConceptArtifact(BaseModel):
     related_concept_ids: list[str] = Field(default_factory=list)
     source_artifact_ids: list[str] = Field(default_factory=list)
     gaps: list[str] = Field(default_factory=list)
+    lifecycle: LifecycleMetadata = Field(default_factory=LifecycleMetadata)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -126,6 +133,7 @@ class SynthesisArtifact(BaseModel):
     patterns: list[str] = Field(default_factory=list)
     disagreements: list[str] = Field(default_factory=list)
     reusable_takeaways: list[str] = Field(default_factory=list)
+    lifecycle: LifecycleMetadata = Field(default_factory=LifecycleMetadata)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

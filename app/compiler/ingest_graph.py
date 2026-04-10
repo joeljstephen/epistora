@@ -22,6 +22,7 @@ from app.compiler.prompts import (
     get_youtube_chunk_digest_user,
 )
 from app.connectors.fetchers import fetch_content
+from app.events import EventType, publish
 from app.models.db import ProcessedSource, VaultNoteMapping
 from app.models.results import IngestResult, VaultUpdate
 from app.models.source import SourceContent, SourceItem
@@ -871,6 +872,15 @@ async def _persist_duplicate(state: IngestState) -> dict:
         )
 
         append_ingest_log(vault_path, result)
+        publish(
+            EventType.SOURCE_INGESTED,
+            source_url=content.source.url,
+            source_title=content.source.title or existing.title or content.source.url,
+            source_type=existing.source_type or content.source.source_type.value,
+            source_note_path=existing.source_note_path,
+            raw_capture_path=existing.raw_capture_path,
+            deduplicated=True,
+        )
         _emit_progress(state, "done", title=content.source.title or content.source.url)
         return {}
     finally:
@@ -951,6 +961,15 @@ async def _persist_state(state: IngestState) -> dict:
     )
 
     append_ingest_log(vault_path, result)
+    publish(
+        EventType.SOURCE_INGESTED,
+        source_url=content.source.url,
+        source_title=content.source.title or content.source.url,
+        source_type=content.source.source_type.value,
+        source_note_path=source_note_path,
+        raw_capture_path=raw_path,
+        deduplicated=state.get("deduplicated", False),
+    )
     _emit_progress(state, "done", title=content.source.title or content.source.url)
 
     db.close()

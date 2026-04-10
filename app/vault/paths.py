@@ -10,11 +10,13 @@ VAULT_DIRS = [
     "raw/threads",
     "raw/pdfs",
     "raw/misc",
+    "raw/derived",
     "wiki/sources/articles",
     "wiki/sources/videos",
     "wiki/sources/threads",
     "wiki/sources/pdfs",
     "wiki/sources/misc",
+    "wiki/sources/derived",
     "wiki/entities/people",
     "wiki/entities/companies",
     "wiki/entities/tools",
@@ -58,6 +60,7 @@ RAW_DIRS: dict[SourceType, str] = {
     SourceType.X_THREAD: "raw/threads",
     SourceType.PDF: "raw/pdfs",
     SourceType.GENERIC: "raw/misc",
+    SourceType.DERIVED_WORK: "raw/derived",
 }
 
 SOURCE_NOTE_DIRS: dict[SourceType, str] = {
@@ -66,6 +69,7 @@ SOURCE_NOTE_DIRS: dict[SourceType, str] = {
     SourceType.X_THREAD: "wiki/sources/threads",
     SourceType.PDF: "wiki/sources/pdfs",
     SourceType.GENERIC: "wiki/sources/misc",
+    SourceType.DERIVED_WORK: "wiki/sources/derived",
 }
 
 

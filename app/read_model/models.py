@@ -20,6 +20,7 @@ class ReadModelNote(BaseModel):
     entities: list[str] = Field(default_factory=list)
     concepts: list[str] = Field(default_factory=list)
     outgoing_links: list[str] = Field(default_factory=list)
+    body: str = ""
     file_mtime_ns: int = 0
     indexed_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 

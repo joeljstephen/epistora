@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 
 from pydantic import BaseModel, Field
 
+from app.models.lifecycle import LifecycleMetadata
+
 
 class Topic(BaseModel):
     name: str
@@ -12,6 +14,7 @@ class Topic(BaseModel):
     source_ids: list[str] = Field(default_factory=list)
     related_concepts: list[str] = Field(default_factory=list)
     related_entities: list[str] = Field(default_factory=list)
+    lifecycle: LifecycleMetadata = Field(default_factory=LifecycleMetadata)
 
 
 class Entity(BaseModel):
@@ -21,6 +24,7 @@ class Entity(BaseModel):
     description: str = ""
     source_ids: list[str] = Field(default_factory=list)
     related_concepts: list[str] = Field(default_factory=list)
+    lifecycle: LifecycleMetadata = Field(default_factory=LifecycleMetadata)
 
 
 class Concept(BaseModel):
@@ -29,6 +33,7 @@ class Concept(BaseModel):
     definition: str = ""
     source_ids: list[str] = Field(default_factory=list)
     related_concepts: list[str] = Field(default_factory=list)
+    lifecycle: LifecycleMetadata = Field(default_factory=LifecycleMetadata)
 
 
 class SynthesisNote(BaseModel):
@@ -40,3 +45,4 @@ class SynthesisNote(BaseModel):
     conflicts: str = ""
     next_steps: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    lifecycle: LifecycleMetadata = Field(default_factory=LifecycleMetadata)

@@ -15,6 +15,7 @@ from app.artifacts.compat import (
     source_note_payload,
 )
 from app.artifacts.models import ArtifactBundle
+from app.events import EventType, publish
 from app.models.knowledge import Concept, Entity, SynthesisNote, Topic
 from app.models.results import VaultUpdate
 from app.models.source import SourceContent
@@ -236,7 +237,15 @@ class MarkdownVaultSink:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
         rel = str(path.relative_to(self.vault_path))
-        return VaultUpdate(path=rel, action=action, note_type=note_type)
+        update = VaultUpdate(path=rel, action=action, note_type=note_type)
+        publish(
+            EventType.ARTIFACT_WRITTEN,
+            path=rel,
+            note_type=note_type,
+            action=action,
+            sink_id=self.sink_id,
+        )
+        return update
 
     def _update_topic(self, path: Path, topic: Topic, source_titles: list[str]) -> VaultUpdate:
         _, body = parse_frontmatter(path.read_text(encoding="utf-8"))
