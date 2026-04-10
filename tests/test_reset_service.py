@@ -22,6 +22,9 @@ def test_reset_generated_state_clears_generated_dirs_and_db(tmp_path: Path):
     source_file.write_text("# Source Note\n", encoding="utf-8")
     output_file = vault / "outputs" / "answers" / "answer.md"
     output_file.write_text("# Answer\n", encoding="utf-8")
+    blob_file = vault / ".system" / "blobs" / "articles" / "example" / "primary.md"
+    blob_file.parent.mkdir(parents=True, exist_ok=True)
+    blob_file.write_text("# Blob Evidence\n", encoding="utf-8")
 
     db_path = tmp_path / "app.db"
     db = Database(db_path)
@@ -58,6 +61,7 @@ def test_reset_generated_state_clears_generated_dirs_and_db(tmp_path: Path):
     assert not raw_file.exists()
     assert not source_file.exists()
     assert not output_file.exists()
+    assert not blob_file.exists()
     assert (vault / "wiki" / "indexes" / "INDEX.md").exists()
     assert (vault / "wiki" / "logs" / "ingest-log.md").exists()
 
@@ -65,6 +69,7 @@ def test_reset_generated_state_clears_generated_dirs_and_db(tmp_path: Path):
     assert archive_path.exists()
     assert (archive_path / "raw" / "articles" / "example.md").exists()
     assert (archive_path / "wiki" / "sources" / "articles" / "example.md").exists()
+    assert (archive_path / ".system" / "blobs" / "articles" / "example" / "primary.md").exists()
 
     db = Database(db_path)
     db.connect()

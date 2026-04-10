@@ -19,6 +19,9 @@ env/
 .env.local
 .env.*.local
 
+# Local app/runtime state
+.system/
+
 # Data and databases
 data/
 *.db
@@ -52,6 +55,8 @@ knowledge_vault/
 .idea/
 .vscode/
 *.code-workspace
+.claude/
+.opencode/
 
 # OS files
 .DS_Store

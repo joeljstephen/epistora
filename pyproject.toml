@@ -88,11 +88,16 @@ include = [
 
 [tool.hatch.build.targets.sdist]
 include = [
+    ".env.example",
     "app/",
+    "CODE_OF_CONDUCT.md",
+    "CONTRIBUTING.md",
+    "docs/",
     "knowledge_vault_template/",
-    "prompts/",
     "LICENSE",
+    "prompts/",
     "README.md",
+    "SECURITY.md",
     "pyproject.toml",
 ]
 

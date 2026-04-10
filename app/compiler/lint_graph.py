@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from pathlib import Path
 from typing import TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -12,8 +13,7 @@ from app.backends.models import TaskName
 from app.compiler.llm import run_structured
 from app.compiler.prompts import (
     LINT_ANALYSIS_JSON_SCHEMA,
-    get_lint_analysis_prompt,
-    get_system_role,
+    compose_lint_prompt,
 )
 from app.models.results import LintIssue, LintResult
 from app.vault.log_updater import write_lint_log
@@ -60,6 +60,7 @@ async def _structural_lint(state: LintState) -> dict:
     for note in lintable_notes:
         if note.note_type == "source":
             raw_capture_path = note.meta.get("raw_capture_path", "")
+            raw_blob_path = note.meta.get("raw_blob_path", "")
             if not raw_capture_path:
                 issues.append(
                     LintIssue(
@@ -81,6 +82,22 @@ async def _structural_lint(state: LintState) -> dict:
                         ),
                         file_path=note.rel_path,
                         suggestion="Recreate the raw capture or re-run ingest for this source.",
+                    )
+                )
+            if raw_blob_path and not (vault_path / raw_blob_path).exists():
+                issues.append(
+                    LintIssue(
+                        severity="warning",
+                        category="missing_raw_blob",
+                        message=(
+                            f"'{note.title}' points to a missing raw evidence blob: "
+                            f"{raw_blob_path}."
+                        ),
+                        file_path=note.rel_path,
+                        suggestion=(
+                            "Restore the blob under `.system/blobs/` or re-run ingest "
+                            "to recreate the preserved evidence payload."
+                        ),
                     )
                 )
             link_fields = (
@@ -210,11 +227,14 @@ async def _llm_lint(state: LintState) -> dict:
     vault_summary = "\n".join(vault_summary_parts)
 
     try:
-        prompt = get_lint_analysis_prompt().format(vault_summary=vault_summary)
+        composition = compose_lint_prompt(
+            workspace_path=Path(state["vault_path"]),
+            format_kwargs={"vault_summary": vault_summary},
+        )
         resp = await run_structured(
             task=TaskName.LINT,
-            system_prompt=get_system_role(),
-            user_prompt=prompt,
+            system_prompt=composition.system_prompt,
+            user_prompt=composition.user_prompt,
             json_schema_hint=LINT_ANALYSIS_JSON_SCHEMA,
         )
         if resp.success:

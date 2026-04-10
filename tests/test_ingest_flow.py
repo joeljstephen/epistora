@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from app.artifacts import build_artifact_bundle
 from app.backends.models import BackendResponse
 from app.compiler.ingest_graph import (
     IngestState,
@@ -162,24 +163,66 @@ class TestAnalyseContent:
 class TestExtractKnowledge:
     @pytest.mark.asyncio
     async def test_extract_topics(self, mock_analysis: dict):
-        state: IngestState = {"item": None, "slug": "test", "analysis": mock_analysis}
+        content = SourceContent(
+            source=SourceItem(
+                url="https://example.com/test",
+                title="Test Source",
+                source_type=SourceType.ARTICLE,
+            ),
+            cleaned_text="Test content",
+            extraction_quality="full",
+        )
+        state: IngestState = {
+            "item": content.source,
+            "content": content,
+            "slug": "test",
+            "analysis": mock_analysis,
+        }
         result = await _extract_knowledge(state)
-        assert len(result["topics"]) == 2
-        assert result["topics"][0].name == "LangChain"
-        assert result["topics"][0].summary == mock_analysis["summary"]
+        assert len(result["artifacts"].topics) == 2
+        assert result["artifacts"].topics[0].title == "LangChain"
+        assert result["artifacts"].topics[0].summary == mock_analysis["summary"]
 
     @pytest.mark.asyncio
     async def test_extract_entities(self, mock_analysis: dict):
-        state: IngestState = {"item": None, "slug": "test", "analysis": mock_analysis}
+        content = SourceContent(
+            source=SourceItem(
+                url="https://example.com/test",
+                title="Test Source",
+                source_type=SourceType.ARTICLE,
+            ),
+            cleaned_text="Test content",
+            extraction_quality="full",
+        )
+        state: IngestState = {
+            "item": content.source,
+            "content": content,
+            "slug": "test",
+            "analysis": mock_analysis,
+        }
         result = await _extract_knowledge(state)
-        assert len(result["entities"]) == 1
-        assert result["entities"][0].entity_type == "tool"
+        assert len(result["artifacts"].entities) == 1
+        assert result["artifacts"].entities[0].entity_type == "tool"
 
     @pytest.mark.asyncio
     async def test_extract_concepts(self, mock_analysis: dict):
-        state: IngestState = {"item": None, "slug": "test", "analysis": mock_analysis}
+        content = SourceContent(
+            source=SourceItem(
+                url="https://example.com/test",
+                title="Test Source",
+                source_type=SourceType.ARTICLE,
+            ),
+            cleaned_text="Test content",
+            extraction_quality="full",
+        )
+        state: IngestState = {
+            "item": content.source,
+            "content": content,
+            "slug": "test",
+            "analysis": mock_analysis,
+        }
         result = await _extract_knowledge(state)
-        assert len(result["concepts"]) == 2
+        assert len(result["artifacts"].concepts) == 2
 
     @pytest.mark.asyncio
     async def test_extract_knowledge_reuses_existing_titles(
@@ -215,18 +258,69 @@ class TestExtractKnowledge:
                 {"name": "Scarcity of elite attention", "definition": "variant spelling"}
             ],
         }
-        state: IngestState = {"item": None, "slug": "test", "analysis": analysis}
+        content = SourceContent(
+            source=SourceItem(
+                url="https://example.com/test",
+                title="Existing Knowledge Test",
+                source_type=SourceType.ARTICLE,
+            ),
+            cleaned_text="Test content",
+            extraction_quality="full",
+        )
+        state: IngestState = {
+            "item": content.source,
+            "content": content,
+            "slug": "test",
+            "analysis": analysis,
+        }
 
         with patch("app.config.get_settings") as mock_settings:
             mock_settings.return_value.vault_path = tmp_vault
             result = await _extract_knowledge(state)
 
-        assert result["topics"][0].name == "AI cybersecurity"
-        assert result["entities"][0].name == "Project Glass Wing"
-        assert result["concepts"][0].name == "Scarcity of elite attention"
+        assert result["artifacts"].topics[0].title == "AI cybersecurity"
+        assert result["artifacts"].entities[0].title == "Project Glass Wing"
+        assert result["artifacts"].concepts[0].title == "Scarcity of elite attention"
 
 
 class TestWriteVault:
+    @pytest.mark.asyncio
+    async def test_write_vault_uses_default_sink(
+        self,
+        mock_content: SourceContent,
+        mock_analysis: dict,
+    ):
+        state: IngestState = {
+            "item": mock_content.source,
+            "content": mock_content,
+            "slug": "complete-guide-to-langchain",
+            "analysis": mock_analysis,
+            "artifacts": build_artifact_bundle(
+                content=mock_content,
+                slug="complete-guide-to-langchain",
+                analysis=mock_analysis,
+            ),
+        }
+
+        sink = MagicMock()
+        sink.publish.return_value = [
+            MagicMock(note_type="raw_capture", path="raw/articles/complete-guide-to-langchain.md"),
+            MagicMock(
+                note_type="source",
+                path="wiki/sources/articles/complete-guide-to-langchain.md",
+            ),
+        ]
+
+        with (
+            patch("app.config.get_settings") as mock_settings,
+            patch("app.compiler.ingest_graph.build_default_sink", return_value=sink),
+        ):
+            mock_settings.return_value.vault_path = Path("/tmp/unused")
+            result = await _write_vault(state)
+
+        sink.publish.assert_called_once()
+        assert len(result["vault_updates"]) == 2
+
     @pytest.mark.asyncio
     async def test_writes_all_notes(
         self,
@@ -234,20 +328,16 @@ class TestWriteVault:
         mock_content: SourceContent,
         mock_analysis: dict,
     ):
-        from app.models.knowledge import Concept, Entity, Topic
-
-        topics = [Topic(name="LangChain", slug="langchain")]
-        entities = [Entity(name="LangChain", slug="langchain", entity_type="tool")]
-        concepts = [Concept(name="Chain", slug="chain", definition="A sequence")]
-
         state: IngestState = {
             "item": mock_content.source,
             "content": mock_content,
             "slug": "complete-guide-to-langchain",
             "analysis": mock_analysis,
-            "topics": topics,
-            "entities": entities,
-            "concepts": concepts,
+            "artifacts": build_artifact_bundle(
+                content=mock_content,
+                slug="complete-guide-to-langchain",
+                analysis=mock_analysis,
+            ),
         }
 
         with patch("app.config.get_settings") as mock_settings:
@@ -292,9 +382,11 @@ class TestWriteVault:
             "content": content,
             "slug": "readable-article",
             "analysis": mock_analysis,
-            "topics": [],
-            "entities": [],
-            "concepts": [],
+            "artifacts": build_artifact_bundle(
+                content=content,
+                slug="readable-article",
+                analysis={**mock_analysis, "topics": [], "entities": [], "concepts": []},
+            ),
         }
 
         with patch("app.config.get_settings") as mock_settings:
@@ -359,9 +451,11 @@ class TestWriteVault:
             "content": content,
             "slug": "test-video",
             "analysis": analysis,
-            "topics": [],
-            "entities": [],
-            "concepts": [],
+            "artifacts": build_artifact_bundle(
+                content=content,
+                slug="test-video",
+                analysis=analysis,
+            ),
         }
 
         with patch("app.config.get_settings") as mock_settings:
@@ -559,9 +653,11 @@ class TestPersistedMixedSourceIntegration:
                 "content": content,
                 "slug": slug,
                 "analysis": mock_analysis,
-                "topics": [],
-                "entities": [],
-                "concepts": [],
+                "artifacts": build_artifact_bundle(
+                    content=content,
+                    slug=slug,
+                    analysis={**mock_analysis, "topics": [], "entities": [], "concepts": []},
+                ),
             }
 
             with patch("app.config.get_settings") as mock_settings:

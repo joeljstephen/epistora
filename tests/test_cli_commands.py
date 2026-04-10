@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -92,6 +93,7 @@ class TestDoctor:
 
     def test_doctor_runs(self):
         result = runner.invoke(app, ["doctor"])
+        assert "Installation" in result.output
         assert "Python" in result.output
         assert "Platform" in result.output
 
@@ -144,7 +146,10 @@ class TestVaultCommands:
 
         monkeypatch.setenv("EPISTORA_ENV_FILE", str(env_path))
 
-        with patch("app.config.get_settings", return_value=SimpleNamespace(vault_path=current_vault)):
+        with patch(
+            "app.config.get_settings",
+            return_value=SimpleNamespace(vault_path=current_vault),
+        ):
             result = runner.invoke(app, ["vault", "use", str(target_vault)])
 
         assert result.exit_code == 0
@@ -352,6 +357,14 @@ class TestSetupWizard:
         assert (vault / "raw").exists()
         assert (vault / "wiki" / "logs" / "ingest-log.md").exists()
 
+    def test_vault_env_config_includes_open_source_defaults(self, tmp_path):
+        from app.cli.setup_wizard import _vault_env_config
+
+        config = _vault_env_config(tmp_path / "vault")
+
+        assert config["log_level"] == "INFO"
+        assert config["artifact_sink_ids"] == "markdown_vault"
+
     def test_detect_platform(self):
         from app.cli.setup_wizard import _detect_platform
 
@@ -392,6 +405,116 @@ class TestDoctorChecks:
             check = _check_env_file()
         assert check.status == "ok"
         assert str(home / ".env") in check.message
+
+    def test_check_installation_from_source_checkout(self):
+        from app.cli.doctor import _check_installation
+
+        with patch("app.cli.doctor.package_version", side_effect=PackageNotFoundError):
+            check = _check_installation()
+
+        assert check.status == "warn"
+        assert "source checkout" in check.message.lower()
+
+    def test_check_installation_for_installed_package(self):
+        from app.cli.doctor import _check_installation
+
+        with patch("app.cli.doctor.package_version", return_value="0.1.0"):
+            check = _check_installation()
+
+        assert check.status == "ok"
+        assert "0.1.0" in check.message
+
+    def test_check_plugins_no_local_plugins(self, tmp_path, monkeypatch):
+        from app.cli.doctor import _check_plugins
+
+        repo = tmp_path / "repo"
+        home = tmp_path / "home"
+        repo.mkdir()
+        home.mkdir()
+        monkeypatch.setenv("EPISTORA_HOME", str(home))
+        monkeypatch.delenv("EPISTORA_PLUGIN_DIRS", raising=False)
+        monkeypatch.delenv("EPISTORA_PROMPT_PACK", raising=False)
+
+        with patch("app.plugins.loader.project_root", return_value=repo):
+            check = _check_plugins()
+
+        assert check.status == "ok"
+        assert "No local plugins discovered" in check.message
+
+    def test_check_plugins_active_prompt_pack(self, tmp_path, monkeypatch):
+        from app.cli.doctor import _check_plugins
+
+        repo = tmp_path / "repo"
+        plugin_dir = repo / "plugins" / "research_pack"
+        prompts_dir = plugin_dir / "prompts" / "ingest"
+        prompts_dir.mkdir(parents=True)
+        (plugin_dir / "epistora-plugin.toml").write_text(
+            """
+[plugin]
+id = "research_pack"
+name = "Research Prompt Pack"
+version = "0.1.0"
+type = "prompt_pack"
+
+[compatibility]
+min_epistora_version = "0.1.0"
+
+[entrypoints]
+prompt_pack_dir = "prompts"
+""".strip(),
+            encoding="utf-8",
+        )
+
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("EPISTORA_HOME", str(home))
+        monkeypatch.setenv("EPISTORA_PROMPT_PACK", "research_pack")
+        monkeypatch.delenv("EPISTORA_PLUGIN_DIRS", raising=False)
+
+        with patch("app.plugins.loader.project_root", return_value=repo):
+            check = _check_plugins()
+
+        assert check.status == "ok"
+        assert "active prompt pack" in check.message.lower()
+
+    def test_check_outputs_reports_sink_and_storage_settings(self):
+        from app.cli.doctor import _check_outputs
+
+        settings = SimpleNamespace(
+            configured_artifact_sink_ids=["markdown_vault", "json_export"],
+            json_export_dir=".system/exports/json",
+            evidence_blob_dir=".system/blobs",
+            evidence_blob_threshold_bytes=50000,
+        )
+        with (
+            patch("app.config.get_settings", return_value=settings),
+            patch(
+                "app.sinks.registry.available_sink_ids",
+                return_value=["json_export", "markdown_vault"],
+            ),
+        ):
+            check = _check_outputs()
+
+        assert check.status == "ok"
+        assert "markdown_vault, json_export" in check.message
+
+    def test_check_outputs_fails_for_unknown_sink(self):
+        from app.cli.doctor import _check_outputs
+
+        settings = SimpleNamespace(
+            configured_artifact_sink_ids=["markdown_vault", "missing_sink"],
+            json_export_dir=".system/exports/json",
+            evidence_blob_dir=".system/blobs",
+            evidence_blob_threshold_bytes=50000,
+        )
+        with (
+            patch("app.config.get_settings", return_value=settings),
+            patch("app.sinks.registry.available_sink_ids", return_value=["markdown_vault"]),
+        ):
+            check = _check_outputs()
+
+        assert check.status == "fail"
+        assert "missing_sink" in check.message
 
     def test_preferred_env_file_uses_epistora_home_outside_repo(self, tmp_path, monkeypatch):
         from app.config import preferred_env_file

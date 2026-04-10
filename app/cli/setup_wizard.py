@@ -35,6 +35,8 @@ def _vault_env_config(vault_path: Path) -> dict[str, str]:
     return {
         "vault_path": str(resolved),
         "database_url": f"sqlite:///{resolved / '.system' / 'epistora.db'}",
+        "log_level": "INFO",
+        "artifact_sink_ids": "markdown_vault",
     }
 
 
@@ -218,6 +220,16 @@ def _write_env_file(env_path: Path, config: dict) -> None:
 
     groups = [
         ("Core", ["VAULT_PATH", "DATABASE_URL", "LOG_LEVEL"]),
+        (
+            "Outputs",
+            [
+                "ARTIFACT_SINK_IDS",
+                "JSON_EXPORT_DIR",
+                "EVIDENCE_BLOB_DIR",
+                "EVIDENCE_BLOB_THRESHOLD_BYTES",
+                "EVIDENCE_BLOB_PREVIEW_CHARS",
+            ],
+        ),
         ("Raindrop", ["RAINDROP_API_TOKEN", "RAINDROP_COLLECTION_ID"]),
         ("API Backend", ["API_ENABLED", "API_API_KEY", "API_MODEL", "API_BASE_URL"]),
         (
@@ -249,6 +261,13 @@ def _write_env_file(env_path: Path, config: dict) -> None:
                 "AUTOMATION_DEFAULT_MODE",
                 "AUTOMATION_DISCOVER_BATCH_LIMIT",
                 "AUTOMATION_PROCESS_LIMIT",
+            ],
+        ),
+        (
+            "Plugins",
+            [
+                "EPISTORA_PLUGIN_DIRS",
+                "EPISTORA_PROMPT_PACK",
             ],
         ),
     ]

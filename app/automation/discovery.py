@@ -72,7 +72,10 @@ async def discover_new_items(
             batch_limit,
         )
 
-        _emit_progress(progress_callback, "discover_fetching", connector=connector_id, limit=batch_limit)
+        _emit_progress(
+            progress_callback, "discover_fetching",
+            connector=connector_id, limit=batch_limit,
+        )
         items = connector.fetch_since(since, limit=batch_limit)
         _emit_progress(
             progress_callback,

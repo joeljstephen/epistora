@@ -132,6 +132,11 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./data/app.db"
     log_level: str = "INFO"
     epistora_api_key: str = ""
+    artifact_sink_ids: str = "markdown_vault"
+    json_export_dir: str = ".system/exports/json"
+    evidence_blob_dir: str = ".system/blobs"
+    evidence_blob_threshold_bytes: int = 50_000
+    evidence_blob_preview_chars: int = 4_000
 
     # --- Backend fallback order (comma-separated: api,opencode,claude_code,codex) ---
     backend_order_ingest: str = "api,opencode,claude_code,codex"
@@ -279,6 +284,17 @@ class Settings(BaseSettings):
     def effective_api_model(self) -> str:
         """Resolve model: new setting → legacy OpenAI model."""
         return self.api_model or self.openai_model
+
+    @property
+    def configured_artifact_sink_ids(self) -> list[str]:
+        """Resolve configured sink ids, preserving order and removing duplicates."""
+        sink_ids: list[str] = []
+        for sink_id in self.artifact_sink_ids.split(","):
+            normalized = sink_id.strip()
+            if not normalized or normalized in sink_ids:
+                continue
+            sink_ids.append(normalized)
+        return sink_ids or ["markdown_vault"]
 
 _settings: Settings | None = None
 

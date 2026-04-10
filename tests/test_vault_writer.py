@@ -4,8 +4,11 @@ from pathlib import Path
 
 import pytest
 
+from app.artifacts import build_artifact_bundle
 from app.models.knowledge import Concept, Entity, Topic
 from app.models.source import SourceContent, SourceItem, SourceType
+from app.storage.evidence import EvidenceStoragePolicy
+from app.utils.markdown import parse_frontmatter
 from app.vault.writer import VaultWriter
 
 
@@ -195,6 +198,112 @@ class TestVaultWriter:
         writer.write_raw_capture(content, "test-slug")
         update = writer.write_raw_capture(content, "test-slug")
         assert update.action == "unchanged"
+
+    def test_large_raw_capture_uses_blob_storage(self, tmp_vault: Path):
+        writer = VaultWriter(
+            tmp_vault,
+            storage_policy=EvidenceStoragePolicy(
+                blob_threshold_bytes=200,
+                blob_preview_chars=120,
+            ),
+        )
+        item = SourceItem(
+            url="https://example.com/large-transcript",
+            title="Large Transcript",
+            source_type=SourceType.YOUTUBE,
+        )
+        transcript = "## 00:00-05:00\n\n" + ("Long transcript line.\n" * 600)
+        content = SourceContent(
+            source=item,
+            raw_text=transcript,
+            cleaned_text=transcript,
+            archived_markdown=f"# Large Transcript\n\n{transcript}",
+            raw_capture_kind="youtube_transcript",
+            extraction_quality="full",
+            extraction_method="youtube_transcript_api",
+            raw_metadata={"transcript_available": True},
+            url_hash="large-transcript",
+        )
+
+        updates = writer.write_artifact_bundle(
+            content=content,
+            bundle=build_artifact_bundle(
+                content=content,
+                slug="large-transcript",
+                analysis={
+                    "summary": "Summary",
+                    "five_minute_read": "Briefing",
+                    "detailed_reading_note": "Detailed note",
+                    "key_ideas": "- Key idea",
+                    "detailed_outline": "## Outline\n- Point",
+                    "important_examples": "- Example",
+                    "actionable_takeaways": "- Action",
+                    "notable_quotes": "- None captured verbatim.",
+                    "best_for": "- Readers",
+                    "consume_recommendation": "Open the source if needed.",
+                    "why_it_matters": "Why it matters",
+                    "open_questions": "- Question",
+                    "topics": [],
+                    "entities": [],
+                    "concepts": [],
+                },
+            ),
+        )
+
+        raw_path = tmp_vault / "raw" / "videos" / "large-transcript.md"
+        source_path = tmp_vault / "wiki" / "sources" / "videos" / "large-transcript.md"
+        blob_path = tmp_vault / ".system" / "blobs" / "videos" / "large-transcript" / "primary.md"
+
+        assert any(update.note_type == "evidence_blob" for update in updates)
+        assert raw_path.exists()
+        assert source_path.exists()
+        assert blob_path.exists()
+
+        raw_meta, raw_body = parse_frontmatter(raw_path.read_text(encoding="utf-8"))
+        source_meta, source_body = parse_frontmatter(source_path.read_text(encoding="utf-8"))
+
+        assert raw_meta["storage_tier"] == "warm"
+        assert raw_meta["blob_storage_tier"] == "cold"
+        assert raw_meta["blob_path"] == ".system/blobs/videos/large-transcript/primary.md"
+        assert "Full preserved evidence blob" in raw_body
+        assert "Preview truncated." in raw_body
+        assert source_meta["raw_capture_path"] == "raw/videos/large-transcript.md"
+        assert source_meta["raw_blob_path"] == ".system/blobs/videos/large-transcript/primary.md"
+        assert "Full blob evidence" in source_body
+
+    def test_existing_raw_capture_stays_backward_compatible_without_blob_upgrade(
+        self,
+        tmp_vault: Path,
+    ):
+        writer = VaultWriter(
+            tmp_vault,
+            storage_policy=EvidenceStoragePolicy(blob_threshold_bytes=10, blob_preview_chars=40),
+        )
+        raw_path = tmp_vault / "raw" / "articles" / "existing-evidence.md"
+        raw_path.parent.mkdir(parents=True, exist_ok=True)
+        raw_path.write_text("# Existing raw evidence\n", encoding="utf-8")
+
+        item = SourceItem(
+            url="https://example.com/existing-evidence",
+            title="Existing Evidence",
+            source_type=SourceType.ARTICLE,
+        )
+        content = SourceContent(
+            source=item,
+            raw_text="x" * 2000,
+            cleaned_text="x" * 2000,
+            archived_markdown="# Existing Evidence\n\n" + ("x" * 2000),
+            raw_capture_kind="readable_article_markdown",
+            extraction_quality="full",
+            extraction_method="trafilatura",
+            url_hash="existing-evidence",
+        )
+
+        update = writer.write_raw_capture(content, "existing-evidence")
+
+        assert update.action == "unchanged"
+        assert update.path == "raw/articles/existing-evidence.md"
+        assert not (tmp_vault / ".system" / "blobs" / "articles" / "existing-evidence").exists()
 
     def test_update_topic_preserves_manual_sections(self, writer: VaultWriter):
         topic = Topic(name="Machine Learning", slug="machine-learning", summary="ML is cool")

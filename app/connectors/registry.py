@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Protocol
 
 from app.config import Settings, get_settings
 from app.connectors.raindrop import RaindropConnector
 from app.models.source import SourceItem
+from app.plugins.loader import plugin_factories
+
+logger = logging.getLogger(__name__)
 
 
 class LinkInboxConnector(Protocol):
@@ -26,6 +30,16 @@ def build_inbox_connectors(settings: Settings | None = None) -> dict[str, LinkIn
             api_token=resolved_settings.raindrop_api_token,
             collection_id=resolved_settings.raindrop_collection_id,
         )
+
+    for connector_id, factory in plugin_factories("inbox_provider", resolved_settings).items():
+        try:
+            connectors[connector_id] = factory(resolved_settings)
+        except Exception as exc:  # pragma: no cover - defensive isolation
+            logger.warning(
+                "Failed to initialize inbox_provider plugin '%s': %s",
+                connector_id,
+                exc,
+            )
 
     return connectors
 

@@ -106,7 +106,9 @@ async def sync_inbox(
     last_cursor = cursor_repo.get(connector.connector_id)
     since = last_cursor.last_sync_at if last_cursor else datetime(2020, 1, 1, tzinfo=timezone.utc)
 
-    _emit_progress(progress_callback, "sync_fetching", connector=connector.connector_id, limit=limit)
+    _emit_progress(
+        progress_callback, "sync_fetching", connector=connector.connector_id, limit=limit
+    )
     items = connector.fetch_since(since, limit=limit)
     _emit_progress(
         progress_callback,

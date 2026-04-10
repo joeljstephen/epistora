@@ -2,6 +2,8 @@
 
 Epistora turns saved links into a local markdown knowledge vault you can browse in Obsidian and query with filesystem-capable agents.
 
+The markdown vault remains the default output, but Phase 7 also adds an optional JSON export sink for canonical artifact bundles.
+
 It fetches content from sources like articles, YouTube videos, X/Twitter threads, and PDFs, then compiles:
 
 - raw captures
@@ -17,6 +19,7 @@ uv tool install .
 
 # Or for local development
 # uv sync --extra dev
+# uv run epistora --help
 ```
 
 ```bash
@@ -124,8 +127,10 @@ Use these when you want more control:
 ## How It Works
 
 ```text
-Raindrop / URLs -> fetchers -> compiler -> markdown vault
-                               |
+Raindrop / URLs -> fetchers -> compiler -> configured sinks
+                               |              |
+                               |              -> markdown vault (default)
+                               |              -> JSON export (optional)
                                -> backend router (API / OpenCode / Claude Code / Codex)
 ```
 
@@ -177,10 +182,52 @@ Important settings:
 |---|---|
 | `VAULT_PATH` | Active vault directory |
 | `DATABASE_URL` | SQLite database location |
+| `ARTIFACT_SINK_IDS` | Comma-separated sinks to publish to. Default: `markdown_vault` |
+| `JSON_EXPORT_DIR` | Relative or absolute path for `json_export`. Default: `.system/exports/json` |
+| `EVIDENCE_BLOB_DIR` | Relative vault path for cold evidence blobs. Default: `.system/blobs` |
+| `EVIDENCE_BLOB_THRESHOLD_BYTES` | Oversized raw captures are blob-backed above this size. Default: `50000` |
+| `EVIDENCE_BLOB_PREVIEW_CHARS` | Preview length kept in the visible raw note for blob-backed evidence. Default: `4000` |
+| `EPISTORA_PLUGIN_DIRS` | Extra local plugin search paths |
+| `EPISTORA_PROMPT_PACK` | Active prompt-pack plugin ID |
 | `RAINDROP_API_TOKEN` | Raindrop token |
 | `API_API_KEY` | API key for the direct API backend |
 | `AUTOMATION_ENABLED` | Enables automation |
 | `AUTOMATION_DEFAULT_MODE` | `safe`, `balanced`, or `deep` |
+
+`epistora doctor` reports the active config path, the preferred config write target,
+plugin health, configured sinks, and storage-tier settings.
+
+## JSON Export Sink
+
+To publish canonical artifacts to JSON as well as the markdown vault:
+
+```bash
+ARTIFACT_SINK_IDS=markdown_vault,json_export
+```
+
+By default, JSON bundle exports are written under:
+
+```text
+<vault>/.system/exports/json/<source_type>/<slug>.json
+```
+
+To move them somewhere else:
+
+```bash
+JSON_EXPORT_DIR=.system/exports/custom-json
+```
+
+The compiler does not special-case JSON publishing. It still produces canonical `ArtifactBundle`s, and the configured sinks consume that bundle independently.
+
+## Storage Tiers
+
+Phase 8 adds a local storage-tier foundation for large evidence:
+
+- hot: compiled source notes in `wiki/sources/`
+- warm: stable raw evidence notes in `raw/`
+- cold: oversized preserved payloads under `.system/blobs/`
+
+For large captures, source notes still point to the raw note, and the raw note remains the stable visible manifest. That raw note then points to the full blob payload in `.system/blobs/`.
 
 ## Automation Modes
 
@@ -213,7 +260,11 @@ uv run epistora help
 
 - [Quickstart](docs/QUICKSTART.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [JSON Export Sink](docs/JSON_EXPORT_SINK.md)
+- [Storage Tiers](docs/STORAGE_TIERS.md)
 - [Development](docs/DEVELOPMENT.md)
+- [Plugin Author Guide](docs/PLUGIN_AUTHOR_GUIDE.md)
+- [Repo Hygiene](docs/REPO_HYGIENE.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Roadmap](docs/ROADMAP.md)
 

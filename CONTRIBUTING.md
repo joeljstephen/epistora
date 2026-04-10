@@ -50,6 +50,16 @@ uv run pytest tests/test_classifier.py -v
 All tests mock external dependencies — you don't need real API keys or CLI tools
 to run the test suite.
 
+### Packaging Smoke Test
+
+Before opening a release-oriented PR, also validate the packaging path:
+
+```bash
+uv build
+uv tool install --from . epistora --force
+epistora doctor
+```
+
 ### Code Style
 
 We use [Ruff](https://docs.astral.sh/ruff/) for linting and formatting:
@@ -137,6 +147,7 @@ app/
 ```
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture guide.
+See [docs/REPO_HYGIENE.md](docs/REPO_HYGIENE.md) for commit/ignore guidance.
 
 ## Adding a New Connector
 

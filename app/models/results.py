@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -57,4 +58,20 @@ class LintResult(BaseModel):
     missing_backlinks: int = 0
     weak_pages: int = 0
     report_path: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class MaintenanceTaskSummary(BaseModel):
+    maintenance_class: str
+    task_name: str
+    status: str = "ok"
+    changed_paths: list[str] = Field(default_factory=list)
+    details: dict[str, Any] = Field(default_factory=dict)
+
+
+class MaintenanceResultSummary(BaseModel):
+    mode: str = ""
+    changed_paths: list[str] = Field(default_factory=list)
+    task_results: list[MaintenanceTaskSummary] = Field(default_factory=list)
+    log_path: str = ""
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))

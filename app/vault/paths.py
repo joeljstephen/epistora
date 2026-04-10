@@ -29,6 +29,7 @@ VAULT_DIRS = [
     ".system/manifests",
     ".system/cache",
     ".system/state",
+    ".system/blobs",
     ".system/archives",
 ]
 
@@ -47,6 +48,7 @@ RESETTABLE_DIRS = [
     ".system/cache",
     ".system/manifests",
     ".system/state",
+    ".system/blobs",
 ]
 
 
@@ -137,6 +139,10 @@ def ingest_log_path(vault_path: Path) -> Path:
 
 def lint_log_path(vault_path: Path) -> Path:
     return vault_path / "wiki" / "logs" / "lint-log.md"
+
+
+def maintenance_log_path(vault_path: Path) -> Path:
+    return vault_path / "wiki" / "logs" / "maintenance-log.md"
 
 
 def ensure_vault_dirs(vault_path: Path) -> None:

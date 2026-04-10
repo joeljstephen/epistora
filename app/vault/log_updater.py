@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.maintenance.models import MaintenanceResult
 from app.models.results import IngestResult, LintResult
 from app.utils.dates import friendly_date
 from app.vault import paths
@@ -65,6 +66,43 @@ def write_lint_log(vault_path: Path, result: LintResult) -> str:
         lines.append(f"- **Message:** {issue.message}")
         if issue.suggestion:
             lines.append(f"- **Suggestion:** {issue.suggestion}")
+        lines.append("")
+
+    content = "\n".join(lines) + "\n"
+    log_path.write_text(content, encoding="utf-8")
+    return str(log_path.relative_to(vault_path))
+
+
+def write_maintenance_log(vault_path: Path, result: MaintenanceResult) -> str:
+    log_path = paths.maintenance_log_path(vault_path)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    lines = [
+        f"# Maintenance Report — {friendly_date(result.timestamp)}",
+        "",
+        f"- **Mode:** {result.mode}",
+        f"- **Scope paths:** {', '.join(result.scope_paths) or 'none'}",
+        f"- **Changed paths:** {', '.join(result.changed_paths) or 'none'}",
+        f"- **Tasks run:** {', '.join(result.planned_tasks) or 'none'}",
+        "",
+        "---",
+        "",
+    ]
+
+    for task_result in result.task_results:
+        lines.append(
+            f"### [{task_result.maintenance_class.upper()}] {task_result.task_name}"
+        )
+        lines.append(f"- **Status:** {task_result.status}")
+        if task_result.scope_paths:
+            lines.append(f"- **Scope:** {', '.join(task_result.scope_paths)}")
+        if task_result.changed_paths:
+            lines.append(f"- **Changed:** {', '.join(task_result.changed_paths)}")
+        if task_result.details:
+            for key, value in sorted(task_result.details.items()):
+                lines.append(f"- **{key.replace('_', ' ').title()}:** {value}")
+        if task_result.error:
+            lines.append(f"- **Error:** {task_result.error}")
         lines.append("")
 
     content = "\n".join(lines) + "\n"

@@ -6,6 +6,8 @@ import os
 import platform
 import shutil
 import sys
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as package_version
 from pathlib import Path
 
 from rich.console import Console
@@ -65,6 +67,32 @@ def _check_uv() -> Check:
     )
 
 
+def _check_installation() -> Check:
+    """Report whether Epistora is running from an installed package or source checkout."""
+    try:
+        resolved_version = package_version("epistora")
+        return Check(
+            "Installation",
+            "ok",
+            f"Installed package detected (version {resolved_version})",
+        )
+    except PackageNotFoundError:
+        repo_root = Path(__file__).resolve().parents[2]
+        if (repo_root / "pyproject.toml").exists():
+            return Check(
+                "Installation",
+                "warn",
+                "Running from a source checkout",
+                hint="Use `uv run epistora ...` from the repo, or install with `uv tool install .`",
+            )
+        return Check(
+            "Installation",
+            "warn",
+            "Epistora package metadata not found",
+            hint="Install with `uv tool install .` or `pip install -e .`",
+        )
+
+
 def _check_platform() -> Check:
     """Report the current platform."""
     system = platform.system()
@@ -98,6 +126,24 @@ def _check_env_file() -> Check:
         "No .env file found",
         hint="Run 'epistora setup' to create one in the Epistora config directory",
     )
+
+
+def _check_config_resolution() -> Check:
+    """Report Epistora home and the preferred config write target."""
+    try:
+        from app.config import epistora_home, existing_env_file, preferred_env_file
+
+        env_path = existing_env_file()
+        preferred = preferred_env_file()
+        home = epistora_home()
+        active = str(env_path) if env_path is not None else "environment variables only"
+        return Check(
+            "Config Resolution",
+            "ok",
+            f"Active config: {active}; write target: {preferred}; home: {home}",
+        )
+    except Exception as exc:
+        return Check("Config Resolution", "fail", f"Error: {exc}")
 
 
 def _check_vault() -> Check:
@@ -300,6 +346,105 @@ def _check_automation() -> Check:
         return Check("Automation", "fail", f"Error: {e}")
 
 
+def _check_plugins() -> Check:
+    """Check plugin discovery and active prompt-pack selection."""
+    try:
+        from app.plugins.loader import (
+            PLUGIN_DIRS_ENV_VAR,
+            PROMPT_PACK_ENV_VAR,
+            active_prompt_pack_root,
+            discover_plugins,
+            plugin_search_paths,
+        )
+
+        registry = discover_plugins()
+        compatible = registry.compatible()
+        discovered = registry.all()
+        prompt_pack = os.environ.get(PROMPT_PACK_ENV_VAR, "").strip()
+        search_paths = ", ".join(str(path) for path in plugin_search_paths())
+
+        if registry.errors:
+            return Check(
+                "Plugins",
+                "warn",
+                (
+                    f"{len(discovered)} discovered, {len(compatible)} compatible, "
+                    f"{len(registry.errors)} manifest/load issue(s)"
+                ),
+                hint=(
+                    f"Review plugin manifests and {PLUGIN_DIRS_ENV_VAR}. "
+                    f"Search paths: {search_paths}"
+                ),
+            )
+
+        if prompt_pack:
+            try:
+                prompt_root = active_prompt_pack_root()
+            except Exception as exc:
+                return Check(
+                    "Plugins",
+                    "warn",
+                    f"Prompt pack '{prompt_pack}' is configured but not healthy: {exc}",
+                    hint=f"Fix or unset {PROMPT_PACK_ENV_VAR}",
+                )
+            return Check(
+                "Plugins",
+                "ok",
+                (
+                    f"{len(compatible)} compatible plugin(s); active prompt pack: "
+                    f"{prompt_pack} ({prompt_root})"
+                ),
+            )
+
+        if compatible:
+            return Check(
+                "Plugins",
+                "ok",
+                f"{len(compatible)} compatible plugin(s) discovered",
+            )
+        return Check(
+            "Plugins",
+            "ok",
+            "No local plugins discovered",
+            hint=f"You can add local plugins under repo `plugins/`, {search_paths}",
+        )
+    except Exception as exc:
+        return Check("Plugins", "fail", f"Error checking plugins: {exc}")
+
+
+def _check_outputs() -> Check:
+    """Check configured sink and storage-tier settings."""
+    try:
+        from app.config import get_settings
+        from app.sinks.registry import available_sink_ids
+
+        settings = get_settings()
+        configured = settings.configured_artifact_sink_ids
+        available = available_sink_ids(settings)
+        unknown = sorted(set(configured) - set(available))
+        blob_dir = settings.evidence_blob_dir
+        threshold = settings.evidence_blob_threshold_bytes
+
+        if unknown:
+            return Check(
+                "Outputs",
+                "fail",
+                f"Unknown sink(s): {', '.join(unknown)}",
+                hint=f"Use one of: {', '.join(available)}",
+            )
+
+        return Check(
+            "Outputs",
+            "ok",
+            (
+                f"Sinks: {', '.join(configured)}; JSON export dir: {settings.json_export_dir}; "
+                f"blob dir: {blob_dir}; blob threshold: {threshold} bytes"
+            ),
+        )
+    except Exception as exc:
+        return Check("Outputs", "fail", f"Error checking sinks/storage: {exc}")
+
+
 def run_doctor() -> int:
     """Run all health checks and print a report. Returns exit code (0 = all ok)."""
     console.print(
@@ -313,12 +458,14 @@ def run_doctor() -> int:
     checks: list[Check] = []
 
     # Environment
+    checks.append(_check_installation())
     checks.append(_check_python())
     checks.append(_check_uv())
     checks.append(_check_platform())
 
     # Configuration
     checks.append(_check_env_file())
+    checks.append(_check_config_resolution())
     checks.append(_check_vault())
     checks.append(_check_database())
 
@@ -330,6 +477,10 @@ def run_doctor() -> int:
 
     # Automation
     checks.append(_check_automation())
+
+    # Plugins / output layers
+    checks.append(_check_plugins())
+    checks.append(_check_outputs())
 
     # Print results
     table = Table(show_header=True, header_style="bold", show_lines=False)

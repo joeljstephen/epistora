@@ -4,7 +4,7 @@
 
 - **Python 3.11+** (3.12 recommended)
 - **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (recommended)
-- At least one of: OpenAI API key, `opencode` binary, `claude` binary
+- At least one of: OpenAI API key, `opencode` binary, `claude` binary, `codex` binary
 - (Optional) Raindrop.io API token
 - (Optional) `summarize` binary if you want summarize-backed extraction enabled
 
@@ -26,6 +26,9 @@ cp .env.example .env
 
 # Or run the interactive setup wizard
 uv run epistora setup
+
+# Verify the active config, plugins, sinks, and storage settings
+uv run epistora doctor
 ```
 
 ### Using pip
@@ -193,9 +196,30 @@ uv run pytest tests/test_queue_automation.py -v
 uv run pytest tests/test_cli_commands.py -v
 ```
 
+## Packaging Smoke Tests
+
+Before treating the repo as release-ready, run the install and packaging flow too:
+
+```bash
+# Build source + wheel artifacts
+uv build
+
+# Smoke-test the installed CLI from the current checkout
+uv tool install --from . epistora --force
+epistora doctor
+```
+
+If you are validating from source rather than the installed tool, prefer:
+
+```bash
+uv run epistora doctor
+uv run epistora help
+```
+
 ### Testing Without Real Backends
 
-All tests mock external dependencies. You don't need a real OpenAI key, `opencode` binary, or `claude` binary to run the test suite.
+All tests mock external dependencies. You don't need a real OpenAI key, `opencode`
+binary, `claude` binary, or `codex` binary to run the test suite.
 
 **Mocking the backend router:**
 

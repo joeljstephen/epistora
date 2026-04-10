@@ -485,8 +485,7 @@ class TestProcessing:
                 new_callable=AsyncMock,
                 return_value=mock_content,
             ),
-            patch("app.vault.writer.VaultWriter") as MockWriter,
-            patch("app.vault.index_updater.rebuild_indexes"),
+            patch("app.sinks.registry.build_default_sink") as mock_build_sink,
         ):
             mock_settings.return_value.automation_process_limit = 10
             mock_settings.return_value.automation_deep_enrich_limit_per_run = 3
@@ -497,20 +496,25 @@ class TestProcessing:
             mock_settings.return_value.vault_path = tmp_vault
             MockDB.return_value = tmp_db
 
-            mock_writer_instance = MagicMock()
-            mock_writer_instance.write_raw_capture.return_value = MagicMock(
-                path="raw/articles/safe-test.md"
-            )
-            mock_writer_instance.write_source_note.return_value = MagicMock(
-                path="wiki/sources/articles/safe-test.md"
-            )
-            MockWriter.return_value = mock_writer_instance
+            mock_sink = MagicMock()
+            mock_sink.publish.return_value = [
+                MagicMock(
+                    note_type="raw_capture",
+                    path="raw/articles/safe-test.md",
+                ),
+                MagicMock(
+                    note_type="source",
+                    path="wiki/sources/articles/safe-test.md",
+                ),
+            ]
+            mock_build_sink.return_value = mock_sink
 
             results = await process_pending_items(mode="safe", limit=10)
 
         assert len(results) == 1
         assert results[0].success is True
         assert results[0].mode == "safe"
+        mock_sink.publish.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_partial_batch_failure(self, tmp_db, tmp_vault):
@@ -554,8 +558,7 @@ class TestProcessing:
             patch("app.automation.processing.get_settings") as mock_settings,
             patch("app.automation.processing.Database") as MockDB,
             patch("app.connectors.fetchers.fetch_content", side_effect=mock_fetch),
-            patch("app.vault.writer.VaultWriter") as MockWriter,
-            patch("app.vault.index_updater.rebuild_indexes"),
+            patch("app.sinks.registry.build_default_sink") as mock_build_sink,
         ):
             mock_settings.return_value.automation_process_limit = 10
             mock_settings.return_value.automation_deep_enrich_limit_per_run = 3
@@ -566,10 +569,12 @@ class TestProcessing:
             mock_settings.return_value.vault_path = tmp_vault
             MockDB.return_value = tmp_db
 
-            mock_writer_instance = MagicMock()
-            mock_writer_instance.write_raw_capture.return_value = MagicMock(path="raw.md")
-            mock_writer_instance.write_source_note.return_value = MagicMock(path="source.md")
-            MockWriter.return_value = mock_writer_instance
+            mock_sink = MagicMock()
+            mock_sink.publish.return_value = [
+                MagicMock(note_type="raw_capture", path="raw.md"),
+                MagicMock(note_type="source", path="source.md"),
+            ]
+            mock_build_sink.return_value = mock_sink
 
             results = await process_pending_items(mode="safe", limit=10)
 
@@ -684,7 +689,12 @@ class TestAutomationRunner:
             MockDB.return_value = mock_db
 
             mock_discover.return_value = {"items_discovered": 3, "items_skipped_duplicate": 1}
-            mock_process.return_value = {"status": "ok", "succeeded": 2, "failed": 0}
+            mock_process.return_value = {
+                "status": "ok",
+                "succeeded": 2,
+                "failed": 0,
+                "changed_paths": ["wiki/sources/articles/test.md"],
+            }
             mock_maintain.return_value = {"status": "ok"}
 
             result = await run_automation(mode="safe", connector_id="raindrop")
@@ -693,7 +703,40 @@ class TestAutomationRunner:
         assert result["process"]["succeeded"] == 2
         mock_discover.assert_called_once()
         mock_process.assert_called_once()
+        mock_maintain.assert_called_once_with(
+            mode="safe",
+            scope_paths=["wiki/sources/articles/test.md"],
+        )
+
+    @pytest.mark.asyncio
+    async def test_run_maintenance_uses_mode_specific_framework(self, tmp_vault: Path):
+        from app.automation.runner import run_maintenance
+
+        with (
+            patch("app.automation.runner.get_settings") as mock_settings,
+            patch("app.automation.runner.maintain_vault", new_callable=AsyncMock) as mock_maintain,
+        ):
+            mock_settings.return_value.automation_default_mode = "balanced"
+            mock_settings.return_value.automation_run_lint = False
+            mock_settings.return_value.automation_run_rebuild_indexes = False
+            mock_settings.return_value.vault_path = tmp_vault
+            mock_maintain.return_value = MagicMock()
+            mock_maintain.return_value.model_dump.return_value = {
+                "mode": "deep",
+                "planned_tasks": ["structural_audit", "generate_synthesis_candidates"],
+                "task_results": [],
+                "changed_paths": [],
+                "log_path": "wiki/logs/maintenance-log.md",
+            }
+
+            result = await run_maintenance(
+                mode="deep",
+                scope_paths=["wiki/sources/articles/test.md"],
+            )
+
         mock_maintain.assert_called_once()
+        assert result["mode"] == "deep"
+        assert "generate_synthesis_candidates" in result["planned_tasks"]
 
     @pytest.mark.asyncio
     async def test_idempotent_across_repeated_runs(self):

@@ -28,6 +28,7 @@ def source_note_md(
     concepts: list[str],
 ) -> str:
     source_title = content.source.title or content.source.url
+    raw_blob_path = str(content.raw_metadata.get("blob_path", "") or "")
     meta = {
         "title": source_title,
         "type": "source",
@@ -59,20 +60,25 @@ def source_note_md(
         ", ".join(wikilink(concept) for concept in concepts) if concepts else "_None yet_"
     )
     raw_link = path_wikilink(raw_capture_path, "Raw archive") if raw_capture_path else "_Missing_"
+    blob_link = path_wikilink(raw_blob_path, "Full blob evidence") if raw_blob_path else ""
     tags = ", ".join(content.source.tags) if content.source.tags else "_None_"
 
-    body = "\n".join(
+    header_lines = [
+        f"# {source_title}",
+        "",
+        f"> **Source:** {content.source.url}",
+        f"> **Type:** {content.source.source_type.value}",
+        f"> **Ingested:** {friendly_date()}",
+        (
+            f"> **Evidence quality:** `{content.extraction_quality}` via "
+            f"`{content.extraction_method or 'unknown'}`"
+        ),
+        f"> **Raw archive:** {raw_link}",
+    ]
+    if blob_link:
+        header_lines.append(f"> **Full blob evidence:** {blob_link}")
+    header_lines.extend(
         [
-            f"# {source_title}",
-            "",
-            f"> **Source:** {content.source.url}",
-            f"> **Type:** {content.source.source_type.value}",
-            f"> **Ingested:** {friendly_date()}",
-            (
-                f"> **Evidence quality:** `{content.extraction_quality}` via "
-                f"`{content.extraction_method or 'unknown'}`"
-            ),
-            f"> **Raw archive:** {raw_link}",
             f"> **Saved tags:** {tags}",
             "",
             _source_specific_body(
@@ -94,7 +100,9 @@ def source_note_md(
                 concept_links=concept_links,
             ),
         ]
-    ).strip()
+    )
+
+    body = "\n".join(header_lines).strip()
 
     return build_frontmatter_doc(meta, body)
 
@@ -203,6 +211,16 @@ def _capture_notes_md(content: SourceContent) -> str:
         f"- Extraction quality: `{content.extraction_quality}`",
         f"- Extraction method: `{content.extraction_method or 'unknown'}`",
     ]
+    if content.raw_metadata.get("storage_tier"):
+        lines.append(f"- Raw storage tier: `{content.raw_metadata['storage_tier']}`")
+    if content.raw_metadata.get("blob_storage_tier"):
+        lines.append(f"- Blob storage tier: `{content.raw_metadata['blob_storage_tier']}`")
+    if content.raw_metadata.get("blob_path"):
+        lines.append(f"- Full blob path: {content.raw_metadata['blob_path']}")
+    if content.raw_metadata.get("blob_bytes"):
+        lines.append(f"- Blob size: `{content.raw_metadata['blob_bytes']}` bytes")
+    if content.raw_metadata.get("blob_sha256"):
+        lines.append(f"- Blob SHA-256: `{content.raw_metadata['blob_sha256']}`")
     if content.extraction_fallback_chain:
         lines.append(
             "- Fallback chain: "
@@ -220,6 +238,10 @@ def _coverage_and_limits_md(content: SourceContent) -> str:
         f"- Raw evidence kind: `{content.raw_capture_kind or 'unknown'}`",
         f"- Extraction quality: `{content.extraction_quality}`",
     ]
+    if content.raw_metadata.get("blob_path"):
+        lines.append("- Full preserved evidence is blob-backed under `.system/blobs/`.")
+    else:
+        lines.append("- Full preserved evidence remains directly readable in `raw/`.")
 
     if content.source.source_type.value == "article":
         archived = bool(content.raw_metadata.get("article_archive_available"))
@@ -247,7 +269,16 @@ def _coverage_and_limits_md(content: SourceContent) -> str:
 def _source_frontmatter_extras(content: SourceContent) -> dict[str, object]:
     extra: dict[str, object] = {
         "archive_separation": "raw_evidence_and_compiled_note",
+        "raw_storage_tier": content.raw_metadata.get("storage_tier", "warm"),
     }
+    if content.raw_metadata.get("blob_path"):
+        extra["raw_blob_path"] = content.raw_metadata.get("blob_path")
+    if content.raw_metadata.get("blob_storage_tier"):
+        extra["raw_blob_storage_tier"] = content.raw_metadata.get("blob_storage_tier")
+    if content.raw_metadata.get("blob_bytes"):
+        extra["raw_blob_bytes"] = content.raw_metadata.get("blob_bytes")
+    if content.raw_metadata.get("blob_sha256"):
+        extra["raw_blob_sha256"] = content.raw_metadata.get("blob_sha256")
 
     if content.source.source_type.value == "youtube":
         extra["transcript_available"] = bool(content.raw_metadata.get("transcript_available"))
@@ -510,6 +541,7 @@ def synthesis_note_md(note: SynthesisNote) -> str:
 
 def raw_capture_md(content: SourceContent) -> str:
     source_title = content.source.title or content.source.url
+    blob_path = str(content.raw_metadata.get("blob_path", "") or "")
     meta = {
         "title": source_title,
         "type": "raw",
@@ -520,11 +552,49 @@ def raw_capture_md(content: SourceContent) -> str:
         "raw_capture_kind": content.raw_capture_kind,
         "extraction_quality": content.extraction_quality,
         "extraction_method": content.extraction_method,
+        "storage_tier": content.raw_metadata.get("storage_tier", "warm"),
     }
+    if blob_path:
+        meta["blob_path"] = blob_path
+    if content.raw_metadata.get("blob_storage_tier"):
+        meta["blob_storage_tier"] = content.raw_metadata.get("blob_storage_tier")
+    if content.raw_metadata.get("blob_bytes"):
+        meta["blob_bytes"] = content.raw_metadata.get("blob_bytes")
+    if content.raw_metadata.get("blob_sha256"):
+        meta["blob_sha256"] = content.raw_metadata.get("blob_sha256")
+    if content.raw_metadata.get("blob_media_type"):
+        meta["blob_media_type"] = content.raw_metadata.get("blob_media_type")
+    if content.raw_metadata.get("raw_preview_chars"):
+        meta["raw_preview_chars"] = content.raw_metadata.get("raw_preview_chars")
     if content.canonical_url and content.canonical_url != content.source.url:
         meta["canonical_url"] = content.canonical_url
 
-    if content.archived_markdown.strip():
+    if blob_path:
+        blob_link = path_wikilink(blob_path, "Full preserved evidence blob")
+        preview = str(content.raw_metadata.get("raw_preview_text", "") or "").strip()
+        if not preview:
+            preview = "_No readable preview available._"
+        body = f"""# {source_title}
+
+> Immutable raw capture generated by Epistora.
+> Source: {content.source.url}
+> Extraction: {content.extraction_method or 'unknown'} ({content.extraction_quality})
+> Storage tiers: warm manifest note + cold blob
+> Full evidence blob: {blob_link}
+> Blob size: {content.raw_metadata.get("blob_bytes", "unknown")} bytes
+> Blob SHA-256: {content.raw_metadata.get("blob_sha256", "unknown")}
+
+## Preview
+
+{preview}
+
+## Storage Notes
+
+- This raw note remains the stable visible reference in the vault.
+- The full evidence payload is preserved in the blob path above to keep the hot
+  working layer readable.
+"""
+    elif content.archived_markdown.strip():
         body = content.archived_markdown.strip()
     else:
         body = f"""# {source_title}

@@ -112,6 +112,7 @@ class ProcessResult(BaseModel):
     error_type: str = ""
     source_note_path: str = ""
     raw_capture_path: str = ""
+    changed_paths: list[str] = Field(default_factory=list)
 
 
 class AutomationStatus(BaseModel):

@@ -9,7 +9,7 @@ from langgraph.graph import END, START, StateGraph
 
 from app.backends.models import TaskName
 from app.compiler.llm import run_text
-from app.compiler.prompts import get_query_prompt, get_system_role
+from app.compiler.prompts import compose_query_prompt
 from app.models.results import QueryResult
 
 logger = logging.getLogger(__name__)
@@ -73,6 +73,8 @@ async def _resolve_context(state: QueryState) -> dict:
 
 async def _generate_answer(state: QueryState) -> dict:
     """Use the LLM to generate a grounded answer."""
+    from pathlib import Path
+
     if not state.get("relevant_notes"):
         answer = (
             "## Direct Findings\n"
@@ -88,16 +90,19 @@ async def _generate_answer(state: QueryState) -> dict:
         )
         return {"answer": answer}
 
-    prompt = get_query_prompt().format(
-        question=state["question"],
-        context=state["context"],
+    composition = compose_query_prompt(
+        workspace_path=Path(state["vault_path"]),
+        format_kwargs={
+            "question": state["question"],
+            "context": state["context"],
+        },
     )
 
     try:
         resp = await run_text(
             task=TaskName.QUERY,
-            system_prompt=get_system_role(),
-            user_prompt=prompt,
+            system_prompt=composition.system_prompt,
+            user_prompt=composition.user_prompt,
         )
         if resp.success:
             answer = resp.text

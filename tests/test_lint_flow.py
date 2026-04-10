@@ -98,6 +98,44 @@ class TestStructuralLint:
         categories = [i.category for i in issues]
         assert "weak_page" in categories or "orphan_page" in categories
 
+    @pytest.mark.asyncio
+    async def test_detects_missing_raw_blob(self, tmp_vault: Path):
+        from app.compiler.lint_graph import _structural_lint
+        from app.vault.parser import scan_vault
+
+        source_note = tmp_vault / "wiki" / "sources" / "articles" / "blob-backed.md"
+        source_note.parent.mkdir(parents=True, exist_ok=True)
+        source_note.write_text(
+            """---
+title: Blob Backed
+type: source
+source_url: https://example.com/blob-backed
+raw_capture_path: raw/articles/blob-backed.md
+raw_blob_path: .system/blobs/articles/blob-backed/primary.md
+topics: []
+entities: []
+concepts: []
+---
+
+# Blob Backed
+
+[[raw/articles/blob-backed|Raw archive]]
+""",
+            encoding="utf-8",
+        )
+
+        raw_note = tmp_vault / "raw" / "articles" / "blob-backed.md"
+        raw_note.parent.mkdir(parents=True, exist_ok=True)
+        raw_note.write_text("# Raw note\n", encoding="utf-8")
+
+        notes = scan_vault(tmp_vault)
+        state = {"vault_path": str(tmp_vault), "notes": notes}
+        result = await _structural_lint(state)
+
+        issues = [issue for issue in result["issues"] if issue.category == "missing_raw_blob"]
+        assert len(issues) == 1
+        assert "missing raw evidence blob" in issues[0].message
+
 
 class TestLintReport:
     @pytest.mark.asyncio

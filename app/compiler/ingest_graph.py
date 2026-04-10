@@ -10,30 +10,28 @@ from typing import Any, Callable, TypedDict
 
 from langgraph.graph import END, START, StateGraph
 
+from app.artifacts import ArtifactBundle, build_artifact_bundle
 from app.backends.models import TaskName
 from app.compiler.llm import run_structured, run_text
 from app.compiler.prompts import (
     SOURCE_ANALYSIS_JSON_SCHEMA,
-    get_source_analysis_prompt,
+    compose_ingest_analysis_prompt,
     get_source_guidance_markdown,
-    get_system_role,
     get_youtube_analysis_rules,
     get_youtube_chunk_digest_system,
     get_youtube_chunk_digest_user,
 )
 from app.connectors.fetchers import fetch_content
 from app.models.db import ProcessedSource, VaultNoteMapping
-from app.models.knowledge import Concept, Entity, Topic
 from app.models.results import IngestResult, VaultUpdate
 from app.models.source import SourceContent, SourceItem
+from app.sinks.registry import build_default_sink
 from app.storage.repositories import SourceRepository, VaultNoteRepository
 from app.storage.sqlite import Database
 from app.utils.hashing import url_hash as compute_url_hash
 from app.utils.slugify import slugify
-from app.vault.index_updater import rebuild_indexes
 from app.vault.log_updater import append_ingest_log
 from app.vault.parser import scan_vault
-from app.vault.writer import VaultWriter
 
 logger = logging.getLogger(__name__)
 
@@ -381,9 +379,7 @@ class IngestState(TypedDict, total=False):
     slug: str
     force_reingest: bool
     analysis: dict[str, Any]
-    topics: list[Topic]
-    entities: list[Entity]
-    concepts: list[Concept]
+    artifacts: ArtifactBundle
     vault_updates: list[VaultUpdate]
     analysis_warnings: list[str]
     result: IngestResult
@@ -476,10 +472,6 @@ def _existing_knowledge_prompt(lookup: dict[str, dict[str, str]]) -> str:
         else:
             lines.append(f"- {label}: none yet")
     return "\n".join(lines)
-
-
-def _resolve_existing_name(existing: dict[str, str], name: str) -> str:
-    return existing.get(slugify(name)) or existing.get(_canonical_name_key(name)) or name
 
 
 def _fallback_analysis(
@@ -707,28 +699,33 @@ async def _analyse_content(state: IngestState) -> dict:
         )
 
     is_youtube = content.source.source_type.value == "youtube"
-    prompt = get_source_analysis_prompt(content.source.source_type.value).format(
-        title=content.source.title or content.source.url,
+    composition = compose_ingest_analysis_prompt(
         source_type=content.source.source_type.value,
-        url=content.source.url,
-        canonical_url=content.canonical_url or "N/A",
-        author=content.author or "N/A",
-        published_date=content.published_date or "N/A",
-        tags=", ".join(content.source.tags) or "none",
-        extraction_quality=content.extraction_quality,
-        extraction_method=content.extraction_method or "unknown",
-        extraction_notes=extraction_notes_prompt,
-        source_specific_guidance=_source_specific_guidance(content),
-        existing_knowledge=_existing_knowledge_prompt(existing_lookup),
-        content=evidence_text,
-        youtube_rules=get_youtube_analysis_rules() if is_youtube else "",
+        workspace_path=Path(settings.vault_path),
+        settings=settings,
+        source_type_instructions=_source_specific_guidance(content),
+        format_kwargs={
+            "title": content.source.title or content.source.url,
+            "source_type": content.source.source_type.value,
+            "url": content.source.url,
+            "canonical_url": content.canonical_url or "N/A",
+            "author": content.author or "N/A",
+            "published_date": content.published_date or "N/A",
+            "tags": ", ".join(content.source.tags) or "none",
+            "extraction_quality": content.extraction_quality,
+            "extraction_method": content.extraction_method or "unknown",
+            "extraction_notes": extraction_notes_prompt,
+            "existing_knowledge": _existing_knowledge_prompt(existing_lookup),
+            "content": evidence_text,
+            "youtube_rules": get_youtube_analysis_rules() if is_youtube else "",
+        },
     )
 
     try:
         resp = await run_structured(
             task=TaskName.INGEST,
-            system_prompt=get_system_role(),
-            user_prompt=prompt,
+            system_prompt=composition.system_prompt,
+            user_prompt=composition.user_prompt,
             json_schema_hint=SOURCE_ANALYSIS_JSON_SCHEMA,
         )
         if resp.success:
@@ -816,136 +813,28 @@ async def _analyse_content(state: IngestState) -> dict:
 async def _extract_knowledge(state: IngestState) -> dict:
     from app.config import get_settings
 
-    analysis = state["analysis"]
-    slug = state["slug"]
-    topic_summary = analysis.get("summary", "").strip()
     settings = get_settings()
     existing_lookup = _existing_knowledge_lookup(Path(settings.vault_path))
-
-    entity_names = [
-        (
-            _resolve_existing_name(existing_lookup["entity"], entity["name"])
-            if isinstance(entity, dict)
-            else _resolve_existing_name(existing_lookup["entity"], str(entity))
-        )
-        for entity in analysis.get("entities", [])
-    ]
-    concept_names = [
-        (
-            _resolve_existing_name(existing_lookup["concept"], concept["name"])
-            if isinstance(concept, dict)
-            else _resolve_existing_name(existing_lookup["concept"], str(concept))
-        )
-        for concept in analysis.get("concepts", [])
-    ]
-
-    topics = []
-    for topic_name in analysis.get("topics", []):
-        resolved_topic_name = _resolve_existing_name(existing_lookup["topic"], topic_name)
-        topics.append(
-            Topic(
-                name=resolved_topic_name,
-                slug=slugify(resolved_topic_name),
-                summary=topic_summary,
-                source_ids=[slug],
-                related_entities=entity_names,
-                related_concepts=concept_names,
-            )
-        )
-
-    entities = []
-    for entity_data in analysis.get("entities", []):
-        if isinstance(entity_data, str):
-            entity_data = {"name": entity_data, "type": "unknown", "description": ""}
-        resolved_entity_name = _resolve_existing_name(
-            existing_lookup["entity"], entity_data["name"]
-        )
-        entities.append(
-            Entity(
-                name=resolved_entity_name,
-                slug=slugify(resolved_entity_name),
-                entity_type=entity_data.get("type", "unknown"),
-                description=entity_data.get("description", ""),
-                source_ids=[slug],
-                related_concepts=concept_names,
-            )
-        )
-
-    concepts = []
-    for concept_data in analysis.get("concepts", []):
-        if isinstance(concept_data, str):
-            concept_data = {"name": concept_data, "definition": ""}
-        concept_name = _resolve_existing_name(existing_lookup["concept"], concept_data["name"])
-        concepts.append(
-            Concept(
-                name=concept_name,
-                slug=slugify(concept_name),
-                definition=concept_data.get("definition", ""),
-                source_ids=[slug],
-                related_concepts=[name for name in concept_names if name and name != concept_name],
-            )
-        )
-
-    return {"topics": topics, "entities": entities, "concepts": concepts}
+    artifacts = build_artifact_bundle(
+        content=state["content"],
+        slug=state["slug"],
+        analysis=state["analysis"],
+        existing_lookup=existing_lookup,
+    )
+    return {"artifacts": artifacts}
 
 
 async def _write_vault(state: IngestState) -> dict:
-    from pathlib import Path
-
     from app.config import get_settings
 
     settings = get_settings()
-    vault_path = Path(settings.vault_path)
-    writer = VaultWriter(vault_path)
-    writer.ensure_structure()
-
     content: SourceContent = state["content"]
     _emit_progress(state, "writing", title=content.source.title or content.source.url)
-    slug = state["slug"]
-    analysis = state["analysis"]
-    topics: list[Topic] = state.get("topics", [])
-    entities: list[Entity] = state.get("entities", [])
-    concepts: list[Concept] = state.get("concepts", [])
-
-    updates: list[VaultUpdate] = []
-
-    raw_update = writer.write_raw_capture(content, slug)
-    updates.append(raw_update)
-
-    source_update = writer.write_source_note(
+    sink = build_default_sink(settings)
+    updates = sink.publish(
         content=content,
-        slug=slug,
-        raw_capture_path=raw_update.path,
-        summary=analysis.get("summary", ""),
-        five_minute_read=analysis.get("five_minute_read", ""),
-        detailed_reading_note=analysis.get("detailed_reading_note", ""),
-        key_ideas=analysis.get("key_ideas", ""),
-        detailed_outline=analysis.get("detailed_outline", ""),
-        important_examples=analysis.get("important_examples", ""),
-        actionable_takeaways=analysis.get("actionable_takeaways", ""),
-        notable_quotes=analysis.get("notable_quotes", ""),
-        best_for=analysis.get("best_for", ""),
-        consume_recommendation=analysis.get("consume_recommendation", ""),
-        why_it_matters=analysis.get("why_it_matters", ""),
-        open_questions=analysis.get("open_questions", ""),
-        topics=[topic.name for topic in topics],
-        entities=[entity.name for entity in entities],
-        concepts=[concept.name for concept in concepts],
+        bundle=state["artifacts"],
     )
-    updates.append(source_update)
-
-    source_title = content.source.title or content.source.url
-
-    for topic in topics:
-        updates.append(writer.write_topic(topic, [source_title]))
-
-    for entity in entities:
-        updates.append(writer.write_entity(entity, [source_title]))
-
-    for concept in concepts:
-        updates.append(writer.write_concept(concept, [source_title]))
-
-    rebuild_indexes(vault_path)
 
     return {"vault_updates": updates}
 
@@ -1001,9 +890,7 @@ async def _persist_state(state: IngestState) -> dict:
     content: SourceContent = state["content"]
     slug = state["slug"]
     updates: list[VaultUpdate] = state.get("vault_updates", [])
-    topics: list[Topic] = state.get("topics", [])
-    entities: list[Entity] = state.get("entities", [])
-    concepts: list[Concept] = state.get("concepts", [])
+    artifacts = state["artifacts"]
 
     source_repo = SourceRepository(db)
     note_repo = VaultNoteRepository(db)
@@ -1055,9 +942,9 @@ async def _persist_state(state: IngestState) -> dict:
         extraction_quality=content.extraction_quality,
         extraction_method=content.extraction_method,
         bookmark_tags=content.source.tags,
-        topics_updated=[topic.name for topic in topics],
-        entities_updated=[entity.name for entity in entities],
-        concepts_updated=[concept.name for concept in concepts],
+        topics_updated=[topic.title for topic in artifacts.topics],
+        entities_updated=[entity.title for entity in artifacts.entities],
+        concepts_updated=[concept.title for concept in artifacts.concepts],
         vault_updates=updates,
         deduplicated=state.get("deduplicated", False),
         warnings=state.get("analysis_warnings", []),

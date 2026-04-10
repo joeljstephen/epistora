@@ -10,6 +10,7 @@ from app.automation.models import AutomationMode, AutomationRun
 from app.automation.processing import process_pending_items
 from app.automation.queue_store import AutomationRunRepository, QueueRepository
 from app.config import get_settings
+from app.maintenance.service import maintain_vault
 from app.storage.sqlite import Database
 from app.utils.dates import utcnow
 
@@ -70,6 +71,14 @@ async def run_process_pending(
         "processed": len(results),
         "succeeded": succeeded,
         "failed": failed,
+        "changed_paths": sorted(
+            {
+                path
+                for result in results
+                for path in result.changed_paths
+                if path.endswith(".md")
+            }
+        ),
         "results": [r.model_dump() for r in results],
     }
 
@@ -77,27 +86,40 @@ async def run_process_pending(
 async def run_maintenance(
     run_lint: bool | None = None,
     run_rebuild: bool | None = None,
+    mode: str | None = None,
+    scope_paths: list[str] | None = None,
 ) -> dict:
     """Run optional maintenance tasks."""
     settings = get_settings()
+    effective_mode = mode or settings.automation_default_mode
     do_lint = run_lint if run_lint is not None else settings.automation_run_lint
     do_rebuild = (
         run_rebuild if run_rebuild is not None else settings.automation_run_rebuild_indexes
     )
 
-    results = {}
+    maintenance = await maintain_vault(
+        vault_path=settings.vault_path,
+        mode=effective_mode,
+        scope_paths=scope_paths,
+        force_rebuild=bool(do_rebuild),
+    )
+
+    results = maintenance.model_dump()
+    results["status"] = "ok"
+    for task_result in maintenance.task_results:
+        if task_result.task_name == "refresh_indexes":
+            results["rebuild_indexes"] = {
+                "status": task_result.status,
+                "indexes_updated": task_result.details.get("indexes_updated", 0),
+                "paths": task_result.changed_paths,
+            }
+            break
 
     if do_lint:
         from app.automation.jobs import run_lint_job
 
         results["lint"] = await run_lint_job()
 
-    if do_rebuild:
-        from app.automation.jobs import run_rebuild_indexes_job
-
-        results["rebuild_indexes"] = await run_rebuild_indexes_job()
-
-    results["status"] = "ok"
     return results
 
 
@@ -166,7 +188,11 @@ async def run_automation(
         if run_maintenance_tasks:
             logger.info("Automation run: maintenance")
             _emit_progress(progress_callback, "automation_stage", stage_name="maintenance")
-            maint_result = await run_maintenance()
+            changed_paths = process_result.get("changed_paths", [])
+            maint_result = await run_maintenance(
+                mode=effective_mode,
+                scope_paths=changed_paths,
+            )
             summary["maintenance"] = maint_result
             run_record.maintenance_ran = True
 

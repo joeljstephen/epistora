@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Callable
 
 from app.backends.claude_code_cli import ClaudeCodeCliBackend
@@ -10,6 +11,9 @@ from app.backends.direct_api import DirectApiBackend
 from app.backends.models import BackendType, TaskName
 from app.backends.opencode_cli import OpenCodeCliBackend
 from app.config import Settings
+from app.plugins.loader import plugin_factories
+
+logger = logging.getLogger(__name__)
 
 BackendFactory = Callable[[Settings], object]
 
@@ -33,10 +37,19 @@ def builtin_backend_order() -> list[str]:
 
 def build_backends(settings: Settings) -> dict[str, object]:
     _register_builtin_backends()
-    return {
-        backend_id: factory(settings)
-        for backend_id, factory in _BACKEND_FACTORIES.items()
-    }
+    factories = dict(_BACKEND_FACTORIES)
+    factories.update(plugin_factories("reasoning_backend", settings))
+    backends: dict[str, object] = {}
+    for backend_id, factory in factories.items():
+        try:
+            backends[backend_id] = factory(settings)
+        except Exception as exc:  # pragma: no cover - defensive isolation
+            logger.warning(
+                "Failed to initialize reasoning_backend plugin '%s': %s",
+                backend_id,
+                exc,
+            )
+    return backends
 
 
 def _register_builtin_backends() -> None:

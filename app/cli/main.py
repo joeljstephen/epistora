@@ -121,13 +121,22 @@ def _error_help_lines(message: str) -> list[str]:
     if "raindrop authentication failed" in text:
         hints.append("Run `epistora connect raindrop` and save a valid token.")
     if "raindrop collection not found" in text:
-        hints.append("Check the Raindrop collection ID in your config or rerun `epistora connect raindrop`.")
+        hints.append(
+            "Check the Raindrop collection ID in your config "
+            "or rerun `epistora connect raindrop`."
+        )
     if "could not reach the raindrop api" in text:
         hints.append("Check your network connection and try again.")
     if "api key not configured" in text or "no backends failed" in text:
-        hints.append("Run `epistora backend setup` or `epistora backend status` to configure an ingest backend.")
+        hints.append(
+            "Run `epistora backend setup` or `epistora backend status` "
+            "to configure an ingest backend."
+        )
     if "backend unavailable" in text or "all backends failed" in text:
-        hints.append("Run `epistora backend status` to see which backend is missing or disabled.")
+        hints.append(
+            "Run `epistora backend status` to see which backend "
+            "is missing or disabled."
+        )
     if "opencode" in text and ("not found" in text or "disabled" in text):
         hints.append("Install OpenCode or disable it in backend config.")
     if "claude code" in text and ("not found" in text or "disabled" in text):
@@ -135,7 +144,10 @@ def _error_help_lines(message: str) -> list[str]:
     if "codex" in text and ("not found" in text or "disabled" in text):
         hints.append("Install Codex or disable it in backend config.")
     if "timed out" in text or "timeout" in text:
-        hints.append("Retry the command. If it keeps happening, reduce the batch size or switch backend.")
+        hints.append(
+            "Retry the command. If it keeps happening, "
+            "reduce the batch size or switch backend."
+        )
     if "network" in text or "connection" in text:
         hints.append("Check your network connection and retry.")
 
@@ -165,7 +177,9 @@ def _print_recent_item_issues(results: list[Any], *, field: str) -> None:
         messages = getattr(result, field)
         if not messages:
             continue
-        title = _short_label(getattr(result, "source_title", "") or getattr(result, "source_url", "item"))
+        title = _short_label(
+            getattr(result, "source_title", "") or getattr(result, "source_url", "item")
+        )
         console.print(f"  - {title}: {messages[0]}")
         if field != "warnings":
             for hint in _error_help_lines(messages[0])[:1]:
@@ -207,7 +221,10 @@ def _automation_progress_callback(status, *, mode: str | None = None):
             limit = payload.get("limit")
             status.update("Reached the enrichment budget for this run.")
             if limit:
-                console.print(f"  [yellow]stop[/yellow] Reached enrichment limit for this run ({limit}).")
+                console.print(
+                    f"  [yellow]stop[/yellow] Reached enrichment limit "
+                    f"for this run ({limit})."
+                )
         elif stage == "automation_done":
             current_mode = payload.get("mode") or mode or "safe"
             status.update(f"Automation complete ({current_mode})")
@@ -816,7 +833,8 @@ def vault_use(
     if copy_current and current_vault.exists():
         if target.exists() and any(target.iterdir()) and not yes:
             confirmed = typer.confirm(
-                f"{target} already has files. Copy the current vault into it and keep existing files?"
+                f"{target} already has files. "
+                "Copy the current vault into it and keep existing files?"
             )
             if not confirmed:
                 raise typer.Abort()
@@ -826,7 +844,8 @@ def vault_use(
     if target.exists() and any(target.iterdir()) and not _looks_like_epistora_vault(target):
         if not yes:
             confirmed = typer.confirm(
-                f"{target} is not an Epistora vault yet. Initialize Epistora files there and keep existing files?"
+                f"{target} is not an Epistora vault yet. "
+                "Initialize Epistora files there and keep existing files?"
             )
             if not confirmed:
                 raise typer.Abort()

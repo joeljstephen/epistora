@@ -342,15 +342,15 @@ async def _process_single_item(
 
 async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:
     """Safe mode: fetch, archive, minimal note, no expensive LLM enrichment."""
+    from app.artifacts import build_artifact_bundle
     from app.connectors.classifier import classify_url
     from app.connectors.fetchers import fetch_content
     from app.models.source import SourceItem
+    from app.sinks.registry import build_default_sink
     from app.storage.repositories import SourceRepository
     from app.storage.sqlite import Database
     from app.utils.hashing import url_hash as compute_url_hash
     from app.utils.slugify import slugify
-    from app.vault.index_updater import rebuild_indexes
-    from app.vault.writer import VaultWriter
 
     source_type = classify_url(item.url)
     tags = []
@@ -373,13 +373,6 @@ async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:
     # Fetch content (this is safe — no LLM cost)
     content = await fetch_content(source_item)
     slug = slugify(content.source.title or item.url)
-
-    vault_path = settings.vault_path
-    writer = VaultWriter(vault_path)
-    writer.ensure_structure()
-
-    # Write raw capture (immutable, always safe)
-    raw_update = writer.write_raw_capture(content, slug)
 
     # Write a minimal source note using text-only fallback analysis
     from app.compiler.ingest_graph import (
@@ -425,26 +418,15 @@ async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:
         open_questions="- Does this source deserve deeper AI analysis?",
     )
 
-    source_update = writer.write_source_note(
+    artifact_bundle = build_artifact_bundle(
         content=content,
         slug=slug,
-        raw_capture_path=raw_update.path,
-        summary=analysis["summary"],
-        five_minute_read=analysis["five_minute_read"],
-        detailed_reading_note=analysis["detailed_reading_note"],
-        key_ideas=analysis["key_ideas"],
-        detailed_outline=analysis["detailed_outline"],
-        important_examples=analysis["important_examples"],
-        actionable_takeaways=analysis["actionable_takeaways"],
-        notable_quotes=analysis["notable_quotes"],
-        best_for=analysis["best_for"],
-        consume_recommendation=analysis["consume_recommendation"],
-        why_it_matters=analysis["why_it_matters"],
-        open_questions=analysis["open_questions"],
-        topics=[],
-        entities=[],
-        concepts=[],
+        analysis=analysis,
     )
+    sink = build_default_sink(settings)
+    updates = sink.publish(content=content, bundle=artifact_bundle)
+    raw_update = next(update for update in updates if update.note_type == "raw_capture")
+    source_update = next(update for update in updates if update.note_type == "source")
 
     # Persist in processed_sources
     from app.models.db import ProcessedSource
@@ -471,9 +453,6 @@ async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:
     finally:
         db.close()
 
-    # Rebuild indexes (no LLM cost)
-    rebuild_indexes(vault_path)
-
     return ProcessResult(
         queued_item_id=item.id or 0,
         success=True,
@@ -481,6 +460,7 @@ async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:
         backend_used="none",
         source_note_path=source_update.path,
         raw_capture_path=raw_update.path,
+        changed_paths=[update.path for update in updates],
     )
 
 
@@ -529,4 +509,5 @@ async def _process_enriched(
         backend_used="ingest_graph",
         source_note_path=result.source_note_path,
         raw_capture_path=result.raw_capture_path,
+        changed_paths=[update.path for update in result.vault_updates],
     )

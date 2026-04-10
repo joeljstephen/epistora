@@ -10,6 +10,7 @@ Get Epistora running in under 5 minutes.
   - An OpenAI API key (or any OpenAI-compatible API)
   - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
   - [OpenCode](https://github.com/opencode-ai/opencode) installed
+  - Codex CLI installed
 
 ## Step 1: Install Epistora
 
@@ -32,6 +33,7 @@ Or install from source for development:
 git clone https://github.com/joeljstephen/epistora.git
 cd epistora
 uv sync --extra dev
+uv run epistora --help
 ```
 
 ## Step 2: Run the Setup Wizard
@@ -56,7 +58,14 @@ epistora doctor
 ```
 
 This checks your Python version, configuration, vault structure, backend
-availability, and more. Fix any issues it reports.
+availability, plugin health, sink/storage settings, and more. Fix any issues
+it reports.
+
+If you're still inside a source checkout instead of an installed tool, use:
+
+```bash
+uv run epistora doctor
+```
 
 ## Step 4: Ingest Your First Content
 
