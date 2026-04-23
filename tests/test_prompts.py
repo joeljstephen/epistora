@@ -177,3 +177,17 @@ prompt_pack_dir = "prompts"
     monkeypatch.setenv("EPISTORA_PROMPTS_DIR", str(override_dir))
 
     assert get_system_role() == "Override role"
+
+
+def test_personal_learning_profile_common_instructions_are_loaded(monkeypatch):
+    monkeypatch.delenv("EPISTORA_PROMPTS_DIR", raising=False)
+    monkeypatch.setenv("EPISTORA_PROMPT_PROFILE", "personal_learning")
+
+    composed = compose_prompt(
+        task_name="query_answer",
+        artifact_type="query",
+        workspace_path=None,
+        format_kwargs={"question": "Q", "context": "C"},
+    )
+
+    assert "Favor personal-learning outcomes over exhaustive analysis." in composed.user_prompt

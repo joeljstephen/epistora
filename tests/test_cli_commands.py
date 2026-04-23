@@ -49,6 +49,30 @@ class TestCLIHelp:
         assert result.exit_code == 0
         assert "connector" in result.output.lower()
 
+    def test_views_help(self):
+        result = runner.invoke(app, ["views", "--help"])
+        assert result.exit_code == 0
+        assert "browse" in result.output.lower() or "view" in result.output.lower()
+
+    def test_review_help(self):
+        result = runner.invoke(app, ["review", "--help"])
+        assert result.exit_code == 0
+        assert "review digests" in result.output.lower()
+
+    def test_review_daily_help(self):
+        result = runner.invoke(app, ["review", "daily", "--help"])
+        assert result.exit_code == 0
+        assert "daily review" in result.output.lower()
+
+    def test_review_weekly_help(self):
+        result = runner.invoke(app, ["review", "weekly", "--help"])
+        assert result.exit_code == 0
+        assert "weekly review" in result.output.lower()
+
+    def test_views_rebuild_help(self):
+        result = runner.invoke(app, ["views", "rebuild", "--help"])
+        assert result.exit_code == 0
+
     def test_automation_help(self):
         result = runner.invoke(app, ["automation", "--help"])
         assert result.exit_code == 0
@@ -57,6 +81,11 @@ class TestCLIHelp:
     def test_automation_setup_help(self):
         result = runner.invoke(app, ["automation", "setup", "--help"])
         assert result.exit_code == 0
+
+    def test_automation_run_personal_learning_help(self):
+        result = runner.invoke(app, ["automation", "run-personal-learning", "--help"])
+        assert result.exit_code == 0
+        assert "personal-learning preset" in result.output.lower()
 
     def test_backend_help(self):
         result = runner.invoke(app, ["backend", "--help"])
@@ -158,6 +187,23 @@ class TestVaultCommands:
         assert (target_vault / "wiki" / "indexes").exists()
         assert env_path.exists()
         assert f"VAULT_PATH={target_vault}" in env_path.read_text()
+
+    def test_views_rebuild_generates_reader_pages(self, tmp_path):
+        vault = tmp_path / "vault"
+        index_dir = vault / "wiki" / "indexes"
+        index_dir.mkdir(parents=True)
+
+        with patch("app.config.get_settings") as mock_settings:
+            mock_settings.return_value.vault_path = vault
+            result = runner.invoke(app, ["views", "rebuild"])
+
+        assert result.exit_code == 0
+        assert "reader views" in result.output.lower()
+        assert (index_dir / "READING_HOME.md").exists()
+        assert (index_dir / "VIDEOS.md").exists()
+        assert (index_dir / "ARTICLES.md").exists()
+        assert (index_dir / "TOPICS_FEED.md").exists()
+        assert (vault / ".obsidian" / "snippets" / "epistora-reader-views.css").exists()
 
 
 class TestIngestProgress:
@@ -310,6 +356,44 @@ class TestAutomationCLI:
         assert "Starting automation" in result.output
         assert "queued" in result.output.lower()
         assert "done" in result.output.lower()
+
+    def test_automation_run_personal_learning_shows_preset_summary(self):
+        async def fake_run_personal_learning(*args, **kwargs):
+            progress_callback = kwargs.get("progress_callback")
+            if progress_callback:
+                progress_callback("automation_stage", {"stage_name": "discover"})
+                progress_callback("automation_stage", {"stage_name": "process"})
+                progress_callback("automation_stage", {"stage_name": "views"})
+                progress_callback("automation_stage", {"stage_name": "reviews"})
+                progress_callback("automation_done", {"mode": "balanced"})
+            return {
+                "status": "ok",
+                "discover": {"items_discovered": 1, "items_skipped_duplicate": 0},
+                "process": {"succeeded": 1, "failed": 0, "results": []},
+                "read_model": {"status": "incremental"},
+                "views": {"count": 4},
+                "reviews": {
+                    "daily": {
+                        "digest_status": "published",
+                        "saved_to": "outputs/digests/daily/2026-04-21.md",
+                    },
+                    "weekly": {"digest_status": "skipped"},
+                },
+                "maintenance": {"status": "ok"},
+                "error": "",
+            }
+
+        with patch("app.automation.runner.run_personal_learning", new=fake_run_personal_learning):
+            result = runner.invoke(
+                app,
+                ["automation", "run-personal-learning", "--mode", "balanced"],
+            )
+
+        assert result.exit_code == 0
+        assert "Starting personal learning preset" in result.output
+        assert "Views rebuilt: 4" in result.output
+        assert "Daily review: published" in result.output
+        assert "Weekly review: skipped" in result.output
 
 
 class TestSetupWizard:

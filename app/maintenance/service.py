@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections import Counter
 from pathlib import Path
 
 from app.automation.models import AutomationMode
@@ -25,7 +26,7 @@ from app.read_model.store import (
     ReadModelStore,
 )
 from app.utils.dates import friendly_date, utcnow
-from app.utils.markdown import build_frontmatter_doc, parse_markdown_file, wikilink
+from app.utils.markdown import build_frontmatter_doc, parse_markdown_file, path_wikilink, wikilink
 from app.vault.index_updater import rebuild_indexes
 from app.vault.log_updater import write_maintenance_log
 from app.vault.parser import VaultNote, scan_vault
@@ -495,6 +496,127 @@ def _summary_snippets(source_notes: list[VaultNote]) -> list[str]:
     return snippets or ["No multi-source pattern summary is available yet."]
 
 
+def _source_quick_summary(source: VaultNote) -> str:
+    summary = str(source.meta.get("quick_summary", "") or "").strip()
+    if summary:
+        return summary
+    return _extract_summary_text(source.body) or "No quick summary available."
+
+
+def _source_best_next_action(source: VaultNote) -> str:
+    action = str(source.meta.get("best_next_action", "") or "").strip()
+    if action:
+        return action
+    action = str(source.meta.get("consume_recommendation", "") or "").strip()
+    if action:
+        return action
+    return "Use the brief first, then open the original source only if you need more detail."
+
+
+def _repeated_values(source_notes: list[VaultNote], field: str) -> list[str]:
+    counts: Counter[str] = Counter()
+    for source in source_notes:
+        for value in source.meta.get(field, []) or []:
+            normalized = str(value).strip()
+            if normalized:
+                counts[normalized] += 1
+    repeated = [value for value, count in counts.items() if count >= 2]
+    return sorted(repeated, key=lambda value: (-counts[value], value))
+
+
+def _candidate_overview(topic_note: VaultNote, source_notes: list[VaultNote]) -> str:
+    repeated_themes = _repeated_values(source_notes, "theme_tags")
+    repeated_concepts = _repeated_values(source_notes, "concepts")
+    parts = [
+        f"This candidate synthesis covers {wikilink(topic_note.title)} across "
+        f"{len(source_notes)} supporting source notes."
+    ]
+    if repeated_themes:
+        parts.append(f"Repeated themes: {', '.join(repeated_themes[:3])}.")
+    if repeated_concepts:
+        parts.append(f"Shared concepts: {', '.join(repeated_concepts[:3])}.")
+    return " ".join(parts)
+
+
+def _candidate_source_briefs(source_notes: list[VaultNote]) -> str:
+    blocks: list[str] = []
+    for source in source_notes[:5]:
+        blocks.extend(
+            [
+                f"### {path_wikilink(source.rel_path, source.title)}",
+                "",
+                f"- **Quick summary:** {_source_quick_summary(source)}",
+                f"- **Best next action:** {_source_best_next_action(source)}",
+                "",
+            ]
+        )
+    return "\n".join(blocks).strip() or "- _No source briefs available yet._"
+
+
+def _candidate_agreements(source_notes: list[VaultNote]) -> list[str]:
+    agreements: list[str] = []
+    repeated_themes = _repeated_values(source_notes, "theme_tags")
+    repeated_concepts = _repeated_values(source_notes, "concepts")
+    repeated_entities = _repeated_values(source_notes, "entities")
+
+    for theme in repeated_themes[:3]:
+        agreements.append(f"The `{theme}` theme recurs across multiple supporting sources.")
+    for concept in repeated_concepts[:3]:
+        agreements.append(f"`{concept}` appears repeatedly across the source set.")
+    for entity in repeated_entities[:2]:
+        agreements.append(f"`{entity}` is a repeated reference point in the source basis.")
+
+    if agreements:
+        return agreements
+    return _summary_snippets(source_notes)[:3]
+
+
+def _candidate_tensions(source_notes: list[VaultNote]) -> list[str]:
+    tensions: list[str] = []
+    source_types = sorted(
+        {
+            str(source.meta.get("source_type", "") or "").strip()
+            for source in source_notes
+            if str(source.meta.get("source_type", "") or "").strip()
+        }
+    )
+    if len(source_types) == 1:
+        tensions.append(f"Coverage is concentrated in `{source_types[0]}` sources, so viewpoint diversity is limited.")
+    elif source_types:
+        tensions.append(
+            "Coverage spans " + ", ".join(f"`{source_type}`" for source_type in source_types)
+            + ", but explicit disagreements still need manual review."
+        )
+
+    open_questions: list[str] = []
+    for source in source_notes:
+        for value in source.meta.get("open_questions", []) or []:
+            question = str(value).strip().lstrip("-").strip()
+            if question:
+                open_questions.append(question)
+    for question in list(dict.fromkeys(open_questions))[:2]:
+        tensions.append(f"Open question still worth resolving: {question}")
+
+    repeated_concepts = _repeated_values(source_notes, "concepts")
+    if not repeated_concepts:
+        tensions.append("The source set does not yet expose a stable shared concept layer.")
+
+    return tensions[:3] or ["Review the source basis for disagreement signals before promoting this note."]
+
+
+def _candidate_next_step(topic_note: VaultNote, source_notes: list[VaultNote]) -> str:
+    repeated_themes = _repeated_values(source_notes, "theme_tags")
+    if len(source_notes) >= 3 and repeated_themes:
+        return (
+            f"Generate a topic bundle for {topic_note.title} and check whether `{repeated_themes[0]}` "
+            "is the real organizing frame."
+        )
+    return (
+        "Compare the strongest two source briefs directly and decide whether this candidate "
+        "should be promoted into a durable synthesis note."
+    )
+
+
 def _extract_summary_text(body: str) -> str:
     for heading in _SUMMARY_HEADINGS:
         pattern = _SECTION_RE.format(heading=re.escape(heading[3:]))
@@ -541,6 +663,9 @@ def _write_candidate_synthesis(
     source_notes: list[VaultNote],
 ) -> str | None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    agreement_points = _candidate_agreements(source_notes)
+    tension_points = _candidate_tensions(source_notes)
+    theme_tags = _repeated_values(source_notes, "theme_tags")
     meta = {
         "title": f"{topic_note.title} Synthesis Candidate",
         "type": "synthesis",
@@ -548,29 +673,39 @@ def _write_candidate_synthesis(
         "generated_by": "maintenance_deep_mode",
         "candidate_topic": topic_note.title,
         "source_basis": [source.title for source in source_notes],
+        "source_note_paths": [source.rel_path for source in source_notes],
+        "theme_tags": theme_tags,
+        "agreement_points": agreement_points,
+        "tension_points": tension_points,
         "updated_at": friendly_date(),
         "lifecycle": LifecycleMetadata(
-            confidence=None,
+            confidence=min(0.85, 0.45 + (0.08 * len(source_notes)) + (0.04 * len(theme_tags))),
             last_confirmed_at=utcnow().isoformat(),
             staleness_status=StalenessStatus.NEEDS_REVIEW,
             reinforcement_count=len(source_notes),
         ).as_frontmatter(),
     }
-    patterns = _render_bullets(_summary_snippets(source_notes))
-    basis = _render_bullets(source.title for source in source_notes)
+    source_briefs = _candidate_source_briefs(source_notes)
+    agreements = _render_bullets(agreement_points)
+    tensions = _render_bullets(tension_points)
+    basis = _render_bullets(path_wikilink(source.rel_path, source.title) for source in source_notes)
     body = "\n\n".join(
         [
             f"# {topic_note.title} Synthesis Candidate",
             "> Candidate draft generated by deep maintenance.",
             "> Review before treating this as a durable synthesis note.",
-            "## Candidate Scope",
-            f"- Topic: {wikilink(topic_note.title)}\n- Supporting sources: {len(source_notes)}",
-            "## Source Basis",
+            "## Topic Overview",
+            _candidate_overview(topic_note, source_notes),
+            "## Strongest Source Briefs",
+            source_briefs,
+            "## Agreements",
+            agreements,
+            "## Tensions / Missing Coverage",
+            tensions,
+            "## Recommended Next Step",
+            f"- {_candidate_next_step(topic_note, source_notes)}",
+            "## Included Sources",
             basis,
-            "## Cross-Source Patterns",
-            patterns,
-            "## Tensions / Gaps",
-            "- Review the supporting sources for direct contradictions before promotion.",
             "## Promotion Checklist",
             "- Confirm durable claims against the source basis.\n"
             "- Replace candidate framing with durable synthesis wording.\n"

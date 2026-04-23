@@ -26,6 +26,9 @@ VAULT_DIRS = [
     "wiki/indexes",
     "wiki/logs",
     "outputs/answers",
+    "outputs/digests/daily",
+    "outputs/digests/weekly",
+    "outputs/digests/topic-bundles",
     "outputs/digests",
     "outputs/reports",
     ".system/manifests",
@@ -33,6 +36,7 @@ VAULT_DIRS = [
     ".system/state",
     ".system/blobs",
     ".system/archives",
+    ".obsidian/snippets",
 ]
 
 RESETTABLE_DIRS = [
@@ -45,6 +49,9 @@ RESETTABLE_DIRS = [
     "wiki/indexes",
     "wiki/logs",
     "outputs/answers",
+    "outputs/digests/daily",
+    "outputs/digests/weekly",
+    "outputs/digests/topic-bundles",
     "outputs/digests",
     "outputs/reports",
     ".system/cache",
@@ -129,12 +136,48 @@ def concepts_index_path(vault_path: Path) -> Path:
     return vault_path / "wiki" / "indexes" / "CONCEPTS.md"
 
 
+def reading_home_path(vault_path: Path) -> Path:
+    return vault_path / "wiki" / "indexes" / "READING_HOME.md"
+
+
+def videos_index_path(vault_path: Path) -> Path:
+    return vault_path / "wiki" / "indexes" / "VIDEOS.md"
+
+
+def articles_index_path(vault_path: Path) -> Path:
+    return vault_path / "wiki" / "indexes" / "ARTICLES.md"
+
+
+def topics_feed_path(vault_path: Path) -> Path:
+    return vault_path / "wiki" / "indexes" / "TOPICS_FEED.md"
+
+
 def start_here_path(vault_path: Path) -> Path:
     return vault_path / "wiki" / "indexes" / "START_HERE.md"
 
 
+def dashboard_path(vault_path: Path) -> Path:
+    return vault_path / "DASHBOARD.md"
+
+
 def query_protocol_path(vault_path: Path) -> Path:
     return vault_path / "wiki" / "indexes" / "QUERY_PROTOCOL.md"
+
+
+def obsidian_reader_snippet_path(vault_path: Path) -> Path:
+    return vault_path / ".obsidian" / "snippets" / "epistora-reader-views.css"
+
+
+def topic_bundle_output_path(vault_path: Path, slug: str, timestamp: str) -> Path:
+    return vault_path / "outputs" / "digests" / "topic-bundles" / f"{slug}--{timestamp}.md"
+
+
+def daily_digest_output_path(vault_path: Path, period_key: str) -> Path:
+    return vault_path / "outputs" / "digests" / "daily" / f"{period_key}.md"
+
+
+def weekly_digest_output_path(vault_path: Path, period_key: str) -> Path:
+    return vault_path / "outputs" / "digests" / "weekly" / f"{period_key}.md"
 
 
 def ingest_log_path(vault_path: Path) -> Path:

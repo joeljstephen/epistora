@@ -467,8 +467,9 @@ class TestWriteVault:
         source_text = source_file.read_text(encoding="utf-8")
         raw_text = raw_file.read_text(encoding="utf-8")
 
-        assert "## Detailed Article Version" in source_text
-        assert "## Should I Still Watch This?" in source_text
+        assert "## Overview" in source_text
+        assert "## Detailed Section-by-Section Breakdown" in source_text
+        assert "## Should I Watch This?" in source_text
         assert "Transcript available: yes" in source_text
         assert "## Transcript" in raw_text
 

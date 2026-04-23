@@ -126,6 +126,8 @@ def _task_template_paths(task_name: str, source_type: str | None = None) -> tupl
         return tuple(paths)
     if task_name == "query_answer":
         return ("query/query.md",)
+    if task_name == "topic_bundle":
+        return ("topic/topic_bundle.md",)
     if task_name == "lint_analysis":
         return ("lint/lint_analysis.md",)
     raise ValueError(f"Unsupported prompt task '{task_name}'")
@@ -199,6 +201,23 @@ def compose_query_prompt(
     return compose_prompt(
         task_name="query_answer",
         artifact_type="query",
+        workspace_path=workspace_path,
+        format_kwargs=format_kwargs,
+        settings=settings,
+        user_override=user_override,
+    )
+
+
+def compose_topic_bundle_prompt(
+    *,
+    workspace_path: Path | None,
+    format_kwargs: dict[str, Any],
+    settings: Settings | None = None,
+    user_override: str = "",
+) -> ComposedPrompt:
+    return compose_prompt(
+        task_name="topic_bundle",
+        artifact_type="topic_bundle",
         workspace_path=workspace_path,
         format_kwargs=format_kwargs,
         settings=settings,
@@ -435,6 +454,7 @@ def _task_backend_hint(task_name: str, settings: Settings) -> tuple[str, str]:
     raw_order = {
         TaskName.INGEST: settings.backend_order_ingest,
         TaskName.QUERY: settings.backend_order_query,
+        TaskName.TOPIC_BUNDLE: settings.backend_order_query,
         TaskName.LINT: settings.backend_order_lint,
     }[task]
     token = raw_order.split(",", 1)[0] if raw_order else ""
@@ -448,6 +468,7 @@ def _task_enum(task_name: str) -> TaskName:
     return {
         "ingest_analysis": TaskName.INGEST,
         "query_answer": TaskName.QUERY,
+        "topic_bundle": TaskName.TOPIC_BUNDLE,
         "lint_analysis": TaskName.LINT,
     }[task_name]
 
@@ -470,6 +491,7 @@ def _task_model_hint(task: TaskName, backend_id: str, settings: Settings) -> str
     suffix = {
         TaskName.INGEST: "ingest",
         TaskName.QUERY: "query",
+        TaskName.TOPIC_BUNDLE: "query",
         TaskName.LINT: "lint",
     }[task]
     if backend_id == "api":
@@ -529,9 +551,17 @@ SOURCE_ANALYSIS_JSON_SCHEMA = json.dumps(
     {
         "type": "object",
         "required": [
+            "quick_brief",
             "summary",
             "five_minute_read",
             "detailed_reading_note",
+            "best_next_action",
+            "watch_verdict",
+            "watch_verdict_reasoning",
+            "quick_section_guide",
+            "detailed_sections",
+            "signal_vs_filler",
+            "important_terms",
             "key_ideas",
             "detailed_outline",
             "important_examples",
@@ -546,9 +576,17 @@ SOURCE_ANALYSIS_JSON_SCHEMA = json.dumps(
             "concepts",
         ],
         "properties": {
+            "quick_brief": {"type": "string"},
             "summary": {"type": "string"},
             "five_minute_read": {"type": "string"},
             "detailed_reading_note": {"type": "string"},
+            "best_next_action": {"type": "string"},
+            "watch_verdict": {"type": "string"},
+            "watch_verdict_reasoning": {"type": "string"},
+            "quick_section_guide": {"type": "string"},
+            "detailed_sections": {"type": "string"},
+            "signal_vs_filler": {"type": "string"},
+            "important_terms": {"type": "array", "items": {"type": "string"}},
             "key_ideas": {"type": "string"},
             "detailed_outline": {"type": "string"},
             "important_examples": {"type": "string"},

@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 class TaskName(str, Enum):
     INGEST = "ingest"
     QUERY = "query"
+    TOPIC_BUNDLE = "topic_bundle"
     LINT = "lint"
 
 

@@ -13,6 +13,9 @@ from app.api.routes_health import router as health_router
 from app.api.routes_ingest import router as ingest_router
 from app.api.routes_lint import router as lint_router
 from app.api.routes_query import router as query_router
+from app.api.routes_review import router as review_router
+from app.api.routes_topic_bundle import router as topic_bundle_router
+from app.api.routes_views import router as views_router
 from app.config import get_settings
 from app.dependencies import create_database, get_database
 from app.storage.sqlite import Database
@@ -37,6 +40,9 @@ app = FastAPI(
 app.include_router(health_router)
 app.include_router(ingest_router)
 app.include_router(query_router)
+app.include_router(review_router)
+app.include_router(topic_bundle_router)
+app.include_router(views_router)
 app.include_router(lint_router)
 app.include_router(automation_router)
 

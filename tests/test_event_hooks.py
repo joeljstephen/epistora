@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -162,3 +163,82 @@ def test_query_answer_saved_event_emitted(tmp_vault: Path):
     assert events[0].event_type == "query_answer_saved"
     assert events[0].payload["saved_to"] == saved_to
     assert events[0].payload["source_references"] == ["wiki/topics/maintenance.md"]
+
+
+def test_review_digest_saved_event_emitted(tmp_vault: Path):
+    from app.services.review_service import generate_daily_digest
+
+    events = []
+    subscribe(EventType.REVIEW_DIGEST_SAVED, events.append)
+
+    writer = VaultWriter(tmp_vault)
+    base = datetime(2026, 4, 21, 12, tzinfo=timezone.utc)
+    for slug, title, saved_at in (
+        ("daily-a", "Daily A", base - timedelta(hours=2)),
+        ("daily-b", "Daily B", base - timedelta(days=1)),
+    ):
+        from app.models.source import SourceContent, SourceItem, SourceType
+
+        item = SourceItem(
+            url=f"https://example.com/{slug}",
+            title=title,
+            source_type=SourceType.ARTICLE,
+            saved_at=saved_at,
+        )
+        content = SourceContent(
+            source=item,
+            raw_text=f"raw for {title}",
+            cleaned_text=f"cleaned for {title}",
+            word_count=20,
+            extraction_quality="full",
+            content_hash=f"{slug}-hash",
+            url_hash=f"{slug}-url-hash",
+        )
+        writer.write_raw_capture(content, slug)
+        writer.write_source_note(
+            content=content,
+            slug=slug,
+            raw_capture_path=f"raw/articles/{slug}.md",
+            quick_brief=f"Quick brief for {title}",
+            summary=f"Summary of {title}",
+            five_minute_read=f"Briefing for {title}",
+            detailed_reading_note=f"Detailed note for {title}",
+            best_next_action=f"Start with {title}.",
+            theme_tags=["agentic-ai"],
+            brief_status="ready",
+            watch_verdict="",
+            watch_verdict_reasoning="",
+            quick_section_guide="",
+            detailed_sections="",
+            signal_vs_filler="",
+            important_terms="- Agent",
+            key_ideas=f"- Key point about {title}",
+            detailed_outline=f"## Overview of {title}",
+            important_examples=f"- Example from {title}",
+            actionable_takeaways=f"- Apply ideas from {title}",
+            notable_quotes="- None captured verbatim.",
+            best_for=f"- Readers learning about {title}",
+            consume_recommendation=f"Open {title} only if you need more depth.",
+            why_it_matters=f"{title} matters in the vault.",
+            open_questions=f"- More to explore about {title}",
+            topics=["Agent Workflows"],
+            entities=[],
+            concepts=["Agent Workflow"],
+        )
+
+    with patch(
+        "app.services.review_service.get_settings",
+        return_value=type(
+            "Settings",
+            (),
+            {"vault_path": tmp_vault, "db_path": tmp_vault.parent / "review-events.db"},
+        )(),
+    ):
+        import asyncio
+
+        result = asyncio.run(generate_daily_digest(reference_date=date(2026, 4, 21)))
+
+    assert result.digest_status == "published"
+    assert len(events) == 1
+    assert events[0].event_type == "review_digest_saved"
+    assert events[0].payload["review_type"] == "daily"

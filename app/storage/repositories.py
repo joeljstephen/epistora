@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 from app.models.db import ProcessedSource, SyncCursor, VaultNoteMapping
 from app.storage.sqlite import Database
@@ -166,3 +167,68 @@ class VaultNoteRepository:
             "SELECT note_type, COUNT(*) as c FROM vault_notes GROUP BY note_type"
         ).fetchall()
         return {r["note_type"]: r["c"] for r in rows}
+
+
+class ReviewSurfaceHistoryRepository:
+    def __init__(self, db: Database):
+        self._db = db
+
+    def clear_period(self, *, review_type: str, period_key: str) -> None:
+        self._db.conn.execute(
+            "DELETE FROM review_surface_history WHERE review_type = ? AND period_key = ?",
+            (review_type, period_key),
+        )
+        self._db.conn.commit()
+
+    def replace_period_entries(
+        self,
+        *,
+        review_type: str,
+        period_key: str,
+        surfaced_at: datetime,
+        entries: list[tuple[str, str]],
+    ) -> None:
+        now = iso_now()
+        surfaced_at_value = surfaced_at.isoformat()
+        self._db.conn.execute(
+            "DELETE FROM review_surface_history WHERE review_type = ? AND period_key = ?",
+            (review_type, period_key),
+        )
+        for source_note_path, reason in entries:
+            self._db.conn.execute(
+                """INSERT INTO review_surface_history
+                   (review_type, period_key, source_note_path, surfaced_at, reason, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (
+                    review_type,
+                    period_key,
+                    source_note_path,
+                    surfaced_at_value,
+                    reason,
+                    now,
+                ),
+            )
+        self._db.conn.commit()
+
+    def list_surfaces_since(
+        self,
+        *,
+        since: datetime,
+        review_types: list[str] | None = None,
+        exclude_period_key: str | None = None,
+    ) -> list[dict[str, str]]:
+        query = "SELECT * FROM review_surface_history WHERE surfaced_at >= ?"
+        params: list[str] = [since.isoformat()]
+
+        if review_types:
+            placeholders = ",".join("?" for _ in review_types)
+            query += f" AND review_type IN ({placeholders})"
+            params.extend(review_types)
+
+        if exclude_period_key:
+            query += " AND period_key != ?"
+            params.append(exclude_period_key)
+
+        query += " ORDER BY surfaced_at DESC, id DESC"
+        rows = self._db.conn.execute(query, params).fetchall()
+        return [dict(row) for row in rows]

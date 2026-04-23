@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+from datetime import date
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
 from pathlib import Path
@@ -102,6 +103,10 @@ def _print_cli_guide() -> None:
     advanced.add_row("epistora connect raindrop", "Update Raindrop token and collection")
     advanced.add_row("epistora backend setup", "Change backend configuration")
     advanced.add_row("epistora automation --help", "See automation commands")
+    advanced.add_row(
+        "epistora automation run-personal-learning",
+        "Run the composed personal-learning preset",
+    )
     advanced.add_row("epistora rebuild-indexes", "Rebuild wiki index files")
     advanced.add_row("epistora reset-generated", "Clear generated state while keeping the vault")
     console.print(advanced)
@@ -601,6 +606,20 @@ def _sync_inbox_impl(
     _print_recent_item_issues(results, field="errors")
 
 
+def _parse_csv_option(value: str) -> list[str]:
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _parse_reference_date(value: str | None) -> date | None:
+    normalized = (value or "").strip()
+    if not normalized:
+        return None
+    try:
+        return date.fromisoformat(normalized)
+    except ValueError as exc:
+        raise typer.BadParameter("Use YYYY-MM-DD for --date.") from exc
+
+
 @ingest_app.command("latest")
 def ingest_latest(
     limit: int = typer.Option(10, "--limit", "-n", help="Max items to ingest"),
@@ -672,6 +691,115 @@ def query(
         console.print(f"\n[green]Answer saved to:[/green] {result.saved_to}")
 
 
+@app.command("topic-bundle")
+def topic_bundle(
+    topic: str = typer.Argument(..., help="Topic or query to assemble into a learning packet"),
+    days: int = typer.Option(None, "--days", help="Only include sources saved in the last N days"),
+    source_types: str = typer.Option(
+        "",
+        "--source-types",
+        help="Comma-separated source types, e.g. article,youtube,x_thread",
+    ),
+):
+    """Generate a grounded topic learning packet from saved source notes."""
+
+    from app.services.topic_bundle_service import generate_topic_bundle
+
+    console.print(f"[blue]Generating topic bundle:[/blue] {topic}\n")
+
+    try:
+        result = _run(
+            generate_topic_bundle(
+                topic,
+                days=days,
+                source_types=_parse_csv_option(source_types),
+            )
+        )
+    except Exception as e:
+        console.print(f"[red]Topic bundle failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    console.print(result.report)
+    console.print()
+    console.print(
+        f"[bold]Bundle status:[/bold] {result.bundle_status} "
+        f"({result.source_count} sources, {result.ready_source_count} ready)"
+    )
+    if result.saved_to:
+        console.print(f"[green]Saved to:[/green] {result.saved_to}")
+
+
+review_app = typer.Typer(
+    name="review",
+    help="Generate daily and weekly review digests.",
+    add_completion=False,
+)
+app.add_typer(review_app, name="review")
+
+
+def _print_review_result(result, *, label: str) -> None:
+    if result.digest_status == "skipped":
+        console.print(f"[yellow]Skipped {label} review:[/yellow] {result.reason}")
+        return
+
+    console.print(result.report)
+    console.print()
+    console.print(
+        f"[bold]Review status:[/bold] {result.digest_status} "
+        f"({result.source_count} sources, confidence: {result.confidence})"
+    )
+    if result.saved_to:
+        console.print(f"[green]Saved to:[/green] {result.saved_to}")
+
+
+@review_app.command("daily")
+def review_daily(
+    review_date: str = typer.Option(
+        "",
+        "--date",
+        help="Optional review date in YYYY-MM-DD. Defaults to today (local UTC clock).",
+    ),
+):
+    """Generate the daily review digest."""
+
+    from app.services.review_service import generate_daily_digest
+
+    reference_date = _parse_reference_date(review_date)
+    console.print("[blue]Generating daily review...[/blue]\n")
+
+    try:
+        result = _run(generate_daily_digest(reference_date=reference_date))
+    except Exception as e:
+        console.print(f"[red]Daily review failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    _print_review_result(result, label="daily")
+
+
+@review_app.command("weekly")
+def review_weekly(
+    review_date: str = typer.Option(
+        "",
+        "--date",
+        help="Optional reference date in YYYY-MM-DD for choosing the ISO week.",
+    ),
+):
+    """Generate the weekly review digest."""
+
+    from app.services.review_service import generate_weekly_digest
+
+    reference_date = _parse_reference_date(review_date)
+    console.print("[blue]Generating weekly review...[/blue]\n")
+
+    try:
+        result = _run(generate_weekly_digest(reference_date=reference_date))
+    except Exception as e:
+        console.print(f"[red]Weekly review failed:[/red] {e}")
+        raise typer.Exit(1)
+
+    _print_review_result(result, label="weekly")
+
+
 @app.command()
 def lint():
     """Run health checks on the knowledge vault."""
@@ -726,6 +854,35 @@ def rebuild_indexes():
     updated = _rebuild(vault_path)
     console.print(f"[green]✓ Rebuilt {len(updated)} index files[/green]")
     for path in updated:
+        console.print(f"  - {path}")
+
+
+views_app = typer.Typer(
+    name="views",
+    help="Generate deterministic reader-style browse pages.",
+    add_completion=False,
+)
+app.add_typer(views_app, name="views")
+
+
+@views_app.command("rebuild")
+def views_rebuild():
+    """Rebuild reader-style view pages from existing metadata."""
+    from app.config import get_settings
+    from app.vault.index_updater import rebuild_indexes as _rebuild
+
+    settings = get_settings()
+    vault_path = Path(settings.vault_path)
+
+    if not vault_path.exists():
+        console.print("[red]Vault not found. Run 'epistora init' first.[/red]")
+        raise typer.Exit(1)
+
+    updated = _rebuild(vault_path)
+    view_names = {"READING_HOME.md", "VIDEOS.md", "ARTICLES.md", "TOPICS_FEED.md"}
+    view_paths = [path for path in updated if Path(path).name in view_names]
+    console.print(f"[green]✓ Rebuilt {len(view_paths)} reader views[/green]")
+    for path in view_paths:
         console.print(f"  - {path}")
 
 
@@ -969,7 +1126,9 @@ def connect_raindrop():
     console.print("\nNext steps:")
     console.print("  [cyan]epistora sync-raindrop[/cyan]        — sync recent bookmarks")
     console.print("  [cyan]epistora ingest latest[/cyan]        — ingest latest items")
-    console.print("  [cyan]epistora automation run-pending[/cyan] — full automation run")
+    console.print(
+        "  [cyan]epistora automation run-personal-learning[/cyan] — full personal learning run"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1289,6 +1448,88 @@ def automation_run_pending(
                 console.print(f"    [dim]{hint}[/dim]")
 
     console.print("[green]Automation run complete[/green]")
+
+
+@automation_app.command("run-personal-learning")
+def automation_run_personal_learning(
+    mode: str = typer.Option(
+        "balanced",
+        "--mode",
+        "-m",
+        help="Preset mode: safe|balanced|deep",
+    ),
+    limit: int = typer.Option(None, "--limit", "-n", help="Max items per step"),
+    connector: str = typer.Option("raindrop", "--connector", "-c", help="Inbox connector ID"),
+    retry_failed: bool = typer.Option(False, "--retry-failed", help="Include retryable failures"),
+    no_maintenance: bool = typer.Option(False, "--no-maintenance", help="Skip maintenance tasks"),
+):
+    """Run the composed personal-learning preset workflow."""
+    from app.automation.runner import run_personal_learning
+
+    console.print(f"[blue]Starting personal learning preset:[/blue] {mode} mode")
+    try:
+        with console.status("Preparing personal learning run...", spinner="dots") as status:
+            result = _run(
+                run_personal_learning(
+                    mode=mode,
+                    limit=limit,
+                    connector_id=connector,
+                    run_maintenance_tasks=not no_maintenance,
+                    retry_failed=retry_failed,
+                    progress_callback=_automation_progress_callback(status, mode=mode),
+                )
+            )
+    except Exception as e:
+        _print_actionable_error("Personal learning run failed", str(e))
+        raise typer.Exit(1)
+
+    if result.get("error"):
+        _print_actionable_error("Personal learning run failed", result["error"])
+        raise typer.Exit(1)
+
+    discover = result.get("discover", {})
+    process = result.get("process", {})
+    read_model = result.get("read_model", {})
+    views = result.get("views", {})
+    reviews = result.get("reviews", {})
+    daily = reviews.get("daily", {})
+    weekly = reviews.get("weekly", {})
+
+    console.print(
+        f"  Discovered: {discover.get('items_discovered', 0)} new, "
+        f"{discover.get('items_skipped_duplicate', 0)} skipped"
+    )
+    console.print(
+        f"  Processed: {process.get('succeeded', 0)} succeeded, {process.get('failed', 0)} failed"
+    )
+    console.print(
+        f"  Read model: {read_model.get('status', 'unknown')}"
+    )
+    console.print(
+        f"  Views rebuilt: {views.get('count', 0)}"
+    )
+    console.print(
+        f"  Daily review: {daily.get('digest_status', 'unknown')}"
+        + (f" ({daily.get('saved_to')})" if daily.get('saved_to') else "")
+    )
+    console.print(
+        f"  Weekly review: {weekly.get('digest_status', 'unknown')}"
+        + (f" ({weekly.get('saved_to')})" if weekly.get('saved_to') else "")
+    )
+    if not no_maintenance:
+        console.print(
+            f"  Maintenance: {result.get('maintenance', {}).get('status', 'ok')}"
+        )
+
+    failed_results = [r for r in process.get("results", []) if not r.get("success")]
+    if failed_results:
+        console.print("[yellow]Recent failures:[/yellow]")
+        for failed_item in failed_results[:3]:
+            console.print(f"  - {failed_item.get('error', 'unknown error')}")
+            for hint in _error_help_lines(failed_item.get("error", ""))[:1]:
+                console.print(f"    [dim]{hint}[/dim]")
+
+    console.print("[green]Personal learning run complete[/green]")
 
 
 @automation_app.command("status")

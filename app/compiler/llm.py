@@ -78,6 +78,11 @@ def get_backend_router() -> BackendRouter:
             known_backend_ids=known_backend_ids,
             strict=settings.backend_order_strict,
         ),
+        TaskName.TOPIC_BUNDLE: _parse_order(
+            settings.backend_order_query,
+            known_backend_ids=known_backend_ids,
+            strict=settings.backend_order_strict,
+        ),
         TaskName.LINT: _parse_order(
             settings.backend_order_lint,
             known_backend_ids=known_backend_ids,

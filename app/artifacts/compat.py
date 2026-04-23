@@ -33,9 +33,22 @@ def source_note_payload(bundle: ArtifactBundle) -> dict[str, object]:
     ]
 
     return {
+        "quick_brief": source.quick_brief or source.summary,
         "summary": source.summary,
         "five_minute_read": source.five_minute_read,
         "detailed_reading_note": source.detailed_note,
+        "best_next_action": source.best_next_action or source.consume_recommendation,
+        "theme_tags": list(source.theme_tags),
+        "brief_status": source.brief_status or "partial",
+        "watch_verdict": source.watch_verdict,
+        "watch_verdict_reasoning": source.watch_verdict_reasoning,
+        "quick_section_guide": source.quick_section_guide,
+        "detailed_sections": source.detailed_sections,
+        "signal_vs_filler": source.signal_vs_filler,
+        "important_terms": render_markdown_list(
+            source.important_terms,
+            "- No especially important terms identified yet.",
+        ),
         "key_ideas": render_markdown_list(
             source.key_ideas,
             "- No key ideas extracted yet.",

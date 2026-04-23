@@ -11,9 +11,19 @@ from app.utils.markdown import build_frontmatter_doc, path_wikilink, wikilink
 def source_note_md(
     content: SourceContent,
     raw_capture_path: str,
+    quick_brief: str,
     summary: str,
     five_minute_read: str,
     detailed_reading_note: str,
+    best_next_action: str,
+    theme_tags: list[str],
+    brief_status: str,
+    watch_verdict: str,
+    watch_verdict_reasoning: str,
+    quick_section_guide: str,
+    detailed_sections: str,
+    signal_vs_filler: str,
+    important_terms: str,
     key_ideas: str,
     detailed_outline: str,
     important_examples: str,
@@ -26,9 +36,27 @@ def source_note_md(
     topics: list[str],
     entities: list[str],
     concepts: list[str],
+    user_state: dict[str, object] | None = None,
 ) -> str:
     source_title = content.source.title or content.source.url
     raw_blob_path = str(content.raw_metadata.get("blob_path", "") or "")
+    user_state = dict(user_state or {})
+    reading_state = _resolved_reading_state(
+        content=content,
+        brief_status=brief_status,
+        best_next_action=best_next_action,
+        watch_verdict=watch_verdict,
+        user_state=user_state,
+    )
+    channel_or_author = (
+        content.author
+        or str(content.raw_metadata.get("channel", "") or "").strip()
+        or str(content.raw_metadata.get("site_name", "") or "").strip()
+    )
+    cover_image = (
+        str(content.raw_metadata.get("thumbnail_url", "") or "").strip()
+        or str(content.raw_metadata.get("image_url", "") or "").strip()
+    )
     meta = {
         "title": source_title,
         "type": "source",
@@ -36,8 +64,17 @@ def source_note_md(
         "source_type": content.source.source_type.value,
         "author": content.author,
         "published_date": content.published_date,
+        "saved_at": content.source.saved_at.isoformat(timespec="seconds"),
         "ingested_at": friendly_date(),
         "tags": content.source.tags,
+        "theme_tags": theme_tags,
+        "brief_status": brief_status,
+        "reading_state": reading_state,
+        "quick_summary": quick_brief or summary,
+        "best_next_action": best_next_action,
+        "why_it_matters": why_it_matters,
+        "channel_or_author": channel_or_author,
+        "consume_recommendation": consume_recommendation,
         "topics": topics,
         "entities": entities,
         "concepts": concepts,
@@ -49,6 +86,18 @@ def source_note_md(
         "raw_capture_kind": content.raw_capture_kind,
         "lifecycle": content.lifecycle.as_frontmatter(),
     }
+    if user_state:
+        meta["user_state"] = user_state
+    if watch_verdict:
+        meta["watch_verdict"] = watch_verdict
+    if important_terms.strip():
+        meta["important_terms"] = [
+            line.removeprefix("- ").strip()
+            for line in important_terms.splitlines()
+            if line.strip().startswith("- ")
+        ]
+    if cover_image:
+        meta["cover_image"] = cover_image
     meta.update(_source_frontmatter_extras(content))
     if content.canonical_url and content.canonical_url != content.source.url:
         meta["canonical_url"] = content.canonical_url
@@ -84,9 +133,17 @@ def source_note_md(
             "",
             _source_specific_body(
                 content=content,
+                quick_brief=quick_brief,
                 summary=summary,
                 five_minute_read=five_minute_read,
                 detailed_reading_note=detailed_reading_note,
+                best_next_action=best_next_action,
+                watch_verdict=watch_verdict,
+                watch_verdict_reasoning=watch_verdict_reasoning,
+                quick_section_guide=quick_section_guide,
+                detailed_sections=detailed_sections,
+                signal_vs_filler=signal_vs_filler,
+                important_terms=important_terms,
                 key_ideas=key_ideas,
                 detailed_outline=detailed_outline,
                 important_examples=important_examples,
@@ -111,9 +168,17 @@ def source_note_md(
 def _source_specific_body(
     *,
     content: SourceContent,
+    quick_brief: str,
     summary: str,
     five_minute_read: str,
     detailed_reading_note: str,
+    best_next_action: str,
+    watch_verdict: str,
+    watch_verdict_reasoning: str,
+    quick_section_guide: str,
+    detailed_sections: str,
+    signal_vs_filler: str,
+    important_terms: str,
     key_ideas: str,
     detailed_outline: str,
     important_examples: str,
@@ -129,12 +194,6 @@ def _source_specific_body(
 ) -> str:
     common_sections = [
         "## Coverage & Limits\n\n" + _coverage_and_limits_md(content),
-        "## Key Ideas\n\n" + key_ideas,
-        "## Detailed Outline\n\n" + detailed_outline,
-        "## Important Examples\n\n" + important_examples,
-        "## Actionable Takeaways\n\n" + actionable_takeaways,
-        "## Notable Quotes\n\n" + notable_quotes,
-        "## Who This Is Useful For\n\n" + best_for,
         "## Why This Matters\n\n" + why_it_matters,
         "## Related Notes\n\n"
         + "\n".join(
@@ -144,42 +203,112 @@ def _source_specific_body(
                 f"- **Concepts:** {concept_links}",
             ]
         ),
+        "## Important Examples\n\n" + important_examples,
+        "## Detailed Outline\n\n" + detailed_outline,
+        "## Key Ideas\n\n" + key_ideas,
+        "## Actionable Takeaways\n\n" + actionable_takeaways,
+        "## Notable Quotes\n\n" + notable_quotes,
+        "## Who This Is Useful For\n\n" + best_for,
         "## Open Questions\n\n" + open_questions,
         "## Capture Notes\n\n" + _capture_notes_md(content),
     ]
 
     if content.source.source_type.value == "youtube":
         sections = [
-            "## Transcript Status\n\n" + _youtube_transcript_status(content),
-            "## Short Summary\n\n" + summary,
-            "## 5-Minute Read\n\n" + five_minute_read,
-            "## Detailed Article Version\n\n" + detailed_reading_note,
-            "## Should I Still Watch This?\n\n" + consume_recommendation,
+            "## Overview\n\n" + (quick_brief or summary),
+            "## Quick Section Guide\n\n"
+            + (quick_section_guide or five_minute_read or "_Section guide unavailable._"),
+            "## Should I Watch This?\n\n"
+            + _youtube_watch_block(
+                watch_verdict=watch_verdict,
+                watch_verdict_reasoning=watch_verdict_reasoning,
+                best_next_action=best_next_action,
+                consume_recommendation=consume_recommendation,
+            ),
+            "## Detailed Section-by-Section Breakdown\n\n"
+            + (detailed_sections or detailed_reading_note),
+            "## Key Takeaways\n\n" + actionable_takeaways,
+            "## Important Terms / People / Tools\n\n" + important_terms,
+            "## Signal vs Filler\n\n"
+            + (signal_vs_filler or _default_signal_vs_filler_md(content)),
+            "## Evidence / Transcript Status\n\n" + _youtube_transcript_status(content),
         ]
         sections.extend(common_sections)
         return "\n\n".join(sections)
 
     if content.source.source_type.value == "article":
         sections = [
-            "## Raw Readable Article\n\n"
-            + "The preserved article body lives in the raw archive linked above. "
-            + "This note is the compiled interpretation layer.",
-            "## Concise Summary\n\n" + summary,
+            "## Overview\n\n" + (quick_brief or summary),
+            "## Best Next Action\n\n" + (best_next_action or consume_recommendation),
+            "## Should I Still Read The Original?\n\n" + consume_recommendation,
             "## 5-Minute Read\n\n" + five_minute_read,
             "## Detailed Reading Note\n\n" + detailed_reading_note,
-            "## Should I Still Read The Original?\n\n" + consume_recommendation,
         ]
         sections.extend(common_sections)
         return "\n\n".join(sections)
 
     sections = [
-        "## Summary\n\n" + summary,
+        "## Overview\n\n" + (quick_brief or summary),
+        "## Best Next Action\n\n" + (best_next_action or consume_recommendation),
         "## 5-Minute Read\n\n" + five_minute_read,
         "## Detailed Reading Note\n\n" + detailed_reading_note,
         "## Should I Still Consult The Original?\n\n" + consume_recommendation,
     ]
     sections.extend(common_sections)
     return "\n\n".join(sections)
+
+
+def _youtube_watch_block(
+    *,
+    watch_verdict: str,
+    watch_verdict_reasoning: str,
+    best_next_action: str,
+    consume_recommendation: str,
+) -> str:
+    verdict = watch_verdict or "Open the original only if the topic becomes active."
+    reasoning = watch_verdict_reasoning or consume_recommendation
+    action = best_next_action or consume_recommendation
+    return "\n".join(
+        [
+            f"- **Verdict:** {verdict}",
+            f"- **Why:** {reasoning}",
+            f"- **Best next action:** {action}",
+        ]
+    )
+
+
+def _default_signal_vs_filler_md(content: SourceContent) -> str:
+    if content.extraction_quality in {"partial", "metadata_only", "failed"}:
+        return (
+            "- Signal estimate is limited because the capture was incomplete.\n"
+            "- Use the raw archive when exact structure or supporting details matter."
+        )
+    return (
+        "- The captured brief preserves the likely high-signal points.\n"
+        "- Use the raw archive or original source if presentation, tone, or missing context matter."
+    )
+
+
+def _resolved_reading_state(
+    *,
+    content: SourceContent,
+    brief_status: str,
+    best_next_action: str,
+    watch_verdict: str,
+    user_state: dict[str, object],
+) -> str:
+    override = str(user_state.get("reading_state", "") or "").strip()
+    if override:
+        return override
+
+    guidance = " ".join(part for part in (best_next_action, watch_verdict) if part).lower()
+    if any(token in guidance for token in ("skip", "deprioritize", "brief may be enough")):
+        return "brief_may_be_enough"
+    if brief_status == "partial":
+        return "queued"
+    if content.source.source_type.value == "youtube" and "watch" in guidance:
+        return "up_next"
+    return "up_next"
 
 
 def _youtube_transcript_status(content: SourceContent) -> str:

@@ -391,6 +391,7 @@ async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:
     key_points = _extract_key_points(text) if text else []
 
     analysis = _fallback_analysis(
+        source_type=content.source.source_type.value,
         summary=(
             f"Source captured in safe mode (no LLM enrichment). "
             f"Title: {content.source.title or item.url}"

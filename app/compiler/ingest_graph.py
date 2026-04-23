@@ -116,7 +116,7 @@ def _extract_key_points(text: str, *, limit: int = 5) -> list[str]:
     return fallback[:limit]
 
 
-def _extract_section_titles(text: str, *, limit: int = 6) -> list[str]:
+def _extract_section_titles(text: str, *, limit: int = 0) -> list[str]:
     titles: list[str] = []
     seen: set[str] = set()
 
@@ -125,7 +125,7 @@ def _extract_section_titles(text: str, *, limit: int = 6) -> list[str]:
         if title and title not in seen:
             seen.add(title)
             titles.append(title)
-        if len(titles) >= limit:
+        if limit and len(titles) >= limit:
             return titles
 
     for line in _candidate_lines(text):
@@ -134,10 +134,26 @@ def _extract_section_titles(text: str, *, limit: int = 6) -> list[str]:
             if title and title not in seen:
                 seen.add(title)
                 titles.append(title)
-        if len(titles) >= limit:
+        if limit and len(titles) >= limit:
             break
 
-    return titles[:limit]
+    return titles[:limit] if limit else titles
+
+
+def _first_nonempty_line(text: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip().lstrip("-*• ").strip()
+        if stripped:
+            return stripped
+    return ""
+
+
+def _first_sentence(text: str) -> str:
+    cleaned = _collapse_whitespace(text)
+    if not cleaned:
+        return ""
+    match = re.search(r"(.+?[.!?])(?:\s|$)", cleaned)
+    return match.group(1).strip() if match else cleaned[:220].rstrip()
 
 
 def _fallback_outline(text: str) -> str:
@@ -159,7 +175,7 @@ def _fallback_quotes(text: str) -> str:
         if len(words) > 20:
             quote = " ".join(words[:20]).rstrip(",.;:") + " ..."
         quotes.append(f'"{quote}"')
-        if len(quotes) >= 3:
+        if len(quotes) >= 6:
             break
     return _bullet_list(quotes, "- None captured verbatim.")
 
@@ -191,8 +207,9 @@ def _youtube_five_minute_read(text: str) -> str:
     if not sections:
         return _clip_paragraphs(text, max_paragraphs=3, max_chars=1500)
 
+    sampled = sections[:: max(1, len(sections) // 5)][:5]
     parts = []
-    for label, body in sections[:3]:
+    for label, body in sampled:
         parts.append(f"**{label}**\n{_section_excerpt(body, max_paragraphs=2, max_chars=700)}")
     return "\n\n".join(parts)
 
@@ -209,18 +226,98 @@ def _youtube_detailed_fallback(text: str) -> str:
             "watching it, while the raw transcript remains preserved separately."
         )
     ]
-    for label, body in sections[:5]:
+    for label, body in sections:
         parts.append(f"### {label}\n{_section_excerpt(body, max_paragraphs=2, max_chars=900)}")
     return "\n\n".join(parts)
 
 
 def _youtube_key_points(text: str) -> list[str]:
     points = []
-    for label, body in _youtube_sections(text)[:5]:
+    for label, body in _youtube_sections(text):
         excerpt = _section_excerpt(body, max_paragraphs=1, max_chars=180)
         if excerpt:
             points.append(f"{label}: {excerpt}")
     return points
+
+
+def _derive_quick_section_guide(text: str, five_minute_read: str) -> str:
+    sections = _youtube_sections(text)
+    if sections:
+        bullets = []
+        for label, body in sections[:8]:
+            excerpt = _section_excerpt(body, max_paragraphs=1, max_chars=180)
+            if excerpt:
+                bullets.append(f"- **{label}**: {excerpt}")
+        if bullets:
+            return "\n".join(bullets)
+    return five_minute_read
+
+
+def _derive_detailed_sections(text: str, detailed_reading_note: str) -> str:
+    sections = _youtube_sections(text)
+    if sections:
+        rendered = []
+        for label, body in sections[:10]:
+            rendered.append(f"### {label}\n{_section_excerpt(body, max_paragraphs=2, max_chars=700)}")
+        if rendered:
+            return "\n\n".join(rendered)
+    return detailed_reading_note
+
+
+def _derive_best_next_action(
+    *,
+    source_type: str,
+    consume_recommendation: str,
+    summary: str,
+) -> str:
+    recommendation = _first_sentence(consume_recommendation)
+    if recommendation:
+        return recommendation
+    if source_type == "youtube":
+        return "Read the brief first, then watch only the sections that look worth the time."
+    if source_type == "article":
+        return "Read the brief first, then open the original only if you need detail or examples."
+    return "Use the brief first, then open the original only if context or exact details matter."
+
+
+def _derive_watch_verdict(consume_recommendation: str) -> str:
+    lowered = consume_recommendation.lower()
+    if any(token in lowered for token in ("not worth", "skip", "deprioritize")):
+        return "Probably skip the full watch unless this topic becomes active."
+    if any(token in lowered for token in ("still worth", "worth watching", "watch")):
+        return "Worth watching selectively after reading the brief."
+    return "Use the brief first, then watch only if the remaining context seems valuable."
+
+
+def _derive_signal_vs_filler(content: SourceContent) -> str:
+    if content.extraction_quality in {"partial", "metadata_only", "failed"}:
+        return (
+            "- Signal judgement is limited because the capture is incomplete.\n"
+            "- Treat the brief as provisional and use the raw archive for exact wording."
+        )
+    return (
+        "- The brief prioritizes the likely high-signal parts of the source.\n"
+        "- Repetitive setup, filler, or presentation detail may still exist in the original."
+    )
+
+
+def _derive_important_terms(analysis: dict[str, Any]) -> list[str]:
+    terms: list[str] = []
+    for item in analysis.get("entities", []):
+        if isinstance(item, dict):
+            name = str(item.get("name", "")).strip()
+        else:
+            name = str(item).strip()
+        if name and name not in terms:
+            terms.append(name)
+    for item in analysis.get("concepts", []):
+        if isinstance(item, dict):
+            name = str(item.get("name", "")).strip()
+        else:
+            name = str(item).strip()
+        if name and name not in terms:
+            terms.append(name)
+    return terms[:8]
 
 
 def _chunk_plain_text_for_ingest(text: str, max_chunk_chars: int) -> list[str]:
@@ -477,6 +574,7 @@ def _existing_knowledge_prompt(lookup: dict[str, dict[str, str]]) -> str:
 
 def _fallback_analysis(
     *,
+    source_type: str,
     summary: str,
     five_minute_read: str,
     detailed_reading_note: str,
@@ -489,11 +587,34 @@ def _fallback_analysis(
     consume_recommendation: str,
     why_it_matters: str,
     open_questions: str,
+    brief_status: str = "partial",
 ) -> dict[str, Any]:
+    quick_brief = _first_sentence(summary) or summary
+    best_next_action = _derive_best_next_action(
+        source_type=source_type,
+        consume_recommendation=consume_recommendation,
+        summary=summary,
+    )
     return {
+        "quick_brief": quick_brief,
         "summary": summary,
         "five_minute_read": five_minute_read,
         "detailed_reading_note": detailed_reading_note,
+        "best_next_action": best_next_action,
+        "watch_verdict": (
+            _derive_watch_verdict(consume_recommendation) if source_type == "youtube" else ""
+        ),
+        "watch_verdict_reasoning": (
+            _first_sentence(consume_recommendation) if source_type == "youtube" else ""
+        ),
+        "quick_section_guide": (
+            five_minute_read if source_type == "youtube" else ""
+        ),
+        "detailed_sections": (
+            detailed_reading_note if source_type == "youtube" else ""
+        ),
+        "signal_vs_filler": "",
+        "important_terms": [],
         "key_ideas": key_ideas,
         "detailed_outline": detailed_outline,
         "important_examples": important_examples,
@@ -506,11 +627,13 @@ def _fallback_analysis(
         "topics": [],
         "entities": [],
         "concepts": [],
+        "_brief_status": brief_status,
     }
 
 
-def _normalize_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
+def _normalize_analysis(analysis: dict[str, Any], *, content: SourceContent) -> dict[str, Any]:
     baseline = _fallback_analysis(
+        source_type=content.source.source_type.value,
         summary="Summary unavailable.",
         five_minute_read="Detailed briefing unavailable.",
         detailed_reading_note="Detailed reading note unavailable.",
@@ -523,6 +646,7 @@ def _normalize_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
         consume_recommendation="Consult the original source if it matters for a decision.",
         why_it_matters="This source is stored in the vault but still needs stronger analysis.",
         open_questions="- What is still missing from this capture?",
+        brief_status="partial",
     )
 
     legacy_key_map = {
@@ -542,9 +666,60 @@ def _normalize_analysis(analysis: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, str) and value.strip():
             normalized[key] = value.strip()
 
+    for key in (
+        "quick_brief",
+        "best_next_action",
+        "watch_verdict",
+        "watch_verdict_reasoning",
+        "quick_section_guide",
+        "detailed_sections",
+        "signal_vs_filler",
+    ):
+        value = analysis.get(key)
+        if isinstance(value, str) and value.strip():
+            normalized[key] = value.strip()
+
+    terms = analysis.get("important_terms")
+    if isinstance(terms, list):
+        normalized["important_terms"] = [str(term).strip() for term in terms if str(term).strip()]
+    else:
+        normalized["important_terms"] = []
+
     normalized["topics"] = analysis.get("topics") or []
     normalized["entities"] = analysis.get("entities") or []
     normalized["concepts"] = analysis.get("concepts") or []
+    if not normalized["quick_brief"]:
+        normalized["quick_brief"] = normalized["summary"]
+    if not normalized["best_next_action"]:
+        normalized["best_next_action"] = _derive_best_next_action(
+            source_type=content.source.source_type.value,
+            consume_recommendation=normalized["consume_recommendation"],
+            summary=normalized["summary"],
+        )
+    if content.source.source_type.value == "youtube":
+        if not normalized["watch_verdict"]:
+            normalized["watch_verdict"] = _derive_watch_verdict(
+                normalized["consume_recommendation"]
+            )
+        if not normalized["watch_verdict_reasoning"]:
+            normalized["watch_verdict_reasoning"] = _first_sentence(
+                normalized["consume_recommendation"]
+            )
+        if not normalized["quick_section_guide"]:
+            normalized["quick_section_guide"] = _derive_quick_section_guide(
+                content.cleaned_text or content.raw_text,
+                normalized["five_minute_read"],
+            )
+        if not normalized["detailed_sections"]:
+            normalized["detailed_sections"] = _derive_detailed_sections(
+                content.cleaned_text or content.raw_text,
+                normalized["detailed_reading_note"],
+            )
+        if not normalized["signal_vs_filler"]:
+            normalized["signal_vs_filler"] = _derive_signal_vs_filler(content)
+    if not normalized["important_terms"]:
+        normalized["important_terms"] = _derive_important_terms(normalized)
+    normalized["_brief_status"] = analysis.get("_brief_status") or baseline["_brief_status"]
     return normalized
 
 
@@ -614,6 +789,7 @@ async def _analyse_content(state: IngestState) -> dict:
         metadata_excerpt = (content.cleaned_text or content.raw_text).strip()
         return {
             "analysis": _fallback_analysis(
+                source_type=content.source.source_type.value,
                 summary=(
                     f"Metadata-only capture for '{title}'. The source was saved, but the full body "
                     "text was not extracted."
@@ -654,12 +830,14 @@ async def _analyse_content(state: IngestState) -> dict:
                     "- Can the full text or transcript be captured later?\n"
                     "- Is this source important enough to review manually?"
                 ),
+                brief_status="partial",
             )
         }
 
     if not text or content.extraction_quality == "failed":
         return {
             "analysis": _fallback_analysis(
+                source_type=content.source.source_type.value,
                 summary="Content could not be extracted from this source.",
                 five_minute_read=(
                     "The ingest failed before usable content was captured, so this "
@@ -687,6 +865,7 @@ async def _analyse_content(state: IngestState) -> dict:
                     "- Why did extraction fail?\n"
                     "- Should this source be retried with another method?"
                 ),
+                brief_status="failed",
             ),
         }
 
@@ -730,7 +909,7 @@ async def _analyse_content(state: IngestState) -> dict:
             json_schema_hint=SOURCE_ANALYSIS_JSON_SCHEMA,
         )
         if resp.success:
-            analysis = _normalize_analysis(json.loads(resp.text))
+            analysis = _normalize_analysis(json.loads(resp.text), content=content)
             logger.info(
                 "Ingest analysis via %s (model=%s, fallback=%s)",
                 resp.backend_used,
@@ -759,6 +938,7 @@ async def _analyse_content(state: IngestState) -> dict:
             else _extract_key_points(fallback_text)
         )
         analysis = _fallback_analysis(
+            source_type=source_type,
             summary=(
                 f"Structured auto-analysis failed ({exc}), but the source text was captured "
                 "and preserved for review."
@@ -799,6 +979,7 @@ async def _analyse_content(state: IngestState) -> dict:
                 "- Does this source deserve a retry for richer topic/entity/concept linking?\n"
                 "- What context might still be missing from the captured text alone?"
             ),
+            brief_status="partial",
         )
         return {
             "analysis": analysis,

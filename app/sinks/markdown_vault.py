@@ -90,9 +90,19 @@ class MarkdownVaultSink:
                 content=raw_result.content,
                 slug=source.slug,
                 raw_capture_path=raw_update.path,
+                quick_brief=source_payload["quick_brief"],
                 summary=source_payload["summary"],
                 five_minute_read=source_payload["five_minute_read"],
                 detailed_reading_note=source_payload["detailed_reading_note"],
+                best_next_action=source_payload["best_next_action"],
+                theme_tags=source_payload["theme_tags"],
+                brief_status=source_payload["brief_status"],
+                watch_verdict=source_payload["watch_verdict"],
+                watch_verdict_reasoning=source_payload["watch_verdict_reasoning"],
+                quick_section_guide=source_payload["quick_section_guide"],
+                detailed_sections=source_payload["detailed_sections"],
+                signal_vs_filler=source_payload["signal_vs_filler"],
+                important_terms=source_payload["important_terms"],
                 key_ideas=source_payload["key_ideas"],
                 detailed_outline=source_payload["detailed_outline"],
                 important_examples=source_payload["important_examples"],
@@ -168,9 +178,20 @@ class MarkdownVaultSink:
         content: SourceContent,
         slug: str,
         raw_capture_path: str,
+        *,
+        quick_brief: str = "",
         summary: str,
         five_minute_read: str,
         detailed_reading_note: str,
+        best_next_action: str = "",
+        theme_tags: list[str] | None = None,
+        brief_status: str = "partial",
+        watch_verdict: str = "",
+        watch_verdict_reasoning: str = "",
+        quick_section_guide: str = "",
+        detailed_sections: str = "",
+        signal_vs_filler: str = "",
+        important_terms: str = "",
         key_ideas: str,
         detailed_outline: str,
         important_examples: str,
@@ -185,12 +206,23 @@ class MarkdownVaultSink:
         concepts: list[str],
     ) -> VaultUpdate:
         p = paths.source_note_path(self.vault_path, content.source.source_type, slug)
+        existing_user_state = self._source_note_user_state(p)
         md = templates.source_note_md(
             content,
             raw_capture_path,
+            quick_brief,
             summary,
             five_minute_read,
             detailed_reading_note,
+            best_next_action,
+            theme_tags or [],
+            brief_status,
+            watch_verdict,
+            watch_verdict_reasoning,
+            quick_section_guide,
+            detailed_sections,
+            signal_vs_filler,
+            important_terms,
             key_ideas,
             detailed_outline,
             important_examples,
@@ -203,8 +235,18 @@ class MarkdownVaultSink:
             topics,
             entities,
             concepts,
+            user_state=existing_user_state,
         )
         return self._write(p, md, "source")
+
+    def _source_note_user_state(self, path: Path) -> dict[str, object]:
+        if not path.exists():
+            return {}
+        meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        user_state = meta.get("user_state")
+        if isinstance(user_state, dict):
+            return dict(user_state)
+        return {}
 
     def write_topic(self, topic: Topic, source_titles: list[str]) -> VaultUpdate:
         p = paths.topic_note_path(self.vault_path, topic.slug)

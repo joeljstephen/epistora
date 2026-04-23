@@ -77,3 +77,35 @@ async def run_rebuild_indexes_job() -> dict:
     except Exception as exc:
         logger.error("Index rebuild failed: %s", exc)
         return {"status": "error", "error": str(exc)}
+
+
+async def run_review_daily_job(reference_date=None) -> dict:
+    """Generate the daily review digest."""
+    from app.services.review_service import generate_daily_digest
+
+    logger.info("Daily review job starting")
+    try:
+        result = await generate_daily_digest(reference_date=reference_date)
+        summary = result.model_dump()
+        summary["status"] = "ok"
+        logger.info("Daily review job complete: %s", summary)
+        return summary
+    except Exception as exc:
+        logger.error("Daily review job failed: %s", exc)
+        return {"status": "error", "error": str(exc)}
+
+
+async def run_review_weekly_job(reference_date=None) -> dict:
+    """Generate the weekly review digest."""
+    from app.services.review_service import generate_weekly_digest
+
+    logger.info("Weekly review job starting")
+    try:
+        result = await generate_weekly_digest(reference_date=reference_date)
+        summary = result.model_dump()
+        summary["status"] = "ok"
+        logger.info("Weekly review job complete: %s", summary)
+        return summary
+    except Exception as exc:
+        logger.error("Weekly review job failed: %s", exc)
+        return {"status": "error", "error": str(exc)}

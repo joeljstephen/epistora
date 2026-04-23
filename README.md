@@ -43,16 +43,18 @@ eps help
 
 These are the commands most users need regularly:
 
-| Command | What it does |
-|---|---|
-| `epistora setup` | Guided first-time setup |
-| `epistora doctor` | Checks your environment and config |
-| `epistora help` | Shows the important commands quickly |
-| `epistora ingest latest --limit 1` | Ingest a small batch from Raindrop |
-| `epistora ingest url <url>` | Ingest one specific source |
-| `epistora status` | Shows current vault path and stats |
-| `epistora vault show` | Shows which vault directory is active |
-| `epistora vault use <path>` | Switches to a different vault directory |
+
+| Command                            | What it does                            |
+| ---------------------------------- | --------------------------------------- |
+| `epistora setup`                   | Guided first-time setup                 |
+| `epistora doctor`                  | Checks your environment and config      |
+| `epistora help`                    | Shows the important commands quickly    |
+| `epistora ingest latest --limit 1` | Ingest a small batch from Raindrop      |
+| `epistora ingest url <url>`        | Ingest one specific source              |
+| `epistora status`                  | Shows current vault path and stats      |
+| `epistora vault show`              | Shows which vault directory is active   |
+| `epistora vault use <path>`        | Switches to a different vault directory |
+
 
 ## Changing The Vault Location
 
@@ -111,18 +113,20 @@ epistora ingest latest --limit 1
 
 Use these when you want more control:
 
-| Command | What it does |
-|---|---|
-| `epistora connect raindrop` | Configure or update Raindrop credentials |
-| `epistora backend setup` | Change LLM backend settings |
-| `epistora backend status` | See which backends are available |
-| `epistora sync-raindrop` | Sync from Raindrop directly |
-| `epistora sync-inbox` | Sync from a configured inbox connector |
-| `epistora lint` | Run vault health checks |
-| `epistora rebuild-indexes` | Rebuild vault index files |
-| `epistora reset-generated` | Clear generated artifacts and keep the vault shell |
-| `epistora automation setup` | Configure automation |
-| `epistora automation run-pending` | Run discovery, processing, and maintenance once |
+
+| Command                           | What it does                                       |
+| --------------------------------- | -------------------------------------------------- |
+| `epistora connect raindrop`       | Configure or update Raindrop credentials           |
+| `epistora backend setup`          | Change LLM backend settings                        |
+| `epistora backend status`         | See which backends are available                   |
+| `epistora sync-raindrop`          | Sync from Raindrop directly                        |
+| `epistora sync-inbox`             | Sync from a configured inbox connector             |
+| `epistora lint`                   | Run vault health checks                            |
+| `epistora rebuild-indexes`        | Rebuild vault index files                          |
+| `epistora reset-generated`        | Clear generated artifacts and keep the vault shell |
+| `epistora automation setup`       | Configure automation                               |
+| `epistora automation run-pending` | Run discovery, processing, and maintenance once    |
+
 
 ## How It Works
 
@@ -178,21 +182,23 @@ When run as an installed tool, config is usually stored in the Epistora app dire
 
 Important settings:
 
-| Variable | Description |
-|---|---|
-| `VAULT_PATH` | Active vault directory |
-| `DATABASE_URL` | SQLite database location |
-| `ARTIFACT_SINK_IDS` | Comma-separated sinks to publish to. Default: `markdown_vault` |
-| `JSON_EXPORT_DIR` | Relative or absolute path for `json_export`. Default: `.system/exports/json` |
-| `EVIDENCE_BLOB_DIR` | Relative vault path for cold evidence blobs. Default: `.system/blobs` |
-| `EVIDENCE_BLOB_THRESHOLD_BYTES` | Oversized raw captures are blob-backed above this size. Default: `50000` |
-| `EVIDENCE_BLOB_PREVIEW_CHARS` | Preview length kept in the visible raw note for blob-backed evidence. Default: `4000` |
-| `EPISTORA_PLUGIN_DIRS` | Extra local plugin search paths |
-| `EPISTORA_PROMPT_PACK` | Active prompt-pack plugin ID |
-| `RAINDROP_API_TOKEN` | Raindrop token |
-| `API_API_KEY` | API key for the direct API backend |
-| `AUTOMATION_ENABLED` | Enables automation |
-| `AUTOMATION_DEFAULT_MODE` | `safe`, `balanced`, or `deep` |
+
+| Variable                        | Description                                                                           |
+| ------------------------------- | ------------------------------------------------------------------------------------- |
+| `VAULT_PATH`                    | Active vault directory                                                                |
+| `DATABASE_URL`                  | SQLite database location                                                              |
+| `ARTIFACT_SINK_IDS`             | Comma-separated sinks to publish to. Default: `markdown_vault`                        |
+| `JSON_EXPORT_DIR`               | Relative or absolute path for `json_export`. Default: `.system/exports/json`          |
+| `EVIDENCE_BLOB_DIR`             | Relative vault path for cold evidence blobs. Default: `.system/blobs`                 |
+| `EVIDENCE_BLOB_THRESHOLD_BYTES` | Oversized raw captures are blob-backed above this size. Default: `50000`              |
+| `EVIDENCE_BLOB_PREVIEW_CHARS`   | Preview length kept in the visible raw note for blob-backed evidence. Default: `4000` |
+| `EPISTORA_PLUGIN_DIRS`          | Extra local plugin search paths                                                       |
+| `EPISTORA_PROMPT_PACK`          | Active prompt-pack plugin ID                                                          |
+| `RAINDROP_API_TOKEN`            | Raindrop token                                                                        |
+| `API_API_KEY`                   | API key for the direct API backend                                                    |
+| `AUTOMATION_ENABLED`            | Enables automation                                                                    |
+| `AUTOMATION_DEFAULT_MODE`       | `safe`, `balanced`, or `deep`                                                         |
+
 
 `epistora doctor` reports the active config path, the preferred config write target,
 plugin health, configured sinks, and storage-tier settings.
@@ -231,11 +237,13 @@ For large captures, source notes still point to the raw note, and the raw note r
 
 ## Automation Modes
 
-| Mode | What it does |
-|---|---|
-| `safe` | Fetch and archive with no LLM cost |
-| `balanced` | Limited enrichment per run |
-| `deep` | Full topic/entity/concept enrichment |
+
+| Mode       | What it does                         |
+| ---------- | ------------------------------------ |
+| `safe`     | Fetch and archive with no LLM cost   |
+| `balanced` | Limited enrichment per run           |
+| `deep`     | Full topic/entity/concept enrichment |
+
 
 Examples:
 

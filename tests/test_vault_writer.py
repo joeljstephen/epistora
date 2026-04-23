@@ -14,7 +14,7 @@ from app.models.source import (
     SourceType,
 )
 from app.storage.evidence import EvidenceStoragePolicy
-from app.utils.markdown import parse_frontmatter
+from app.utils.markdown import build_frontmatter_doc, parse_frontmatter
 from app.vault.writer import VaultWriter
 
 
@@ -60,9 +60,13 @@ class TestVaultWriter:
             content=content,
             slug="test-article-about-ai",
             raw_capture_path="raw/articles/test-article-about-ai.md",
+            quick_brief="A quick orientation to the article.",
             summary="A test summary",
             five_minute_read="A five minute read",
             detailed_reading_note="A detailed reading note",
+            best_next_action="Read the brief first, then open the original if needed.",
+            theme_tags=["agentic-ai"],
+            brief_status="ready",
             key_ideas="- Key point 1\n- Key point 2",
             detailed_outline="## Section 1\n- Detail",
             important_examples="- Claim A",
@@ -84,9 +88,13 @@ class TestVaultWriter:
         assert "[[AI]]" in text
         assert "[[Test Author]]" in text
         assert "source_url" in text
+        assert "## Overview" in text
+        assert "## Best Next Action" in text
         meta, _ = parse_frontmatter(text)
         assert meta["lifecycle"]["staleness_status"] == "unknown"
         assert meta["lifecycle"]["reinforcement_count"] == 0
+        assert meta["brief_status"] == "ready"
+        assert meta["theme_tags"] == ["agentic-ai"]
 
     def test_write_generic_source_note_to_misc(self, writer: VaultWriter):
         item = SourceItem(
@@ -106,6 +114,7 @@ class TestVaultWriter:
             content=content,
             slug="docs-home",
             raw_capture_path="raw/misc/docs-home.md",
+            quick_brief="Summary",
             summary="Summary",
             five_minute_read="Briefing",
             detailed_reading_note="Detailed note",
@@ -143,6 +152,7 @@ class TestVaultWriter:
             content=content,
             slug="missing-title",
             raw_capture_path="raw/misc/missing-title.md",
+            quick_brief="Summary",
             summary="Summary",
             five_minute_read="Briefing",
             detailed_reading_note="Detailed note",
@@ -195,6 +205,7 @@ class TestVaultWriter:
             content=content,
             slug="architecture-analysis",
             raw_capture_path=raw_update.path,
+            quick_brief="A durable analysis artifact.",
             summary="A durable analysis artifact.",
             five_minute_read="Short brief.",
             detailed_reading_note="Longer note.",
@@ -223,6 +234,71 @@ class TestVaultWriter:
         assert meta["lifecycle"]["confidence"] == 0.82
         assert meta["lifecycle"]["supersedes"] == ["wiki/synthesis/old-analysis.md"]
         assert meta["lifecycle"]["reinforcement_count"] == 2
+
+    def test_write_source_note_preserves_user_state_overrides(
+        self,
+        writer: VaultWriter,
+        content: SourceContent,
+    ):
+        update = writer.write_source_note(
+            content=content,
+            slug="test-article-about-ai",
+            raw_capture_path="raw/articles/test-article-about-ai.md",
+            quick_brief="A quick orientation to the article.",
+            summary="A test summary",
+            five_minute_read="A five minute read",
+            detailed_reading_note="A detailed reading note",
+            best_next_action="Read the brief first, then open the original if needed.",
+            theme_tags=["agentic-ai"],
+            brief_status="ready",
+            key_ideas="- Key point 1\n- Key point 2",
+            detailed_outline="## Section 1\n- Detail",
+            important_examples="- Claim A",
+            actionable_takeaways="- Try this in practice",
+            notable_quotes="- None captured verbatim.",
+            best_for="- Builders",
+            consume_recommendation="Read the original for more detail.",
+            why_it_matters="This matters because testing.",
+            open_questions="- What about edge cases?",
+            topics=["AI", "Testing"],
+            entities=["Test Author"],
+            concepts=["Unit Testing"],
+        )
+
+        path = writer.vault_path / update.path
+        original = path.read_text(encoding="utf-8")
+        meta, body = parse_frontmatter(original)
+        meta["user_state"] = {"reading_state": "review", "review_excluded": True}
+        path.write_text(build_frontmatter_doc(meta, body), encoding="utf-8")
+
+        writer.write_source_note(
+            content=content,
+            slug="test-article-about-ai",
+            raw_capture_path="raw/articles/test-article-about-ai.md",
+            quick_brief="Updated orientation.",
+            summary="Updated summary",
+            five_minute_read="Updated briefing",
+            detailed_reading_note="Updated note",
+            best_next_action="Skim the brief only unless this becomes active.",
+            theme_tags=["agentic-ai"],
+            brief_status="ready",
+            key_ideas="- Updated key point",
+            detailed_outline="## Updated\n- Detail",
+            important_examples="- Updated example",
+            actionable_takeaways="- Updated action",
+            notable_quotes="- None captured verbatim.",
+            best_for="- Updated audience",
+            consume_recommendation="The brief may be enough for now.",
+            why_it_matters="Updated why",
+            open_questions="- Updated question",
+            topics=["AI", "Testing"],
+            entities=["Test Author"],
+            concepts=["Unit Testing"],
+        )
+
+        updated_meta, _ = parse_frontmatter(path.read_text(encoding="utf-8"))
+        assert updated_meta["user_state"] == {"reading_state": "review", "review_excluded": True}
+        assert updated_meta["reading_state"] == "review"
 
     def test_write_topic(self, writer: VaultWriter):
         topic = Topic(name="Machine Learning", slug="machine-learning", summary="ML is cool")

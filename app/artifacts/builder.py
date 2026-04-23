@@ -17,6 +17,7 @@ from app.artifacts.models import (
 from app.models.lifecycle import LifecycleMetadata, StalenessStatus
 from app.models.source import SourceContent
 from app.utils.slugify import slugify
+from app.utils.theme_tags import assign_theme_tags
 
 _BULLET_PREFIXES = ("- ", "* ", "• ", "→ ", "=> ", "-> ")
 
@@ -118,9 +119,19 @@ def build_artifact_bundle(
         canonical_url=content.canonical_url,
         author=content.author,
         published_at=content.published_date,
+        quick_brief=_text_value(analysis.get("quick_brief")),
         summary=analysis.get("summary", "").strip(),
         five_minute_read=analysis.get("five_minute_read", "").strip(),
         detailed_note=analysis.get("detailed_reading_note", "").strip(),
+        best_next_action=_text_value(analysis.get("best_next_action")),
+        theme_tags=_theme_tags(content, analysis),
+        brief_status=_brief_status(content, analysis),
+        watch_verdict=_text_value(analysis.get("watch_verdict")),
+        watch_verdict_reasoning=_text_value(analysis.get("watch_verdict_reasoning")),
+        quick_section_guide=_text_value(analysis.get("quick_section_guide")),
+        detailed_sections=_text_value(analysis.get("detailed_sections")),
+        signal_vs_filler=_text_value(analysis.get("signal_vs_filler")),
+        important_terms=_important_terms(analysis),
         key_ideas=normalize_markdown_list(analysis.get("key_ideas")),
         detailed_outline=analysis.get("detailed_outline", "").strip(),
         examples=normalize_markdown_list(analysis.get("important_examples")),
@@ -447,6 +458,68 @@ def _quality_confidence(quality: str) -> float:
         "metadata_only": 0.35,
         "failed": 0.1,
     }.get(quality, 0.5)
+
+
+def _text_value(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _theme_tags(content: SourceContent, analysis: dict[str, Any]) -> list[str]:
+    topic_names = [str(item).strip() for item in analysis.get("topics", []) if str(item).strip()]
+    concept_names = []
+    for item in analysis.get("concepts", []):
+        if isinstance(item, dict):
+            name = str(item.get("name", "")).strip()
+        else:
+            name = str(item).strip()
+        if name:
+            concept_names.append(name)
+
+    signals = [
+        content.source.title or "",
+        _text_value(analysis.get("quick_brief")),
+        _text_value(analysis.get("summary")),
+        " ".join(topic_names),
+        " ".join(concept_names),
+    ]
+    return assign_theme_tags(*signals, source_tags=list(content.source.tags))
+
+
+def _brief_status(content: SourceContent, analysis: dict[str, Any]) -> str:
+    explicit = _text_value(analysis.get("_brief_status")).lower()
+    if explicit in {"ready", "partial", "failed"}:
+        return explicit
+
+    quality = content.extraction_quality
+    if quality == "failed":
+        return "failed"
+    if quality in {"partial", "metadata_only"}:
+        return "partial"
+    return "ready"
+
+
+def _important_terms(analysis: dict[str, Any]) -> list[str]:
+    provided = analysis.get("important_terms")
+    terms = normalize_markdown_list(provided)
+    if terms:
+        return terms
+
+    fallback: list[str] = []
+    for item in analysis.get("entities", []):
+        if isinstance(item, dict):
+            name = str(item.get("name", "")).strip()
+        else:
+            name = str(item).strip()
+        if name and name not in fallback:
+            fallback.append(name)
+    for item in analysis.get("concepts", []):
+        if isinstance(item, dict):
+            name = str(item.get("name", "")).strip()
+        else:
+            name = str(item).strip()
+        if name and name not in fallback:
+            fallback.append(name)
+    return fallback[:8]
 
 
 def _source_lifecycle(content: SourceContent) -> LifecycleMetadata:

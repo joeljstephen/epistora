@@ -43,9 +43,17 @@ def _sample_content() -> SourceContent:
 
 def _sample_analysis() -> dict[str, object]:
     return {
+        "quick_brief": "A fast orientation to how durable memory improves long-running agents.",
         "summary": "A source about how agent memory improves long-running workflows.",
         "five_minute_read": "Memory lets agents retain useful state.",
         "detailed_reading_note": "The article compares short-term and durable memory layers.",
+        "best_next_action": "Read the brief first, then open the original if you need the examples.",
+        "watch_verdict": "",
+        "watch_verdict_reasoning": "",
+        "quick_section_guide": "",
+        "detailed_sections": "",
+        "signal_vs_filler": "",
+        "important_terms": ["OpenAI", "Durable memory"],
         "key_ideas": "- Memory improves task continuity\n- Durable state reduces repetition",
         "detailed_outline": "## Overview\n- What memory does\n## Tradeoffs\n- Cost and drift",
         "important_examples": "- A coding agent resuming work after interruption",
@@ -86,6 +94,11 @@ def test_build_artifact_bundle_creates_core_artifacts():
     assert bundle.source.topic_ids == ["topic:agent-memory"]
     assert bundle.source.entity_ids == ["entity:openai"]
     assert bundle.source.concept_ids == ["concept:durable-memory"]
+    assert bundle.source.quick_brief.startswith("A fast orientation")
+    assert bundle.source.best_next_action.startswith("Read the brief first")
+    assert bundle.source.important_terms == ["OpenAI", "Durable memory"]
+    assert bundle.source.brief_status == "ready"
+    assert bundle.source.theme_tags == ["agentic-ai"]
     assert bundle.evidence_references[0].source_id == bundle.source.id
     assert any(rel.relationship_type == "belongs_to_topic" for rel in bundle.relationships)
     assert any(rel.relationship_type == "mentions_entity" for rel in bundle.relationships)
@@ -136,7 +149,8 @@ def test_writer_renders_current_vault_output_from_artifacts(tmp_vault: Path):
     source_text = source_note.read_text(encoding="utf-8")
     topic_text = topic_note.read_text(encoding="utf-8")
 
-    assert "## Key Ideas" in source_text
+    assert "## Overview" in source_text
+    assert "## Best Next Action" in source_text
     assert "[[Agent Memory]]" in source_text
     assert "[[OpenAI]]" in source_text
     assert "[[Durable memory]]" in source_text

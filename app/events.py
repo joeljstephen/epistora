@@ -18,6 +18,8 @@ class EventType(StrEnum):
     ARTIFACT_WRITTEN = "artifact_written"
     MAINTENANCE_COMPLETED = "maintenance_completed"
     QUERY_ANSWER_SAVED = "query_answer_saved"
+    TOPIC_BUNDLE_SAVED = "topic_bundle_saved"
+    REVIEW_DIGEST_SAVED = "review_digest_saved"
     SCHEDULED_MAINTENANCE_TICK = "scheduled_maintenance_tick"
 
 

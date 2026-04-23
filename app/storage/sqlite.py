@@ -40,9 +40,25 @@ CREATE TABLE IF NOT EXISTS vault_notes (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS review_surface_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    review_type TEXT NOT NULL,
+    period_key TEXT NOT NULL,
+    source_note_path TEXT NOT NULL,
+    surfaced_at TEXT NOT NULL,
+    reason TEXT DEFAULT '',
+    created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sources_url_hash ON processed_sources(url_hash);
 CREATE INDEX IF NOT EXISTS idx_sources_content_hash ON processed_sources(content_hash);
 CREATE INDEX IF NOT EXISTS idx_vault_notes_type ON vault_notes(note_type);
+CREATE INDEX IF NOT EXISTS idx_review_surface_period
+    ON review_surface_history(review_type, period_key);
+CREATE INDEX IF NOT EXISTS idx_review_surface_note
+    ON review_surface_history(source_note_path, surfaced_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_review_surface_unique
+    ON review_surface_history(review_type, period_key, source_note_path);
 """
 
 

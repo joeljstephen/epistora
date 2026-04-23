@@ -46,9 +46,19 @@ class SourceArtifact(BaseModel):
     canonical_url: str = ""
     author: str = ""
     published_at: str = ""
+    quick_brief: str = ""
     summary: str = ""
     five_minute_read: str = ""
     detailed_note: str = ""
+    best_next_action: str = ""
+    theme_tags: list[str] = Field(default_factory=list)
+    brief_status: str = "partial"
+    watch_verdict: str = ""
+    watch_verdict_reasoning: str = ""
+    quick_section_guide: str = ""
+    detailed_sections: str = ""
+    signal_vs_filler: str = ""
+    important_terms: list[str] = Field(default_factory=list)
     key_ideas: list[str] = Field(default_factory=list)
     detailed_outline: str = ""
     examples: list[str] = Field(default_factory=list)

@@ -84,19 +84,31 @@ async def fetch_x_thread(item: SourceItem) -> SourceContent:
                 notes_parts.append(result["note"])
 
     # --- Tier 2: Free mirror APIs ---
-    if (
-        settings.x_mirror_enabled
-        and not _candidate_is_good_enough(best_candidate, settings)
-    ):
+    if settings.x_mirror_enabled and not _candidate_is_good_enough(best_candidate, settings):
         result = await _tier_mirror_apis(item.url, settings.x_mirror_timeout_seconds)
         fallback_chain.append("mirror_apis")
         if result:
+            article_text = result.get("article_text", "")
+            article_title = result.get("article_title", "")
+            main_text = result.get("text", "")
+
+            is_article_link = bool(re.search(r"x\.com/i/article/\d+", main_text))
+            if article_text and is_article_link:
+                main_text = ""
+            elif article_text:
+                main_text = f"{main_text}\n\n--- X Article ---\n\n{article_text}"
+            else:
+                main_text = main_text
+
+            combined_title = article_title if article_title else ""
+
             best_candidate = _select_better_candidate(
                 best_candidate,
                 _make_candidate(
-                    text=result.get("text", ""),
+                    text=article_text if (article_text and is_article_link) else main_text,
                     method=result.get("source", "mirror"),
                     author=result.get("author", ""),
+                    title=combined_title,
                     metadata=result.get("metadata", {}),
                     note=result.get("note", ""),
                 ),
@@ -186,6 +198,7 @@ async def fetch_x_thread(item: SourceItem) -> SourceContent:
         fallback_chain.append("browser_rendered")
         if rendered:
             from bs4 import BeautifulSoup
+
             soup = BeautifulSoup(rendered, "html.parser")
             og_desc = soup.find("meta", property="og:description")
             if og_desc and og_desc.get("content"):
@@ -312,9 +325,7 @@ def _candidate_is_good_enough(candidate: dict[str, Any] | None, settings: Any) -
 # ---------------------------------------------------------------------------
 
 
-async def _tier_official_api(
-    post_id: str, bearer_token: str, timeout: int
-) -> dict | None:
+async def _tier_official_api(post_id: str, bearer_token: str, timeout: int) -> dict | None:
     """Tier 1: Official X API extraction."""
     thread = await fetch_thread_via_api(post_id, bearer_token, timeout=timeout)
     if not thread:
@@ -362,6 +373,8 @@ async def _tier_mirror_apis(url: str, timeout: int) -> dict | None:
 
         return {
             "text": text,
+            "article_text": fx.get("article_text", ""),
+            "article_title": fx.get("article_title", ""),
             "author": fx.get("author_name") or fx.get("username", ""),
             "source": "fxtwitter",
             "note": " ".join(note_parts),
@@ -377,6 +390,8 @@ async def _tier_mirror_apis(url: str, timeout: int) -> dict | None:
     if vx:
         return {
             "text": vx.get("text", ""),
+            "article_text": vx.get("article_text", ""),
+            "article_title": vx.get("article_title", ""),
             "author": vx.get("author_name") or vx.get("username", ""),
             "source": "vxtwitter",
             "note": "Extracted via vxtwitter.",

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -773,6 +774,79 @@ class TestAutomationRunner:
 
         assert call_count["discover"] == 2  # Called each time
         assert call_count["process"] == 2  # Called each time (but no items processed)
+
+    @pytest.mark.asyncio
+    async def test_run_personal_learning_orchestrates_views_reviews_and_profile(self):
+        from app.automation.runner import run_personal_learning
+        from app.models.results import ReviewDigestResult
+
+        async def mock_process_pending(**kwargs):
+            assert os.environ.get("EPISTORA_PROMPT_PROFILE") == "personal_learning"
+            return {
+                "status": "ok",
+                "succeeded": 2,
+                "failed": 0,
+                "changed_paths": ["wiki/sources/articles/test.md"],
+                "results": [],
+            }
+
+        with (
+            patch("app.automation.runner.run_discover", new_callable=AsyncMock) as mock_discover,
+            patch("app.automation.runner.run_process_pending", side_effect=mock_process_pending),
+            patch(
+                "app.automation.runner._refresh_personal_learning_read_model",
+                return_value={"status": "incremental", "notes": 1, "edges": 2},
+            ) as mock_refresh,
+            patch("app.vault.index_updater.rebuild_indexes", return_value=["wiki/indexes/READING_HOME.md"]),
+            patch(
+                "app.services.review_service.generate_daily_digest",
+                new_callable=AsyncMock,
+                return_value=ReviewDigestResult(
+                    review_type="daily",
+                    period_key="2026-04-21",
+                    digest_status="published",
+                    saved_to="outputs/digests/daily/2026-04-21.md",
+                    source_count=2,
+                ),
+            ),
+            patch(
+                "app.services.review_service.generate_weekly_digest",
+                new_callable=AsyncMock,
+                return_value=ReviewDigestResult(
+                    review_type="weekly",
+                    period_key="2026-W17",
+                    digest_status="skipped",
+                    reason="Not enough weekly signal to justify a digest.",
+                ),
+            ),
+            patch(
+                "app.automation.runner.run_maintenance",
+                new_callable=AsyncMock,
+                return_value={"status": "ok"},
+            ) as mock_maintain,
+            patch("app.automation.runner.get_settings") as mock_settings,
+            patch("app.automation.runner.Database") as MockDB,
+        ):
+            mock_settings.return_value.db_path = Path("/tmp/test.db")
+            mock_settings.return_value.vault_path = Path("/tmp/test-vault")
+            mock_discover.return_value = {"items_discovered": 3, "items_skipped_duplicate": 1}
+            MockDB.return_value = MagicMock()
+
+            result = await run_personal_learning(mode="balanced", connector_id="raindrop")
+
+        assert result["preset"] == "personal_learning"
+        assert result["prompt_profile"] == "personal_learning"
+        assert result["discover"]["items_discovered"] == 3
+        assert result["process"]["succeeded"] == 2
+        assert result["read_model"]["status"] == "incremental"
+        assert result["views"]["count"] == 1
+        assert result["reviews"]["daily"]["digest_status"] == "published"
+        assert result["reviews"]["weekly"]["digest_status"] == "skipped"
+        mock_refresh.assert_called_once()
+        mock_maintain.assert_called_once_with(
+            mode="balanced",
+            scope_paths=["wiki/sources/articles/test.md"],
+        )
 
 
 # ---------------------------------------------------------------------------

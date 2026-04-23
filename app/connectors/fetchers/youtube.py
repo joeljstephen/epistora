@@ -46,6 +46,13 @@ _TIMESTAMP_RE = re.compile(
 )
 
 
+def _looks_like_url(text: str) -> bool:
+    if not text:
+        return False
+    stripped = text.strip()
+    return stripped.startswith("http://") or stripped.startswith("https://")
+
+
 def _extract_video_id(url: str) -> str | None:
     m = _VIDEO_ID_RE.search(url)
     return m.group(1) if m else None
@@ -187,12 +194,19 @@ async def fetch_youtube(item: SourceItem) -> SourceContent:
         if was_truncated:
             notes_parts.append(f"Transcript truncated to {max_chars} chars.")
 
-    item.title = (
-        item.title
-        or (summarize_content.source.title if summarize_content else "")
-        or title
-        or f"YouTube Video {video_id}"
-    )
+    if _looks_like_url(item.title):
+        item.title = (
+            title
+            or (summarize_content.source.title if summarize_content else "")
+            or item.title
+        )
+    else:
+        item.title = (
+            item.title
+            or (summarize_content.source.title if summarize_content else "")
+            or title
+            or f"YouTube Video {video_id}"
+        )
     channel = channel or (summarize_content.author if summarize_content else "")
 
     if transcript_text and caption_type == "none":
@@ -641,7 +655,7 @@ async def _fetch_video_metadata(
     video_id: str, existing_title: str, *, timeout: int
 ) -> tuple[str, str, str, str]:
     """Fetch title, channel, description, duration via noembed and oembed."""
-    title = existing_title
+    title = "" if _looks_like_url(existing_title) else existing_title
     channel = ""
     description = ""
     duration = ""

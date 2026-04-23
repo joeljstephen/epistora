@@ -43,6 +43,33 @@ class QueryResult(BaseModel):
     timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
 
+class TopicBundleResult(BaseModel):
+    topic: str
+    report: str = ""
+    bundle_status: str = "limited"
+    source_references: list[str] = Field(default_factory=list)
+    topics_consulted: list[str] = Field(default_factory=list)
+    source_count: int = 0
+    ready_source_count: int = 0
+    saved_to: str | None = None
+    confidence: str = "low"
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
+class ReviewDigestResult(BaseModel):
+    review_type: str
+    period_key: str
+    digest_status: str = "skipped"  # published | skipped
+    report: str = ""
+    source_references: list[str] = Field(default_factory=list)
+    resurfaced_references: list[str] = Field(default_factory=list)
+    source_count: int = 0
+    saved_to: str | None = None
+    confidence: str = "low"
+    reason: str = ""
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+
 class LintIssue(BaseModel):
     severity: str = "warning"  # info | warning | error
     category: str = ""

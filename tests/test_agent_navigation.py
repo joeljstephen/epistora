@@ -136,13 +136,17 @@ class TestAgentsMd:
 
 
 class TestIndexRebuildGeneratesNavigation:
-    def test_rebuild_generates_all_six_index_files(self, populated_vault: Path):
+    def test_rebuild_generates_reader_and_navigation_index_files(self, populated_vault: Path):
         index_dir = populated_vault / "wiki" / "indexes"
         expected = [
             "INDEX.md",
             "TOPICS.md",
             "ENTITIES.md",
             "CONCEPTS.md",
+            "READING_HOME.md",
+            "VIDEOS.md",
+            "ARTICLES.md",
+            "TOPICS_FEED.md",
             "START_HERE.md",
             "QUERY_PROTOCOL.md",
         ]
@@ -156,11 +160,39 @@ class TestIndexRebuildGeneratesNavigation:
             "TOPICS.md",
             "ENTITIES.md",
             "CONCEPTS.md",
+            "READING_HOME.md",
+            "VIDEOS.md",
+            "ARTICLES.md",
+            "TOPICS_FEED.md",
             "START_HERE.md",
             "QUERY_PROTOCOL.md",
+            "DASHBOARD.md",
         }
         updated_names = {Path(p).name for p in updated}
         assert expected_names == updated_names
+
+    def test_reading_home_is_item_centric(self, populated_vault: Path):
+        content = (populated_vault / "wiki" / "indexes" / "READING_HOME.md").read_text()
+        assert "What To Look At Next" in content
+        assert "Best next action" in content
+
+    def test_reader_views_include_obsidian_dataview_layer(self, populated_vault: Path):
+        content = (populated_vault / "wiki" / "indexes" / "READING_HOME.md").read_text()
+        assert "## Obsidian Enhanced View" in content
+        assert "```dataviewjs" in content
+        assert "epistora-reader-grid" in content
+
+    def test_topics_feed_is_topic_centric(self, populated_vault: Path):
+        content = (populated_vault / "wiki" / "indexes" / "TOPICS_FEED.md").read_text()
+        assert "Active Topic Clusters" in content
+        assert "Theme Watchlist" in content
+
+    def test_rebuild_writes_obsidian_reader_snippet(self, populated_vault: Path):
+        snippet = populated_vault / ".obsidian" / "snippets" / "epistora-reader-views.css"
+        assert snippet.exists()
+        css = snippet.read_text()
+        assert ".epistora-reader-grid" in css
+        assert ".epistora-reader-card" in css
 
 
 class TestSkillFiles:

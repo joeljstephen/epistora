@@ -226,3 +226,54 @@ class TestRebuildIndexesJob:
 
         assert result["status"] == "ok"
         assert result["indexes_updated"] == 2
+
+
+class TestReviewJobs:
+    @pytest.mark.asyncio
+    async def test_daily_review_job_success(self):
+        from app.models.results import ReviewDigestResult
+
+        mock_result = ReviewDigestResult(
+            review_type="daily",
+            period_key="2026-04-21",
+            digest_status="published",
+            source_count=3,
+            saved_to="outputs/digests/daily/2026-04-21.md",
+        )
+
+        with patch(
+            "app.services.review_service.generate_daily_digest",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            from app.automation.jobs import run_review_daily_job
+
+            result = await run_review_daily_job()
+
+        assert result["status"] == "ok"
+        assert result["review_type"] == "daily"
+        assert result["digest_status"] == "published"
+
+    @pytest.mark.asyncio
+    async def test_weekly_review_job_success(self):
+        from app.models.results import ReviewDigestResult
+
+        mock_result = ReviewDigestResult(
+            review_type="weekly",
+            period_key="2026-W17",
+            digest_status="skipped",
+            reason="Not enough weekly signal to justify a digest.",
+        )
+
+        with patch(
+            "app.services.review_service.generate_weekly_digest",
+            new_callable=AsyncMock,
+            return_value=mock_result,
+        ):
+            from app.automation.jobs import run_review_weekly_job
+
+            result = await run_review_weekly_job()
+
+        assert result["status"] == "ok"
+        assert result["review_type"] == "weekly"
+        assert result["digest_status"] == "skipped"
