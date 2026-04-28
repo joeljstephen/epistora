@@ -1,6 +1,7 @@
 # Prompt Layering
 
-Phase 5 introduces explicit prompt composition for Epistora compiler workflows.
+Epistora uses explicit prompt composition for compiler and generated-output
+workflows.
 
 The implementation lives in:
 
@@ -57,6 +58,13 @@ Current task names are:
 - `ingest_analysis`
 - `query_answer`
 - `lint_analysis`
+- `topic_bundle`
+
+The built-in prompt tree also includes the `personal_learning` profile:
+
+- `prompts/profiles/personal_learning/common.md`
+- `prompts/profiles/personal_learning/tasks/ingest_analysis.md`
+- `prompts/profiles/personal_learning/tasks/topic_bundle.md`
 
 Model tokens are normalized to lowercase alphanumeric segments joined by underscores.
 
@@ -93,11 +101,10 @@ Prompt composition now returns a `ComposedPrompt` object containing:
 
 This makes precedence and prompt-pack behavior visible during development.
 
-## Phase 5 Boundaries
+## Current Boundaries
 
-This phase adds the prompt layering foundation, but does not add:
+Prompt layering currently does not add:
 
 - a prompt UI
 - remote prompt-pack distribution
 - dynamic runtime prompt editing tools
-- a broader redesign of compiler tasks beyond the current ingest/query/lint paths

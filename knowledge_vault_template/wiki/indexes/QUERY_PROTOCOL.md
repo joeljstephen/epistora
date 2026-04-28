@@ -32,6 +32,8 @@ Use the index files to identify relevant notes:
 2. Read `wiki/indexes/ENTITIES.md` for entity matches
 3. Read `wiki/indexes/CONCEPTS.md` for concept matches
 4. Read `wiki/indexes/INDEX.md` for recent sources that may be relevant
+5. For learning-path questions, check `wiki/indexes/READING_HOME.md` and
+   `wiki/indexes/TOPICS_FEED.md`
 
 ## Step 4: Read Frontmatter Before Body
 
@@ -42,6 +44,8 @@ For each candidate note, read only the YAML frontmatter first. Check:
 - `extraction_quality` — how reliable is the evidence?
 - `source_url` — is this the right source?
 - `raw_capture_path` — where is the underlying evidence?
+- `brief_status`, `quick_summary`, `best_next_action`, `theme_tags`, and
+  `reading_state` — whether the note is a good fast-orientation source
 
 Only read the full body for notes that pass this filter.
 
@@ -58,10 +62,11 @@ Read relevant topic, entity, or concept pages. These pages serve as hubs:
 Source notes are the primary evidence. For each relevant source note:
 
 1. Check `Coverage & Limits` section for extraction quality
-2. Read `Key Ideas` and `Detailed Outline` for quick orientation
-3. Read `5-Minute Read` or `Detailed Reading Note` for depth
-4. Check `Open Questions` for unresolved issues
-5. Follow `[[wikilinks]]` in `Related Notes` for more context
+2. Read the overview / quick brief and best next action for orientation
+3. Read `Key Ideas` and `Detailed Outline` for more structure
+4. Read `5-Minute Read` or `Detailed Reading Note` for depth
+5. Check `Open Questions` for unresolved issues
+6. Follow `[[wikilinks]]` in `Related Notes` for more context
 
 ## Step 7: Escalate to Raw Captures (Only If Needed)
 

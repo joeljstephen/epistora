@@ -1,14 +1,19 @@
 # Epistora
 
-Epistora turns saved links into a local markdown knowledge vault you can browse in Obsidian and query with filesystem-capable agents.
+Epistora turns saved links into a local markdown knowledge vault you can browse
+in Obsidian, query with filesystem-capable agents, and use as a personal
+learning system.
 
-The markdown vault remains the default output, but Phase 7 also adds an optional JSON export sink for canonical artifact bundles.
+The markdown vault remains the default output. Epistora also has an optional
+JSON export sink for canonical artifact bundles.
 
 It fetches content from sources like articles, YouTube videos, X/Twitter threads, and PDFs, then compiles:
 
 - raw captures
 - grounded source notes
 - topic, entity, and concept pages
+- reader-style index views
+- topic learning bundles and review digests
 - vault indexes for humans and agents
 
 ## Quick Start
@@ -51,6 +56,7 @@ These are the commands most users need regularly:
 | `epistora help`                    | Shows the important commands quickly    |
 | `epistora ingest latest --limit 1` | Ingest a small batch from Raindrop      |
 | `epistora ingest url <url>`        | Ingest one specific source              |
+| `epistora automation run-personal-learning` | Run the composed personal learning workflow |
 | `epistora status`                  | Shows current vault path and stats      |
 | `epistora vault show`              | Shows which vault directory is active   |
 | `epistora vault use <path>`        | Switches to a different vault directory |
@@ -123,6 +129,10 @@ Use these when you want more control:
 | `epistora sync-inbox`             | Sync from a configured inbox connector             |
 | `epistora lint`                   | Run vault health checks                            |
 | `epistora rebuild-indexes`        | Rebuild vault index files                          |
+| `epistora views rebuild`          | Rebuild reader-style browse pages                  |
+| `epistora topic-bundle <topic>`    | Generate a grounded topic learning packet          |
+| `epistora review daily`           | Generate the daily review digest                   |
+| `epistora review weekly`          | Generate the weekly review digest                  |
 | `epistora reset-generated`        | Clear generated artifacts and keep the vault shell |
 | `epistora automation setup`       | Configure automation                               |
 | `epistora automation run-pending` | Run discovery, processing, and maintenance once    |
@@ -194,6 +204,7 @@ Important settings:
 | `EVIDENCE_BLOB_PREVIEW_CHARS`   | Preview length kept in the visible raw note for blob-backed evidence. Default: `4000` |
 | `EPISTORA_PLUGIN_DIRS`          | Extra local plugin search paths                                                       |
 | `EPISTORA_PROMPT_PACK`          | Active prompt-pack plugin ID                                                          |
+| `EPISTORA_PROMPT_PROFILE`       | Active prompt profile, such as `personal_learning`                                    |
 | `RAINDROP_API_TOKEN`            | Raindrop token                                                                        |
 | `API_API_KEY`                   | API key for the direct API backend                                                    |
 | `AUTOMATION_ENABLED`            | Enables automation                                                                    |
@@ -227,7 +238,7 @@ The compiler does not special-case JSON publishing. It still produces canonical 
 
 ## Storage Tiers
 
-Phase 8 adds a local storage-tier foundation for large evidence:
+Epistora uses local storage tiers for large evidence:
 
 - hot: compiled source notes in `wiki/sources/`
 - warm: stable raw evidence notes in `raw/`
@@ -253,6 +264,15 @@ epistora automation run-pending --mode balanced
 epistora automation run-pending --mode deep
 ```
 
+Personal Learning Mode is a composed workflow on top of those modes. It uses
+the `personal_learning` prompt profile, processes the Raindrop queue, refreshes
+the read model, rebuilds reader views, evaluates daily/weekly review digests,
+and optionally runs bounded maintenance:
+
+```bash
+epistora automation run-personal-learning --mode balanced
+```
+
 ## Development
 
 ```bash
@@ -270,6 +290,8 @@ uv run epistora help
 - [Architecture](docs/ARCHITECTURE.md)
 - [JSON Export Sink](docs/JSON_EXPORT_SINK.md)
 - [Storage Tiers](docs/STORAGE_TIERS.md)
+- [Prompt Layering](docs/PROMPT_LAYERING.md)
+- [Maintenance Framework](docs/MAINTENANCE_FRAMEWORK.md)
 - [Development](docs/DEVELOPMENT.md)
 - [Plugin Author Guide](docs/PLUGIN_AUTHOR_GUIDE.md)
 - [Repo Hygiene](docs/REPO_HYGIENE.md)

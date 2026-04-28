@@ -88,6 +88,22 @@ eps help
 
 Your knowledge vault is now populated! You can:
 
+### Browse Reader Views
+
+Rebuild the deterministic browse pages whenever you want to refresh the
+attention surfaces from current source metadata:
+
+```bash
+epistora views rebuild
+```
+
+The generated views live under `wiki/indexes/`:
+
+- `READING_HOME.md`
+- `VIDEOS.md`
+- `ARTICLES.md`
+- `TOPICS_FEED.md`
+
 ### Open in Obsidian
 
 Open the vault folder in [Obsidian](https://obsidian.md/) and browse your
@@ -112,8 +128,22 @@ source-backed answers.
 # Process bookmarks automatically
 epistora automation run-pending
 
+# Run the composed personal-learning workflow
+epistora automation run-personal-learning --mode balanced
+
 # Or generate OS scheduler config for hands-free operation
 epistora automation generate-scheduler --platform macos --mode safe
+```
+
+### Generate Learning Outputs
+
+```bash
+# Build a grounded packet from saved source notes
+epistora topic-bundle "agentic AI"
+
+# Generate review digests when there is enough signal
+epistora review daily
+epistora review weekly
 ```
 
 ## What's Next?
@@ -123,6 +153,8 @@ epistora automation generate-scheduler --platform macos --mode safe
 - **`epistora lint`** — check vault health
 - **`epistora backend status`** — see backend availability
 - **`epistora automation status`** — see automation queue status
+- **`epistora views rebuild`** — rebuild reader-style browse pages
+- **`epistora topic-bundle <topic>`** — create a topic learning packet
 
 See the full [README](../README.md) for detailed documentation on all
 commands, backends, automation modes, and more.

@@ -1,10 +1,12 @@
 # JSON Export Sink
 
-This document describes the Phase 7 second-sink proof: a built-in `JsonExportSink` that publishes canonical artifact bundles without relying on markdown-vault rendering.
+This document describes the built-in `JsonExportSink`, which publishes
+canonical artifact bundles without relying on markdown-vault rendering.
 
 ## Why It Exists
 
-The v2 direction requires the canonical artifact layer and sink abstraction to be real, not just a wrapper around markdown writing.
+The current architecture requires the canonical artifact layer and sink
+abstraction to be real, not just a wrapper around markdown writing.
 
 `JsonExportSink` proves that by consuming the same `ArtifactBundle` boundary used by the markdown sink and emitting a machine-facing export with no compiler special cases.
 
@@ -144,7 +146,7 @@ The real export includes the full canonical bundle, including relationship and e
 
 `JsonExportSink` does not replace `MarkdownVaultSink`.
 
-For this phase, the intended proof is coexistence:
+The intended proof is coexistence:
 
 - `markdown_vault` remains the primary default sink
 - `json_export` can be enabled alongside it

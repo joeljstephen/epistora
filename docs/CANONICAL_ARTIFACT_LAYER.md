@@ -1,16 +1,18 @@
 # Canonical Artifact Layer
 
-This document describes the Phase 1 v2 refactor that introduces canonical internal artifacts without changing the current vault structure or public CLI/API behavior.
+This document describes Epistora's canonical internal artifact layer. It is the
+compiler boundary between normalized evidence and any configured output sink.
 
 ## Why This Exists
 
-The v2 architecture spec makes a specific shift:
+The current architecture makes a specific shift:
 
 - evidence extraction should produce evidence-layer objects
 - the compiler should produce canonical knowledge artifacts
 - rendering should consume those artifacts instead of building markdown directly from ad hoc intermediate objects
 
-Epistora still renders the same markdown vault in Phase 1, but it no longer needs to think of markdown notes as the first internal representation after ingest analysis.
+Epistora still renders a markdown vault by default, but markdown notes are no
+longer the first internal representation after ingest analysis.
 
 ## Current Pipeline Boundary
 
@@ -25,16 +27,16 @@ The pipeline now has three explicit layers:
    - `app/artifacts/builder.py`
    - compiler analysis is normalized into `ArtifactBundle`
 3. Rendered output layer
-   - `app/vault/writer.py`
-   - current markdown vault output is rendered from canonical artifacts
+   - `app/sinks/`
+   - markdown vault and optional JSON output are rendered from canonical artifacts
 
 In short:
 
 ```text
-SourceItem -> SourceContent -> ArtifactBundle -> VaultWriter -> markdown vault
+SourceItem -> SourceContent -> ArtifactBundle -> configured sinks
 ```
 
-## Canonical Models Added In Phase 1
+## Canonical Models
 
 The canonical package now defines:
 
@@ -59,9 +61,9 @@ fetch -> dedup -> analyse -> extract_knowledge -> write_vault -> persist
 
 The important internal change is the `extract_knowledge` stage:
 
-- before Phase 1:
+- earlier implementation:
   - created legacy `Topic`, `Entity`, and `Concept` models directly
-- after Phase 1:
+- current implementation:
   - creates a canonical `ArtifactBundle`
   - normalizes bullet-heavy analysis fields into structured artifact fields
   - creates `RelationshipArtifact` edges from source to topics/entities/concepts
@@ -69,37 +71,32 @@ The important internal change is the `extract_knowledge` stage:
 
 The `write_vault` stage now renders from that artifact bundle.
 
-## Compatibility Strategy
+## Current Rendering Strategy
 
-Phase 1 intentionally does not add the full sink system yet.
+Configured sinks consume `ArtifactBundle`s through the sink boundary:
 
-To preserve current behavior:
-
-- `VaultWriter.write_artifact_bundle(...)` is the new production rendering entrypoint
-- existing markdown templates remain in place
-- compatibility adapters in `app/artifacts/compat.py` translate canonical artifacts into the current markdown-oriented writer/template inputs
-- existing public CLI/API behavior and visible vault structure remain unchanged
-
-This keeps the new layer real while avoiding a large sink refactor before Phase 2.
+- `MarkdownVaultSink` remains the default human-facing sink.
+- `JsonExportSink` can be enabled for deterministic machine-facing exports.
+- `VaultWriter` remains as a compatibility wrapper around the markdown sink.
+- `app/artifacts/compat.py` still translates canonical artifacts into the
+  current markdown template inputs.
 
 ## Safe Automation Path
 
 The queue automation safe mode also now builds an `ArtifactBundle` before writing output.
 
-That matters because Phase 1 is not only about the main ingest graph. The current production write paths should consume the canonical layer instead of bypassing it whenever they are compiling source understanding into durable vault notes.
+That matters because the canonical layer is not only about the main ingest
+graph. Current production write paths should consume this boundary instead of
+bypassing it whenever they compile source understanding into durable vault
+notes.
 
-## Intentionally Not Done In Phase 1
+## Current Boundaries
 
-This phase does not introduce:
+This layer still does not introduce:
 
-- sink interfaces or multiple sinks
-- retrieval redesign
-- plugin manifests or plugin loading
 - a richer read model
 - a new visible vault layout
+- direct artifact-to-markdown rendering without the compatibility adapter
 
-Those remain later v2 phases.
-
-## Next Architectural Step
-
-Phase 2 can now refactor the current vault writer into an explicit markdown sink without first needing to invent a canonical model. The compiler/output boundary already exists.
+The compiler/output boundary is stable enough for current personal-learning,
+query, maintenance, and export workflows.

@@ -1,8 +1,10 @@
 # Plugin Author Guide
 
-Phase 4 introduces Epistora's first manifest-based plugin foundation. The goal is to make extension a stable product surface without converting every internal subsystem into plugins immediately.
+Epistora has a manifest-based local plugin foundation. The goal is to make
+extension a stable product surface without converting every internal subsystem
+into plugins immediately.
 
-## What Exists In Phase 4
+## What Exists
 
 The plugin foundation lives under:
 
@@ -16,7 +18,8 @@ Current runtime integration points:
 - sinks via [`app/sinks/registry.py`](/Users/joeljacobstephen/Code/projects/epistora/app/sinks/registry.py)
 - prompt packs via [`app/compiler/prompts.py`](/Users/joeljacobstephen/Code/projects/epistora/app/compiler/prompts.py)
 
-Extractor manifests are supported in the model and loader, but the extraction pipeline is not yet registry-driven. That is an intentional Phase 4 boundary.
+Extractor manifests are supported in the model and loader, but the extraction
+pipeline is not yet registry-driven. That is an intentional current boundary.
 
 ## Plugin Search Paths
 
@@ -45,7 +48,7 @@ For local development, the simplest workflow is:
 
 ## Supported Plugin Types
 
-Phase 4 manifest support includes:
+Manifest support includes:
 
 - `inbox_provider`
 - `extractor`
@@ -125,7 +128,7 @@ epistora doctor
 
 ## Compatibility And Config
 
-Phase 4 supports:
+The plugin loader supports:
 
 - plugin version
 - Epistora compatibility range
@@ -150,11 +153,11 @@ Core still owns:
 - queue automation
 - read model
 
-Plugins can now extend the runtime without editing those core modules, but Phase 4 does not yet add:
+Plugins can extend the runtime without editing those core modules, but the
+current plugin system does not yet add:
 
 - remote plugin install/distribution
 - a marketplace
 - full extractor plugin execution
-- prompt composition redesign
 
 That means the current extension story is intentionally local-first and repo-friendly, not a hosted plugin ecosystem.

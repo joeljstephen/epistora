@@ -105,6 +105,10 @@ epistora automation process-pending --mode balanced --limit 5
 # One-shot end-to-end: discover + process + maintain
 epistora automation run-pending --mode safe
 
+# Personal learning preset: discover, process, refresh read model, rebuild
+# reader views, evaluate review digests, and optionally maintain
+epistora automation run-personal-learning --mode balanced
+
 # Check automation status
 epistora automation status
 
@@ -119,6 +123,18 @@ epistora automation maintain --lint --rebuild
 
 # Generate OS scheduler helpers
 epistora automation generate-scheduler --platform macos --mode safe --interval 30
+
+# --- Personal Learning Outputs ---
+
+# Rebuild reader-style browse pages
+epistora views rebuild
+
+# Generate a grounded topic packet from saved source notes
+epistora topic-bundle "agentic AI" --days 30 --source-types article,youtube
+
+# Generate daily and weekly review digests when signal thresholds are met
+epistora review daily
+epistora review weekly
 ```
 
 Note: If running from source, prefix commands with `uv run` (e.g., `uv run epistora setup`).
@@ -131,6 +147,10 @@ The short alias is `eps`.
 | `safe` | None | Fetch + archive only. No LLM cost. Good for default scheduled runs. |
 | `balanced` | Capped | Safe mode + limited LLM enrichment per run, then first-degree hub maintenance. |
 | `deep` | Full | Full ingest graph with deeper neighborhood maintenance and bounded candidate synthesis refresh. |
+
+Personal Learning Mode is a composed preset over these modes. It uses the
+`personal_learning` prompt profile and keeps `safe`, `balanced`, and `deep` as
+execution-depth policies rather than separate product personas.
 
 ### Cross-Platform Scheduling
 
@@ -355,19 +375,20 @@ overrides such as `prompts/ingest/source_analysis.youtube.md`.
 
 ## Latest-Bookmark Validation
 
-The Phase 10 knowledge-quality upgrade was validated on **April 8, 2026** by:
+For prompt, template, extraction, and personal-learning changes, validate
+against one known bookmark before running a larger batch:
 
-1. Fetching the latest Raindrop bookmark directly from the configured inbox.
-2. Running the ingest graph on that single item with `force_reingest=True`.
-3. Inspecting the generated raw capture, source note, topic pages, indexes,
-   and ingest log.
-4. Fixing workflow issues found during that run:
-   - Codex structured-output schema normalization
-   - topic/entity/concept placeholder replacement on update
-   - multi-link merge preservation in topic/entity/concept pages
-   - topic/entity/concept name normalization against existing vault pages
+1. Run `epistora ingest latest --limit 1` or reingest a known URL with
+   `epistora ingest url --force <url>`.
+2. Inspect the raw capture, source note, related hub pages, indexes, and ingest
+   log.
+3. Rebuild reader views with `epistora views rebuild`.
+4. If the change affects learning outputs, run `epistora topic-bundle`,
+   `epistora review daily`, or `epistora automation run-personal-learning`
+   against a small limit.
 
-This validation intentionally did **not** reset or delete the existing vault.
+This workflow avoids resetting or deleting an existing vault while still
+exercising the current runtime path.
 
 ## Project Structure
 

@@ -27,8 +27,9 @@ This vault has three layers with strictly different jobs. Never collapse them.
 - `wiki/entities/` — Pages for named entities (people, companies, tools).
 - `wiki/concepts/` — Pages for reusable ideas and definitions.
 - `wiki/synthesis/` — Durable cross-source synthesis notes.
-- `wiki/indexes/` — Navigation maps (START_HERE, INDEX, TOPICS, ENTITIES,
-  CONCEPTS, QUERY_PROTOCOL).
+- `wiki/indexes/` — Navigation maps and reader views (START_HERE, INDEX,
+  TOPICS, ENTITIES, CONCEPTS, QUERY_PROTOCOL, READING_HOME, VIDEOS, ARTICLES,
+  TOPICS_FEED).
 - `wiki/logs/` — Append-only operational logs.
 
 ### Layer 3: Scratch / Delivery — `outputs/`
@@ -83,6 +84,8 @@ tells you:
 - `raw_capture_path` — where the underlying raw evidence lives
 - `source_url` — the original source
 - `tags` — user-provided tags
+- `brief_status`, `quick_summary`, `best_next_action`, `theme_tags`, and
+  `reading_state` — useful for fast triage and personal-learning views
 
 Use frontmatter to decide whether a note is relevant before investing time
 reading its full body.
@@ -97,6 +100,8 @@ accumulate knowledge across sources and serve as routing hubs via `[[wikilinks]]
 Source notes (`wiki/sources/`) are the **primary evidence** for grounded
 answers. Each source note contains:
 
+- Overview / quick brief and best next action
+- Source-specific watch/read guidance when available
 - Short summary and 5-Minute Read
 - Detailed reading note
 - Key ideas, outline, examples, takeaways, quotes

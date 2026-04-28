@@ -33,10 +33,15 @@ Read this first, then use the indexes and hub pages to find what you need.
 - [[TOPICS]] — All topic pages
 - [[ENTITIES]] — All entity pages
 - [[CONCEPTS]] — All concept pages
+- [[READING_HOME]] — Reader-style attention feed
+- [[VIDEOS]] — Video source view
+- [[ARTICLES]] — Article source view
+- [[TOPICS_FEED]] — Topic and theme cluster view
 
 ## Quick Rules
 
 - Read source notes (`wiki/sources/`) first for grounded evidence
+- Use reader views for fast triage and learning-path questions
 - Use topic/entity/concept pages as routing hubs
 - Only read raw captures (`raw/`) when evidence quality is weak or exact text matters
 - Ignore `.system/` — it is internal state, not knowledge

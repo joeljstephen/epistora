@@ -1,10 +1,12 @@
 # Storage Tiers
 
-This document describes the Phase 8 storage-tier foundation for large raw evidence.
+This document describes Epistora's storage-tier foundation for large raw
+evidence.
 
 ## Why This Exists
 
-The v2 spec calls for a local-first evidence retention policy with practical tiers:
+The architecture calls for a local-first evidence retention policy with
+practical tiers:
 
 - hot
 - warm
@@ -12,7 +14,8 @@ The v2 spec calls for a local-first evidence retention policy with practical tie
 
 Epistora already preserved raw evidence strongly, but it kept the hottest visible `raw/` layer responsible for the full payload every time. That works for small captures, but large transcripts, extracted PDF text, and readable article archives can bloat the working vault unnecessarily.
 
-Phase 8 keeps evidence auditable while separating the visible manifest layer from heavy payload storage.
+The current storage policy keeps evidence auditable while separating the visible
+manifest layer from heavy payload storage.
 
 ## Tier Model
 
@@ -43,7 +46,7 @@ wiki/sources/.../source.md
 
 ## What Gets Stored In The Blob Tier
 
-The Phase 8 implementation stores a full preserved payload in `.system/blobs/` when it is large enough, such as:
+Epistora stores a full preserved payload in `.system/blobs/` when it is large enough, such as:
 
 - long markdown article archives
 - long YouTube transcript archives
@@ -103,7 +106,7 @@ Defaults:
 
 ## Backward Compatibility
 
-Phase 8 is additive and migration-safe:
+The storage-tier behavior is additive and migration-safe:
 
 - existing vaults continue to work
 - existing `raw_capture_path` references remain valid

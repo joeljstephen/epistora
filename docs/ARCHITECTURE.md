@@ -24,7 +24,7 @@ SourceItem
   -> read-model refresh from published markdown
 ```
 
-That is the important v2-aligned shift: Epistora is no longer "fetch content and
+That is the important current shift: Epistora is no longer "fetch content and
 write markdown directly". The compiler now has an explicit canonical artifact
 layer in the middle, and output publishing is handled by sinks.
 
@@ -83,7 +83,7 @@ layer in the middle, and output publishing is handled by sinks.
 | Area | Main Files | Responsibility |
 |------|------------|----------------|
 | Interface | `app/cli/main.py`, `app/main.py`, `app/api/` | CLI and HTTP entrypoints |
-| Services | `app/services/` | Thin application services for ingest, query, lint, reset |
+| Services | `app/services/` | Thin application services for ingest, query, lint, reset, topic bundles, and review digests |
 | Compiler | `app/compiler/` | LangGraph workflows, prompt composition, backend routing |
 | Artifacts | `app/artifacts/` | Canonical internal artifact models and bundle builder |
 | Connectors | `app/connectors/` | Inbox connectors, URL classification, fetcher dispatch |
@@ -93,7 +93,7 @@ layer in the middle, and output publishing is handled by sinks.
 | Read Model | `app/read_model/` | Derived note catalog, relationship edges, lexical search |
 | Retrieval | `app/retrieval/` | Built-in query retrieval orchestration |
 | Maintenance | `app/maintenance/` | Read-model-aware planning and bounded maintenance tasks |
-| Automation | `app/automation/` | Queue discovery/processing, one-shot runner, legacy worker |
+| Automation | `app/automation/` | Queue discovery/processing, one-shot runners, personal-learning preset, legacy worker |
 | Storage | `app/storage/` | Main SQLite schema, repositories, evidence storage policy |
 | Plugins | `app/plugins/` | Local plugin manifest discovery and runtime loading |
 | Models | `app/models/` | Shared source, knowledge, lifecycle, DB, and result models |
@@ -108,6 +108,8 @@ groups are:
 - core setup and status: `setup`, `doctor`, `help`, `status`
 - ingest: `ingest url`, `ingest latest`, `sync-raindrop`, `sync-inbox`
 - knowledge health: `lint`, `rebuild-indexes`, `reset-generated`
+- personal learning outputs: `views rebuild`, `topic-bundle`,
+  `review daily`, `review weekly`
 - vault management: `vault show`, `vault use`
 - backends and connectors: `backend status`, `backend setup`,
   `connect raindrop`
@@ -115,7 +117,7 @@ groups are:
   `automation process-pending`, `automation maintain`,
   `automation run-pending`, `automation status`,
   `automation retry-failed`, `automation list-pending`,
-  `automation generate-scheduler`
+  `automation generate-scheduler`, `automation run-personal-learning`
 
 `epistora query` still exists for the built-in retrieval path, but the preferred
 query path is still direct agent navigation inside the vault.
@@ -129,6 +131,8 @@ query path is still direct agent navigation inside the vault.
   `POST /ingest/raindrop/sync`
 - query: `POST /query`
 - lint: `POST /lint`
+- personal learning outputs: `POST /topic-bundle`, `POST /review/daily`,
+  `POST /review/weekly`, `POST /views/rebuild`
 - automation: `GET /automation/status`, `POST /automation/discover`,
   `POST /automation/process-pending`, `POST /automation/run-pending`,
   `POST /automation/run-sync`, `POST /automation/run-lint`,
@@ -172,8 +176,9 @@ Important configuration groups:
 - extraction behavior: article, YouTube, X, browser fallback, summarize
 - ingest evidence windows: `INGEST_*`
 - queue automation: `AUTOMATION_*`
-- plugin and prompt-pack selection: `EPISTORA_PLUGIN_DIRS`,
-  `EPISTORA_PROMPT_PACK`
+- plugin and prompt selection: `EPISTORA_PLUGIN_DIRS`,
+  `EPISTORA_PROMPT_PACK`, `EPISTORA_PROMPT_PROFILE`,
+  `EPISTORA_PROMPT_USER_OVERRIDE`
 
 `epistora setup` and `epistora vault use` normally point the operational
 database inside the active vault at `VAULT_PATH/.system/epistora.db`, but the
@@ -259,6 +264,8 @@ These are structural hooks, not a full confidence or freshness engine yet.
 
 - `IngestResult`
 - `QueryResult`
+- `TopicBundleResult`
+- `ReviewDigestResult`
 - `LintResult`
 - `LintIssue`
 - `VaultUpdate`
@@ -748,6 +755,15 @@ contain:
 - `raw_capture_path`
 - `raw_capture_kind`
 - `canonical_url` when available
+- `quick_summary`
+- `quick_brief`
+- `best_next_action`
+- `theme_tags`
+- `brief_status`
+- `reading_state`
+- `watch_verdict` and `watch_verdict_reasoning` for video notes
+- `quick_section_guide`, `detailed_sections`, `signal_vs_filler`, and
+  `important_terms` when source analysis provides them
 - lifecycle metadata
 - storage-tier metadata like `raw_storage_tier`, `raw_blob_path`,
   `raw_blob_sha256`
@@ -755,6 +771,10 @@ contain:
 The body is structured for both humans and agents and includes sections like:
 
 - coverage and limits
+- overview / quick brief
+- best next action
+- source-specific watch or read guidance
+- quick section guide and section-by-section detail for richer video notes
 - summary / short summary
 - five-minute read
 - detailed reading note
@@ -789,6 +809,15 @@ not the default output of ordinary query answering.
 - `CONCEPTS.md`
 - `START_HERE.md`
 - `QUERY_PROTOCOL.md`
+- `READING_HOME.md`
+- `VIDEOS.md`
+- `ARTICLES.md`
+- `TOPICS_FEED.md`
+- `DASHBOARD.md`
+
+It also writes the optional Obsidian snippet:
+
+- `.obsidian/snippets/epistora-reader-views.css`
 
 `app/vault/log_updater.py` writes:
 
@@ -818,6 +847,122 @@ When a raw payload exceeds the configured threshold:
 
 This preserves auditability without forcing the hottest visible layer to carry
 the full payload every time.
+
+## Personal Learning Architecture
+
+Personal Learning Mode is a composed preset on top of the normal runtime. It
+does not introduce a parallel compiler path.
+
+It coordinates:
+
+- the `personal_learning` prompt profile
+- brief-first source-note fields on canonical source artifacts
+- deterministic reader views rebuilt from vault metadata
+- topic-bundle generation from a frozen retrieved source set
+- daily and weekly review digest generation
+- queue automation, read-model refresh, and bounded maintenance
+
+The execution-depth modes remain `safe`, `balanced`, and `deep`. The
+`personal_learning` preset chooses the workflow; the mode chooses how much
+enrichment and maintenance to run.
+
+### Brief-First Source Understanding
+
+`SourceArtifact` now carries durable fields used by personal-learning surfaces:
+
+- `quick_brief`
+- `best_next_action`
+- `theme_tags`
+- `brief_status`
+- `watch_verdict` and `watch_verdict_reasoning`
+- `quick_section_guide`
+- `detailed_sections`
+- `signal_vs_filler`
+- `important_terms`
+
+`app/artifacts/builder.py` normalizes these from analysis output and assigns
+`theme_tags` through deterministic rules in `app/utils/theme_tags.py`. The
+markdown sink projects them into source-note frontmatter and top-of-note
+sections.
+
+### Reader Views
+
+Reader views are deterministic projections, not durable knowledge artifacts.
+`epistora views rebuild` calls the same index rebuild path and writes:
+
+- `wiki/indexes/READING_HOME.md`
+- `wiki/indexes/VIDEOS.md`
+- `wiki/indexes/ARTICLES.md`
+- `wiki/indexes/TOPICS_FEED.md`
+
+These pages rank source notes using `brief_status`, `reading_state`,
+`saved_at`/`ingested_at`, source type, and `theme_tags`. They are safe to
+regenerate and are not hand-maintained.
+
+### Topic Bundles
+
+`app/services/topic_bundle_service.py` implements topic learning packets.
+
+Flow:
+
+```text
+topic query
+  -> read-model retrieval context
+  -> filter by source type / date window
+  -> freeze usable source-note set
+  -> topic-bundle prompt
+  -> markdown output under outputs/digests/topic-bundles/
+```
+
+The service saves immutable per-run output with frontmatter recording the query,
+filters, included source paths, topics consulted, source counts, and
+`bundle_status`. If the backend call fails or coverage is sparse, it still
+returns a limited fallback packet.
+
+### Review Digests
+
+`app/services/review_service.py` implements deterministic daily and weekly
+digests.
+
+Daily digests prioritize:
+
+- recent usable source briefs
+- explicit `reading_state` preferences
+- recurring or preferred `theme_tags`
+- at most one older resurfaced item when enough signal exists
+
+Weekly digests prioritize:
+
+- highlights from the ISO week
+- recurring themes
+- topic-bundle candidates
+
+Digests are gated by usefulness thresholds and are written to:
+
+- `outputs/digests/daily/<YYYY-MM-DD>.md`
+- `outputs/digests/weekly/<YYYY-Www>.md`
+
+Review surfacing history is stored in the operational DB so the digest generator
+can avoid repeating the same older notes too aggressively.
+
+### Personal Learning Runner
+
+`app/automation/runner.py::run_personal_learning` is the composed runner behind
+`epistora automation run-personal-learning`.
+
+Current flow:
+
+```text
+discover
+  -> process pending queue items with EPISTORA_PROMPT_PROFILE=personal_learning
+  -> refresh read model
+  -> rebuild reader views
+  -> generate daily and weekly review digests
+  -> optional bounded maintenance
+```
+
+The runner records an automation run with `run_type = personal_learning` and
+returns a structured summary for CLI/API reporting.
 
 ## Query Architecture
 
@@ -1138,6 +1283,8 @@ for the queue-based runner:
 - `artifact_written`
 - `maintenance_completed`
 - `query_answer_saved`
+- `topic_bundle_saved`
+- `review_digest_saved`
 - `scheduled_maintenance_tick`
 
 These are internal hooks for runtime coordination and future integrations, not a
@@ -1158,9 +1305,12 @@ Main tables:
 - `processed_sources`
 - `sync_cursors`
 - `vault_notes`
+- `review_surface_history`
 
 `processed_sources` is the ingest ledger and dedup ledger. `vault_notes` is only
 a lightweight note mapping table, not a replacement for reading the vault.
+`review_surface_history` records notes surfaced in daily/weekly review digests
+so resurfacing can avoid excessive repetition.
 
 ### Queue Tables
 
@@ -1330,6 +1480,42 @@ epistora query / POST /query
   -> relationship expansion
   -> query backend answer
   -> optional save to outputs/answers
+```
+
+### Topic Bundle
+
+```text
+epistora topic-bundle / POST /topic-bundle
+  -> read-model retrieval context
+  -> source filters and usable-brief thresholding
+  -> frozen source set
+  -> topic-bundle prompt or deterministic fallback
+  -> outputs/digests/topic-bundles/<topic>-<timestamp>.md
+  -> topic_bundle_saved event
+```
+
+### Review Digest
+
+```text
+epistora review daily|weekly / POST /review/daily|weekly
+  -> scan source-note metadata
+  -> apply brief-status, reading-state, theme, and history heuristics
+  -> skip if usefulness threshold is not met
+  -> outputs/digests/daily|weekly/<period>.md
+  -> review_surface_history update
+  -> review_digest_saved event
+```
+
+### Personal Learning Preset
+
+```text
+automation run-personal-learning
+  -> discover from configured inbox connector
+  -> process queue with personal_learning prompt profile
+  -> refresh read model
+  -> rebuild reader views
+  -> generate daily and weekly review digests
+  -> optional bounded maintenance
 ```
 
 ### Maintenance

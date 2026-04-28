@@ -1,6 +1,7 @@
 # Markdown Vault Sink
 
-This document describes the Phase 2 refactor that turns markdown vault output into a sink implementation instead of treating the vault writer as the compiler's native output model.
+This document describes the default markdown vault sink. The compiler produces
+canonical artifacts first; the sink owns markdown-vault publishing.
 
 ## What Changed
 
@@ -10,7 +11,7 @@ The relevant boundary is now:
 SourceContent -> ArtifactBundle -> ArtifactSink -> rendered outputs
 ```
 
-For Phase 2, there is only one sink:
+The default sink is:
 
 - [`MarkdownVaultSink`](/Users/joeljacobstephen/Code/projects/epistora/app/sinks/markdown_vault.py)
 
@@ -22,7 +23,7 @@ The default sink construction lives in:
 
 - [`app/sinks/registry.py`](/Users/joeljacobstephen/Code/projects/epistora/app/sinks/registry.py)
 
-## Ownership After Phase 2
+## Ownership
 
 ### Compiler
 
@@ -43,7 +44,8 @@ The markdown sink owns:
 - markdown-vault-specific structure preparation
 - markdown index rebuilding
 
-This is intentionally still the only sink in Phase 2, but it is now behind a sink boundary.
+It is now one sink behind a sink boundary. JSON export can also be enabled as a
+second sink.
 
 ## Compatibility
 
@@ -57,24 +59,17 @@ Current vault behavior and layout are preserved:
 
 [`VaultWriter`](/Users/joeljacobstephen/Code/projects/epistora/app/vault/writer.py) remains as a thin compatibility wrapper around `MarkdownVaultSink` for tests and helper code that still import it directly.
 
-## Why This Matters
+## Current Responsibilities
 
-Phase 1 introduced canonical artifacts.
+The markdown sink also triggers the current vault-side derived work after
+publishing:
 
-Phase 2 makes those artifacts publish through a sink contract instead of being rendered by compiler-aware vault-writing code. That is the architectural step needed before adding:
+- rebuilds `wiki/indexes/` pages, including reader views
+- writes the Obsidian reader-view CSS snippet
+- refreshes the read model for changed paths where possible
 
-- a second sink
-- plugin-owned sinks
-- cleaner compiler publish contracts
+## Current Boundary
 
-## Intentionally Not Done
-
-Phase 2 does not add:
-
-- a second sink
-- sink plugins
-- storage tier redesign
-- read-model redesign
-- prompt/plugin manifest work
-
-Those stay in later phases.
+The markdown sink still renders through the existing templates and compatibility
+adapters. Direct artifact-to-markdown rendering is a future cleanup, not a
+current requirement.

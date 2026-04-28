@@ -12,7 +12,10 @@ If you want to change how ingestion writes wiki material, start here:
 Other workflows:
 
 - `[system_role.md](./system_role.md)`: shared system prompt
-- `[query/query.md](./query/query.md)`: deprecated query workflow prompt
+- `[query/query.md](./query/query.md)`: built-in read-model query workflow prompt
+- `[topic/topic_bundle.md](./topic/topic_bundle.md)`: topic learning packet prompt
+- `[profiles/personal_learning/](./profiles/personal_learning/)`: personal-learning
+  profile guidance for ingest and topic bundles
 - `[lint/lint_analysis.md](./lint/lint_analysis.md)`: vault lint prompt
 
 ## Source-specific overrides
@@ -28,6 +31,12 @@ If you want a completely different ingest prompt for one source type, create one
 Epistora will use the source-specific file when it exists, and fall back to
 `prompts/ingest/source_analysis.md` otherwise.
 
+## Prompt profiles
+
+Set `EPISTORA_PROMPT_PROFILE=personal_learning` to add the built-in
+personal-learning profile layers. The composed personal-learning automation
+runner sets this profile while it processes queued items.
+
 ## Custom prompt directory
 
 If you want prompts to live somewhere else entirely, set:
@@ -35,4 +44,3 @@ If you want prompts to live somewhere else entirely, set:
 ```bash
 export EPISTORA_PROMPTS_DIR=/absolute/path/to/prompts
 ```
-

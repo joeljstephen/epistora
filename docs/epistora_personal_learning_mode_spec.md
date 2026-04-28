@@ -2,7 +2,9 @@
 
 ## Status
 
-Draft v2, implementation-ready
+Implemented baseline. This document remains the product and architecture
+reference for Personal Learning Mode; `docs/ARCHITECTURE.md` is the canonical
+description of the current code-level architecture.
 
 ## Purpose
 
@@ -25,7 +27,7 @@ without re-litigating the design on every feature.
 
 ## 1. Product Objective
 
-Build a preset on top of the current v2 architecture that is optimized for:
+Build a preset on top of the current compiler architecture that is optimized for:
 
 - **Raindrop** as the default inbox
 - **Markdown vault / Obsidian** as the main human-facing sink
@@ -150,14 +152,15 @@ For personal learning mode:
 - behavioral personalization from click history
 - advanced spaced-repetition or forgetting models
 - arbitrary user editing and round-trip preservation of generated note bodies
-- making topic pages the center of the phase-1 experience
+- making topic pages the center of the first personal-learning experience
 - redesigning the canonical artifact model around one sink or one user persona
 
 ---
 
 ## 4. Architecture Mapping
 
-Personal learning mode must fit the current v2 seams.
+Personal learning mode must fit the current compiler, artifact, sink, and
+automation seams.
 
 ### 4.1 Prompt-pack responsibility
 
@@ -850,13 +853,14 @@ Do not expose internal orchestration steps as a wide public contract.
 
 ---
 
-## 14. Implementation Sequence
+## 14. Implementation Status
 
-Implementation order is part of the design.
+The first four implementation areas below are implemented in the current codebase. The final
+maintenance/personalization section remains future work.
 
-### Phase 1: Brief Contract
+### Implemented: Brief Contract
 
-Ship first:
+Implemented pieces:
 
 1. source-type-specific prompt profile, especially YouTube
 2. source-type-specific renderer profile
@@ -864,18 +868,18 @@ Ship first:
 4. deterministic theme-tag mapping
 5. `brief_status` and degradation handling
 
-### Phase 2: Topic Bundle
+### Implemented: Topic Bundle
 
-Ship next:
+Implemented pieces:
 
 1. `epistora topic-bundle`
 2. frozen source-set selection
 3. normal vs limited bundle behavior
 4. report rendering and output writing
 
-### Phase 3: Reader Views
+### Implemented: Reader Views
 
-Ship next:
+Implemented pieces:
 
 1. `epistora views rebuild`
 2. `READING_HOME`
@@ -883,16 +887,16 @@ Ship next:
 4. `ARTICLES`
 5. `TOPICS_FEED`
 
-### Phase 4: Review Digests
+### Implemented: Review Digests
 
-Ship next:
+Implemented pieces:
 
 1. daily digest generation
 2. weekly digest generation
 3. anti-repetition state
 4. simple resurfacing heuristic
 
-### Phase 5: Smarter Maintenance Later
+### Deferred: Smarter Maintenance Later
 
 Possible future work:
 
@@ -974,7 +978,7 @@ junk.
 
 ## 17. Success Metric
 
-Evaluate this phase primarily by whether it **reduces attention friction** for
+Evaluate this mode primarily by whether it **reduces attention friction** for
 saved content.
 
 The success question is:

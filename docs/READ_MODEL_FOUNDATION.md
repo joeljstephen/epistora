@@ -1,6 +1,6 @@
 # Read Model Foundation
 
-This document describes the v2 read-model retrieval foundation.
+This document describes the current read-model retrieval foundation.
 
 ## Role
 
@@ -84,7 +84,7 @@ The read-model store now provides the retrieval/query substrate for:
 
 ## Intentionally Not Done
 
-Phase 3 does not add:
+The read model intentionally does not add:
 
 - a graph database
 - vector retrieval

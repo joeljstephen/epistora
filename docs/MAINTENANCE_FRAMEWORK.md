@@ -1,6 +1,6 @@
 # Maintenance Framework
 
-Phase 6 introduces a real maintenance framework under:
+Epistora has a bounded maintenance framework under:
 
 - [`app/maintenance/planner.py`](/Users/joeljacobstephen/Code/projects/epistora/app/maintenance/planner.py)
 - [`app/maintenance/service.py`](/Users/joeljacobstephen/Code/projects/epistora/app/maintenance/service.py)
@@ -17,8 +17,7 @@ Epistora now has explicit first-pass maintenance classes:
 
 ## Task Contract
 
-The v2 pre-release hardening pass stabilizes maintenance around one bounded task
-set:
+Maintenance is planned around one bounded task set:
 
 - `artifact_neighborhood_refresh`
 - `structural_repair`
@@ -103,13 +102,15 @@ Queue processing now carries changed note paths forward, and `run_automation(...
 
 ## Event Hooks
 
-The hardening pass also adds a minimal internal event taxonomy in
+The runtime exposes a minimal internal event taxonomy in
 [`app/events.py`](/Users/joeljacobstephen/Code/projects/epistora/app/events.py):
 
 - `source_ingested`
 - `artifact_written`
 - `maintenance_completed`
 - `query_answer_saved`
+- `topic_bundle_saved`
+- `review_digest_saved`
 - `scheduled_maintenance_tick`
 
 These hooks are intentionally small. They are there to support future
@@ -139,7 +140,7 @@ knowledge through `source_type: derived_work`, with bounded kinds such as:
 
 ## Safety Boundaries
 
-Phase 6 keeps maintenance bounded and reviewable:
+Maintenance stays bounded and reviewable:
 
 - hub refresh only updates maintenance-managed sections
 - existing note introductions and unrelated sections are preserved
