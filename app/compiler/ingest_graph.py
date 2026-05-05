@@ -23,11 +23,11 @@ from app.compiler.prompts import (
 )
 from app.connectors.fetchers import fetch_content
 from app.events import EventType, publish
-from app.models.db import ProcessedSource, VaultNoteMapping
+from app.models.db import CatalogSource, ProcessedSource, SourceProviderRef, VaultNoteMapping
 from app.models.results import IngestResult, VaultUpdate
 from app.models.source import SourceContent, SourceItem
 from app.sinks.registry import build_default_sink
-from app.storage.repositories import SourceRepository, VaultNoteRepository
+from app.storage.repositories import SourceCatalogRepository, SourceRepository, VaultNoteRepository
 from app.storage.sqlite import Database
 from app.utils.hashing import url_hash as compute_url_hash
 from app.utils.slugify import slugify
@@ -1051,6 +1051,36 @@ async def _persist_duplicate(state: IngestState) -> dict:
                 status="completed",
             )
         )
+        catalog_repo = SourceCatalogRepository(db)
+        catalog = catalog_repo.upsert_source(
+            CatalogSource(
+                url=content.source.url,
+                url_hash=content.url_hash or compute_url_hash(content.source.url),
+                content_hash=content.content_hash or existing.content_hash,
+                source_type=existing.source_type or content.source.source_type.value,
+                title=content.source.title or existing.title,
+                metadata_status="captured",
+                content_status="available",
+                brief_status="ready",
+                output_status="published",
+                failure_status="none",
+            )
+        )
+        if content.source.inbox_provider:
+            catalog_repo.attach_provider_ref(
+                SourceProviderRef(
+                    source_uid=catalog.uid,
+                    provider=content.source.inbox_provider,
+                    external_id=content.source.external_id,
+                    external_url=content.source.url,
+                    saved_at=content.source.saved_at,
+                    title=content.source.title or existing.title,
+                    metadata=content.source.provider_metadata,
+                    raw_json=content.source.provider_metadata,
+                )
+            )
+        if content.source.tags:
+            catalog_repo.sync_tags(catalog.uid, content.source.tags, origin="provider")
 
         append_ingest_log(vault_path, result)
         publish(
@@ -1084,6 +1114,7 @@ async def _persist_state(state: IngestState) -> dict:
     artifacts = state["artifacts"]
 
     source_repo = SourceRepository(db)
+    catalog_repo = SourceCatalogRepository(db)
     note_repo = VaultNoteRepository(db)
 
     source_note_path = ""
@@ -1109,6 +1140,39 @@ async def _persist_state(state: IngestState) -> dict:
             status="completed",
         )
     )
+    catalog = catalog_repo.upsert_source(
+        CatalogSource(
+            url=content.source.url,
+            url_hash=content.url_hash or compute_url_hash(content.source.url),
+            canonical_url=content.canonical_url,
+            content_hash=content.content_hash or "",
+            source_type=content.source.source_type.value,
+            title=content.source.title or content.source.url,
+            author=content.author,
+            published_date=content.published_date,
+            metadata_status="captured",
+            content_status="available",
+            brief_status="ready",
+            output_status="published",
+            failure_status="none",
+            last_failure_reason="",
+        )
+    )
+    if content.source.inbox_provider:
+        catalog_repo.attach_provider_ref(
+            SourceProviderRef(
+                source_uid=catalog.uid,
+                provider=content.source.inbox_provider,
+                external_id=content.source.external_id,
+                external_url=content.source.url,
+                saved_at=content.source.saved_at,
+                title=content.source.title or content.source.url,
+                metadata=content.source.provider_metadata,
+                raw_json=content.source.provider_metadata,
+            )
+        )
+    if content.source.tags:
+        catalog_repo.sync_tags(catalog.uid, content.source.tags, origin="provider")
 
     for update in updates:
         if update.note_type in ("source", "topic", "entity", "concept", "synthesis"):

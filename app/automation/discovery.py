@@ -11,9 +11,14 @@ from app.automation.models import DiscoverResult, QueuedItem, QueueItemStatus
 from app.automation.queue_store import QueueRepository
 from app.config import get_settings
 from app.connectors.registry import get_inbox_connector
-from app.storage.repositories import SourceRepository, SyncCursorRepository
+from app.models.db import CatalogSource, SourceProviderRef
+from app.storage.repositories import (
+    SourceCatalogRepository,
+    SourceRepository,
+    SyncCursorRepository,
+)
 from app.storage.sqlite import Database
-from app.utils.hashing import url_hash
+from app.utils.hashing import normalize_url, url_hash
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +61,7 @@ async def discover_new_items(
     try:
         cursor_repo = SyncCursorRepository(db)
         source_repo = SourceRepository(db)
+        catalog_repo = SourceCatalogRepository(db)
         queue_repo = QueueRepository(db)
 
         last_cursor = cursor_repo.get(connector.connector_id)
@@ -91,6 +97,46 @@ async def discover_new_items(
 
         for item in items:
             uhash = url_hash(item.url)
+            catalog_source = catalog_repo.upsert_source(
+                CatalogSource(
+                    url=item.url,
+                    normalized_url=normalize_url(item.url),
+                    url_hash=uhash,
+                    source_type=item.source_type.value,
+                    title=item.title,
+                    description=str(item.extra.get("excerpt", "") or ""),
+                    site_name=str(item.extra.get("domain", "") or ""),
+                    saved_at=item.saved_at,
+                    metadata_status="metadata_only",
+                    content_status="not_fetched",
+                    provider_snapshot={
+                        connector.connector_id: {
+                            "external_id": item.external_id,
+                            "saved_at": item.saved_at.isoformat(),
+                            "metadata": item.provider_metadata,
+                        }
+                    },
+                )
+            )
+            catalog_repo.attach_provider_ref(
+                SourceProviderRef(
+                    source_uid=catalog_source.uid,
+                    provider=connector.connector_id,
+                    external_id=item.external_id,
+                    external_url=item.url,
+                    saved_at=item.saved_at,
+                    title=item.title,
+                    metadata=item.provider_metadata,
+                    raw_json={
+                        "url": item.url,
+                        "title": item.title,
+                        "tags": item.tags,
+                        "extra": item.extra,
+                        "provider_metadata": item.provider_metadata,
+                    },
+                )
+            )
+            catalog_repo.sync_tags(catalog_source.uid, item.tags, origin="provider")
 
             # Skip if already in queue (any status)
             existing_queued = queue_repo.find_by_url_hash(uhash)

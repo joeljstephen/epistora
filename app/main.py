@@ -6,17 +6,21 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import Depends, FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.api.auth import require_api_key
 from app.api.routes_automation import router as automation_router
+from app.api.routes_chat import router as chat_router
 from app.api.routes_health import router as health_router
 from app.api.routes_ingest import router as ingest_router
 from app.api.routes_lint import router as lint_router
 from app.api.routes_query import router as query_router
 from app.api.routes_review import router as review_router
+from app.api.routes_studio import router as studio_router
 from app.api.routes_topic_bundle import router as topic_bundle_router
 from app.api.routes_views import router as views_router
-from app.config import get_settings
+from app.config import get_settings, project_root
 from app.dependencies import create_database, get_database
 from app.storage.sqlite import Database
 from app.vault.parser import scan_vault
@@ -45,6 +49,26 @@ app.include_router(topic_bundle_router)
 app.include_router(views_router)
 app.include_router(lint_router)
 app.include_router(automation_router)
+app.include_router(studio_router)
+app.include_router(chat_router)
+
+_studio_static_dir = project_root() / "studio" / "static"
+if _studio_static_dir.exists():
+    _studio_assets_dir = (
+        _studio_static_dir / "assets"
+        if (_studio_static_dir / "assets").exists()
+        else _studio_static_dir
+    )
+    app.mount(
+        "/studio/assets",
+        StaticFiles(directory=_studio_assets_dir),
+        name="studio_assets",
+    )
+
+
+@app.get("/studio", include_in_schema=False)
+async def studio_ui():
+    return FileResponse(_studio_static_dir / "index.html")
 
 
 @app.get("/status", dependencies=[Depends(require_api_key)])

@@ -27,6 +27,9 @@ canonical description of the implemented system.
 
 ## Near-Term Priorities
 
+- Begin the Local Studio foundation described in
+  [`LOCAL_STUDIO_DECISIONS.md`](LOCAL_STUDIO_DECISIONS.md): source catalog,
+  provider refs, source-linked jobs, Studio APIs, and local web UI shell.
 - Improve the brief-first source-note experience for non-YouTube sources.
 - Expand deterministic theme-tag mappings beyond the current small allowed set.
 - Harden personal-learning review thresholds with more real-vault examples.

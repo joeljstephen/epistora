@@ -84,6 +84,7 @@ packages = ["app"]
 include = [
     "knowledge_vault_template/**",
     "prompts/**",
+    "studio/**",
 ]
 
 [tool.hatch.build.targets.sdist]
@@ -96,6 +97,7 @@ include = [
     "knowledge_vault_template/",
     "LICENSE",
     "prompts/",
+    "studio/",
     "README.md",
     "SECURITY.md",
     "pyproject.toml",

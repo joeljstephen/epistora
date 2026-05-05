@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import shutil
+import socket
 from datetime import date
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as package_version
@@ -364,6 +365,59 @@ def status():
     table.add_row("API auth enabled", "yes" if settings.epistora_api_key else "no")
 
     console.print(table)
+
+
+def _find_available_port(host: str, preferred_port: int) -> int:
+    for candidate in range(preferred_port, preferred_port + 50):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(0.2)
+            if sock.connect_ex((host, candidate)) != 0:
+                return candidate
+    raise RuntimeError(f"No available port found near {preferred_port}.")
+
+
+@app.command("studio")
+def studio(
+    host: str = typer.Option("127.0.0.1", "--host", help="Host to bind."),
+    port: int = typer.Option(8765, "--port", "-p", help="Preferred port."),
+    no_open: bool = typer.Option(False, "--no-open", help="Do not open the browser."),
+    unsafe_no_auth: bool = typer.Option(
+        False,
+        "--unsafe-no-auth",
+        help="Allow unauthenticated non-localhost binding.",
+    ),
+):
+    """Start the Local Studio web UI."""
+    import webbrowser
+
+    import uvicorn
+
+    from app.config import get_settings
+
+    settings = get_settings()
+    local_hosts = {"127.0.0.1", "localhost", "::1"}
+    if host not in local_hosts and not settings.epistora_api_key and not unsafe_no_auth:
+        console.print(
+            "[red]Refusing unauthenticated non-localhost Studio binding.[/red] "
+            "Set EPISTORA_API_KEY or pass --unsafe-no-auth."
+        )
+        raise typer.Exit(1)
+
+    try:
+        selected_port = _find_available_port(host, port)
+    except RuntimeError as exc:
+        _print_actionable_error("Studio failed", str(exc))
+        raise typer.Exit(1) from exc
+
+    if selected_port != port:
+        console.print(f"[yellow]Port {port} is busy; using {selected_port}.[/yellow]")
+
+    url = f"http://{host}:{selected_port}/studio"
+    console.print(f"[green]Local Studio:[/green] {url}")
+    if not no_open:
+        webbrowser.open(url)
+
+    uvicorn.run("app.main:app", host=host, port=selected_port, log_level="info")
 
 
 # ---------------------------------------------------------------------------

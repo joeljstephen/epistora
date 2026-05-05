@@ -23,6 +23,7 @@ from app.config import Settings, get_settings
 from app.events import EventType, publish
 from app.storage.sqlite import Database
 from app.utils.dates import utcnow
+from app.utils.hashing import url_hash as compute_url_hash
 
 logger = logging.getLogger(__name__)
 
@@ -271,12 +272,18 @@ async def _process_single_item(
         attempt.finished_at = utcnow()
         attempt.backend_used = result.backend_used
         attempt_repo.insert(attempt)
+        processed_source_id = _mark_catalog_success_for_queue_item(
+            queue_repo=queue_repo,
+            item=item,
+            mode=mode,
+        )
 
         queue_repo.update_status(
             item_id,
             QueueItemStatus.COMPLETED,
             mode=mode,
             backend=result.backend_used,
+            processed_source_id=processed_source_id,
         )
 
         result.success = True
@@ -332,6 +339,11 @@ async def _process_single_item(
                 exc,
             )
 
+        _mark_catalog_failure_for_queue_item(
+            queue_repo=queue_repo,
+            item=item,
+            error=str(exc),
+        )
         return ProcessResult(
             queued_item_id=item_id,
             success=False,
@@ -339,6 +351,61 @@ async def _process_single_item(
             error=str(exc)[:500],
             error_type=failure_type.value,
         )
+
+
+def _mark_catalog_success_for_queue_item(
+    *,
+    queue_repo: QueueRepository,
+    item: QueuedItem,
+    mode: str,
+) -> int | None:
+    from app.storage.repositories import SourceCatalogRepository, SourceRepository
+
+    db = queue_repo._db  # noqa: SLF001 - queue and catalog share the same store.
+    source_repo = SourceRepository(db)
+    processed = source_repo.find_by_url_hash(item.url_hash or compute_url_hash(item.url))
+    catalog_repo = SourceCatalogRepository(db)
+    catalog_source = catalog_repo.find_by_url_hash(item.url_hash or compute_url_hash(item.url))
+    if catalog_source is None:
+        return processed.id if processed else None
+
+    update: dict[str, str | None] = {
+        "metadata_status": "captured",
+        "content_status": "available",
+        "output_status": "published",
+        "failure_status": "none",
+        "last_failure_reason": "",
+        "content_hash": processed.content_hash if processed else None,
+        "title": processed.title if processed and processed.title else None,
+        "source_type": processed.source_type if processed and processed.source_type else None,
+    }
+    if mode == AutomationMode.DEEP:
+        update["brief_status"] = "ready"
+        update["deep_status"] = "compiled"
+    elif mode == AutomationMode.BALANCED:
+        update["brief_status"] = "ready"
+    catalog_repo.update_lifecycle(catalog_source.uid, **update)
+    return processed.id if processed else None
+
+
+def _mark_catalog_failure_for_queue_item(
+    *,
+    queue_repo: QueueRepository,
+    item: QueuedItem,
+    error: str,
+) -> None:
+    from app.storage.repositories import SourceCatalogRepository
+
+    db = queue_repo._db  # noqa: SLF001 - queue and catalog share the same store.
+    catalog_repo = SourceCatalogRepository(db)
+    catalog_source = catalog_repo.find_by_url_hash(item.url_hash or compute_url_hash(item.url))
+    if catalog_source is None:
+        return
+    catalog_repo.update_lifecycle(
+        catalog_source.uid,
+        failure_status="partial",
+        last_failure_reason=error[:500],
+    )
 
 
 async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:

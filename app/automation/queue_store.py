@@ -136,6 +136,13 @@ class QueueRepository:
         ).fetchone()
         return self._row_to_item(row) if row else None
 
+    def get(self, item_id: int) -> QueuedItem | None:
+        """Find a queue item by ID."""
+        row = self._db.conn.execute(
+            "SELECT * FROM queued_items WHERE id = ?", (item_id,)
+        ).fetchone()
+        return self._row_to_item(row) if row else None
+
     def find_by_connector_external(
         self, connector_id: str, external_id: str
     ) -> QueuedItem | None:

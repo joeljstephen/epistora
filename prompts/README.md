@@ -15,7 +15,7 @@ Other workflows:
 - `[query/query.md](./query/query.md)`: built-in read-model query workflow prompt
 - `[topic/topic_bundle.md](./topic/topic_bundle.md)`: topic learning packet prompt
 - `[profiles/personal_learning/](./profiles/personal_learning/)`: personal-learning
-  profile guidance for ingest and topic bundles
+profile guidance for ingest and topic bundles
 - `[lint/lint_analysis.md](./lint/lint_analysis.md)`: vault lint prompt
 
 ## Source-specific overrides
@@ -44,3 +44,4 @@ If you want prompts to live somewhere else entirely, set:
 ```bash
 export EPISTORA_PROMPTS_DIR=/absolute/path/to/prompts
 ```
+

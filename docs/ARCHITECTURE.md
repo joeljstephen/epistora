@@ -10,6 +10,11 @@ vault that is optimized for both humans and filesystem-capable agents.
 The vault remains the durable product. SQLite supports the runtime, but it does
 not replace the vault as the source of truth for knowledge.
 
+The accepted Local Studio direction is recorded in
+[`LOCAL_STUDIO_DECISIONS.md`](LOCAL_STUDIO_DECISIONS.md). That document defines
+the planned source catalog, provider reference model, Studio API boundary,
+frontend packaging approach, and MVP implementation order.
+
 ## Current Runtime Boundary
 
 The current system boundary is:
@@ -23,6 +28,16 @@ SourceItem
        -> JSON export (optional)
   -> read-model refresh from published markdown
 ```
+
+Raindrop discovery also writes metadata-only rows into the SQLite source
+catalog before staging queue work. This catalog is an operational Studio
+foundation; it does not publish markdown notes or replace the completed-source
+ledger.
+
+Catalog snapshots can be exported as JSONL under
+`.system/exports/source_catalog/`. Each line contains one source plus its
+provider refs and normalized tags so metadata-only manual/local rows and
+priority state can be restored if the operational DB is lost.
 
 That is the important current shift: Epistora is no longer "fetch content and
 write markdown directly". The compiler now has an explicit canonical artifact
@@ -137,9 +152,56 @@ query path is still direct agent navigation inside the vault.
   `POST /automation/process-pending`, `POST /automation/run-pending`,
   `POST /automation/run-sync`, `POST /automation/run-lint`,
   `POST /automation/rebuild-indexes`
+- Local Studio UI: `GET /studio`, assets under `GET /studio/assets/*`
+- Local Studio API: `GET /studio/sources` (with `q`, `metadata_only`,
+  `source_type`, `display_state`, `provider`, `tag` filters),
+  `GET /studio/sources/{source_uid}`,
+  `GET /studio/sources/{source_uid}/reader` (compiled note + raw capture +
+  parsed frontmatter),
+  `POST /studio/sources/manual`,
+  `POST /studio/sources/{source_uid}/actions/enqueue`,
+  `GET /studio/jobs` (jobs include `source_title`, `source_url`,
+  `source_type`, and `attempt_count`),
+  `POST /studio/jobs/process-once`,
+  `GET /studio/search` (combined catalog + read-model hits with provenance),
+  `GET /studio/stats` (catalog/queue/note counts),
+  `GET /studio/knowledge/{topic|entity|concept|synthesis}` and
+  `GET /studio/knowledge/note/detail` for read-only browsing,
+  `POST /studio/snapshots/export`, `POST /studio/snapshots/import`
 - read-only status: `GET /status`, `GET /indexes`
 
 Bearer auth is optional and enforced only when `EPISTORA_API_KEY` is set.
+
+The Studio routes are source-catalog-first. Source list/search includes
+metadata-only rows from `sources`; source detail returns catalog lifecycle,
+provider refs, normalized tags, and latest source-linked processing jobs.
+Manual URL add creates or updates a metadata-only catalog row and a `manual`
+provider ref, but does not fetch content, write vault notes, publish sinks, or
+deep process unless an explicit enqueue action is included.
+
+The Studio UI is a React + Vite frontend under `studio/`, with production
+assets built into `studio/static/` for FastAPI serving. It preserves the
+editorial parchment palette with serif typography (EB Garamond / Cormorant
+Garamond) and is reader-first. The UI offers four nav clusters:
+
+- Library sections: All sources, Articles, Videos / YouTube, Threads,
+  Documents, Metadata only, Brief ready, Deep compiled, Needs attention.
+  Each section is a filter over `GET /studio/sources`.
+- Source detail with reader tabs: Compiled note, Raw capture, Metadata, Jobs.
+  Source actions (Capture / Brief / Deep / Refresh) sit in a restrained
+  toolbar and reuse `POST /studio/sources/{uid}/actions/enqueue`.
+- Knowledge browse: Topics, Entities, Concepts, Synthesis. Read-only over the
+  read model, with a vault-scan fallback when the read model is empty.
+- Workspace: combined Search, Queue, Settings.
+
+The Studio frontend is intentionally not bound to JSON export shape. Reader
+content is delivered as parsed frontmatter, body text, and the original
+markdown so the UI can render compiled notes and raw captures without coupling
+to durable artifact serialization.
+
+`epistora studio` starts the FastAPI app on `127.0.0.1` by default, chooses a
+nearby free port when the preferred port is busy, serves the packaged static
+Studio assets, and opens the browser unless `--no-open` is passed.
 
 ### Automation Runtimes
 
@@ -150,6 +212,14 @@ Epistora currently has two unattended execution styles:
 
 The queue-based runner is the recommended path and the one reflected by current
 OS scheduler generation helpers.
+
+Local Studio adds a bounded source-linked job runner in
+`app/services/studio_service.py`. It processes queued `processing_jobs` once,
+maps Studio actions to existing modes (`capture`/`refresh` -> safe, `brief` ->
+balanced, `deep_compile` -> deep), and reuses `queued_items` processing for
+capture/enrichment compatibility. Job status, attempts, errors, timestamps,
+queued item links, processed source links, and source lifecycle fields are
+updated after each run. Studio does not own a persistent background worker.
 
 ## Configuration Model
 
@@ -257,6 +327,25 @@ artifacts:
 - `reinforcement_count`
 
 These are structural hooks, not a full confidence or freshness engine yet.
+
+### Source Catalog Foundation
+
+`app/models/db.py` and `app/storage/repositories.py` now include the first
+Local Studio source catalog layer:
+
+- `sources`: stable opaque source UIDs, URL/content hashes, lifecycle status
+  dimensions, tag/provider snapshots, and persisted priority scores.
+- `source_provider_refs`: provider sightings such as Raindrop IDs and metadata.
+- `source_tags`: normalized tags with origins (`provider`, `user`, `system`,
+  or `theme`).
+- `processing_jobs` and `processing_attempts`: source-linked work records for
+  future Studio actions.
+- `usage_events`: explicit accounting records for future budget views.
+
+The existing `queued_items`, `item_attempts`, and `processed_sources` tables
+remain in place for current automation and ingest compatibility. Metadata-only
+catalog imports are separate from safe-mode capture and do not fetch content or
+create vault notes by default.
 
 ### Result Models
 
