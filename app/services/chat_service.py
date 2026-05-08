@@ -77,6 +77,14 @@ by name when referencing them. Be thorough but concise.
 When you use tools to search or read, explain what you're finding as you go.
 """
 
+CLI_CHAT_OUTPUT_PROMPT = """You are running behind a chat UI. Return only the final
+user-facing answer.
+Do not include shell commands, command output, file listings, SQL, database schemas,
+debug traces, raw table dumps, file paths as standalone evidence, or '(no output)'.
+Use the context provided in the prompt. If the context is insufficient, say what is
+missing briefly instead of probing the filesystem.
+"""
+
 CHAT_BACKEND_ORDER = ["api", "opencode", "claude_code", "codex"]
 DEFAULT_CHAT_MODEL = "gpt-4o-mini"
 RAW_CAPTURE_MAX_CHARS = 16_000
@@ -461,12 +469,18 @@ async def _stream_agent_or_cli(
             final_text = f"Broad chat failed: {exc}"
             yield _sse({"type": "error", "errorText": str(exc)})
     else:
-        context = build_retrieval_context(Path(get_settings().vault_path), fallback_prompt)
-        system_prompt = f"{BROAD_SYSTEM_PROMPT}\n\nRetrieved vault context:\n{context.text_context}"
+        context = _broad_cli_context(db, fallback_prompt)
+        system_prompt = (
+            f"{BROAD_SYSTEM_PROMPT}\n\n{CLI_CHAT_OUTPUT_PROMPT}\n\n"
+            f"Read-only context available to answer the user:\n{context}"
+        )
         resp = await _run_cli_or_router(
             db,
             system_prompt=system_prompt,
-            user_prompt=fallback_prompt,
+            user_prompt=(
+                f"{fallback_prompt}\n\n"
+                "Answer from the read-only context above. Return only the final answer."
+            ),
         )
         final_text = _clean_cli_response(resp.text if resp.success else resp.error)
         backend_used = resp.backend_used
@@ -774,7 +788,7 @@ async def _run_cli_or_router(db: Database, *, system_prompt: str, user_prompt: s
             backends[preferred] = preferred_backend
         request = BackendRequest(
             task=TaskName.QUERY,
-            system_prompt=system_prompt,
+            system_prompt=f"{system_prompt}\n\n{CLI_CHAT_OUTPUT_PROMPT}",
             user_prompt=user_prompt,
         )
         ordered = [preferred, *[backend for backend in CHAT_BACKEND_ORDER if backend != preferred]]
@@ -886,29 +900,107 @@ def _message_text(content: Any) -> str:
     return str(content or "")
 
 
+def _broad_cli_context(db: Database, query: str) -> str:
+    settings = get_settings()
+    vault_path = Path(settings.vault_path)
+    sections = [_recent_sources_context(db)]
+    try:
+        retrieval = build_retrieval_context(vault_path, query, limit=8)
+        if retrieval.text_context.strip():
+            sections.append("Relevant vault excerpts:\n" + retrieval.text_context.strip())
+    except Exception:
+        logger.info("Failed to build broad chat retrieval context", exc_info=True)
+    return "\n\n".join(section for section in sections if section.strip())
+
+
+def _recent_sources_context(db: Database, limit: int = 10) -> str:
+    rows = db.conn.execute(
+        """
+        SELECT uid, title, url, source_type, site_name, saved_at, created_at, description,
+               content_status, brief_status, deep_status
+        FROM sources
+        ORDER BY COALESCE(saved_at, created_at) DESC, id DESC
+        LIMIT ?
+        """,
+        (limit,),
+    ).fetchall()
+    if not rows:
+        return "Recent saved sources: none."
+
+    lines = ["Recent saved sources, newest first:"]
+    for row in rows:
+        title = str(row["title"] or row["url"] or "Untitled")
+        source_type = str(row["source_type"] or "source")
+        saved_at = str(row["saved_at"] or row["created_at"] or "")
+        site = str(row["site_name"] or "")
+        url = str(row["url"] or "")
+        status = ", ".join(
+            value
+            for value in (
+                str(row["content_status"] or ""),
+                str(row["brief_status"] or ""),
+                str(row["deep_status"] or ""),
+            )
+            if value
+        )
+        description = _truncate_chars(str(row["description"] or ""), 240)
+        line = f"- {title} ({source_type}, saved {saved_at})"
+        if site:
+            line += f" from {site}"
+        if status:
+            line += f" [{status}]"
+        line += f"\n  URL: {url}"
+        if description:
+            line += f"\n  Description: {description}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 def _clean_cli_response(text: str) -> str:
     """Remove CLI agent trace noise before sending chat output to the UI."""
-    lines = (text or "").splitlines()
+    original = _strip_ansi(text or "")
+    lines = original.splitlines()
     cleaned: list[str] = []
     dropping_command_output = False
+    dropping_noise_block = False
+    dropped_noise = False
 
     for line in lines:
         stripped = line.strip()
         if not stripped:
             dropping_command_output = False
+            dropping_noise_block = False
             if cleaned and cleaned[-1] != "":
                 cleaned.append("")
             continue
         if _looks_like_cli_trace(stripped):
             dropping_command_output = stripped.startswith("$")
+            dropped_noise = True
             continue
-        if dropping_command_output and _looks_like_shell_listing(stripped):
+        if dropping_command_output and _looks_like_command_output(stripped):
+            dropped_noise = True
+            continue
+        if dropping_noise_block:
+            if _looks_like_answer_start(stripped):
+                dropping_noise_block = False
+            else:
+                dropped_noise = True
+                continue
+        if _looks_like_cli_noise(stripped):
+            dropping_noise_block = _starts_noise_block(stripped)
+            dropped_noise = True
             continue
         dropping_command_output = False
         cleaned.append(line)
 
     result = "\n".join(cleaned).strip()
-    return result or text
+    result = _crop_to_answer(result, dropped_noise).strip()
+    result = re.sub(r"\n{3,}", "\n\n", result)
+    return result or "I couldn't produce a clean answer from the selected backend."
+
+
+def _strip_ansi(text: str) -> str:
+    return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "", text)
 
 
 def _looks_like_cli_trace(line: str) -> bool:
@@ -917,7 +1009,12 @@ def _looks_like_cli_trace(line: str) -> bool:
         or line.startswith("✗ ")
         or line.startswith("$ ")
         or line.startswith("⎿ ")
+        or line.startswith("→ ")
     )
+
+
+def _looks_like_command_output(line: str) -> bool:
+    return _looks_like_shell_listing(line) or _looks_like_cli_noise(line)
 
 
 def _looks_like_shell_listing(line: str) -> bool:
@@ -927,6 +1024,90 @@ def _looks_like_shell_listing(line: str) -> bool:
         or line.startswith("-rw")
         or line.startswith("lrwx")
     )
+
+
+def _looks_like_cli_noise(line: str) -> bool:
+    lower = line.lower()
+    if line == "(no output)":
+        return True
+    if line.startswith(("ls: ", "Error: in prepare", "CREATE TABLE ", "CREATE INDEX ")):
+        return True
+    if line.startswith(("SELECT ", "FROM ", "WHERE ", "ORDER BY ")):
+        return True
+    if "no knowledge_vault dir" in lower:
+        return True
+    if "knowledge_vault/" in line or ".system/epistora.db" in line:
+        return True
+    if "haven't been written to disk" in lower:
+        return True
+    if "no such file or directory" in lower:
+        return True
+    if "sqlite_sequence" in line or "processed_sources" in line and "vault_notes" in line:
+        return True
+    if re.fullmatch(r"[\w./-]*app\.db(?:\s+[\w./-]*\.db)+", line):
+        return True
+    if _looks_like_raw_pipe_dump(line):
+        return True
+    return False
+
+
+def _starts_noise_block(line: str) -> bool:
+    return line.startswith(("Error: in prepare", "CREATE TABLE ", "CREATE INDEX ", "SELECT "))
+
+
+def _looks_like_answer_start(line: str) -> bool:
+    return any(
+        re.search(pattern, line, re.IGNORECASE)
+        for pattern in (
+            r"^your most recent save is:?",
+            r"^the most recent save is:?",
+            r"^most recent save:?",
+            r"^based on\b",
+            r"^here(?:'s| is| are)\b",
+            r"^i found\b",
+            r"^summary\b",
+            r"^in short\b",
+            r"^overall\b",
+        )
+    )
+
+
+def _looks_like_raw_pipe_dump(line: str) -> bool:
+    if line.startswith("|"):
+        return False
+    pipe_count = line.count("|")
+    if pipe_count < 3:
+        return False
+    if "http://" in line or "https://" in line or "wiki/" in line or "inbox/" in line:
+        return True
+    if re.match(r"^\d+\|", line):
+        return True
+    return False
+
+
+def _crop_to_answer(text: str, had_noise: bool) -> str:
+    if not had_noise:
+        return text
+    lines = text.splitlines()
+    answer_markers = [
+        re.compile(pattern, re.IGNORECASE)
+        for pattern in (
+            r"^your most recent save is:?",
+            r"^the most recent save is:?",
+            r"^most recent save:?",
+            r"^based on\b",
+            r"^here(?:'s| is| are)\b",
+            r"^i found\b",
+            r"^summary\b",
+            r"^in short\b",
+            r"^overall\b",
+        )
+    ]
+    for idx, line in enumerate(lines):
+        stripped = line.strip()
+        if any(marker.search(stripped) for marker in answer_markers):
+            return "\n".join(lines[idx:])
+    return text
 
 
 def _chunk_text(content: Any) -> str:

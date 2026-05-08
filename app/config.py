@@ -127,6 +127,9 @@ class Settings(BaseSettings):
     raindrop_api_token: str = ""
     raindrop_collection_id: int = 0
 
+    # --- Readwise Reader ---
+    readwise_api_token: str = ""
+
     # --- Vault / DB ---
     vault_path: Path = Field(default=Path("./knowledge_vault"))
     database_url: str = "sqlite:///./data/app.db"

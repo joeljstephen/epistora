@@ -146,6 +146,29 @@ class StudioProcessJobsResponse(BaseModel):
     jobs: list[StudioProcessingJobResponse] = Field(default_factory=list)
 
 
+class StudioReadwiseSyncRequest(BaseModel):
+    limit: int = Field(default=100, ge=1, le=1000)
+    force: bool = False
+    auto_brief_limit: int | None = Field(default=None, ge=1, le=100)
+
+
+class StudioReadwiseSyncResponse(BaseModel):
+    imported_count: int = 0
+    failed_count: int = 0
+    auto_brief_compiled_count: int = 0
+    auto_brief_failed_count: int = 0
+
+
+class StudioPendingBriefRequest(BaseModel):
+    limit: int = Field(default=5, ge=1, le=100)
+    force: bool = False
+
+
+class StudioBriefCompileResponse(BaseModel):
+    compiled_count: int = 0
+    failed_count: int = 0
+
+
 class StudioJobListResponse(BaseModel):
     jobs: list[StudioProcessingJobResponse] = Field(default_factory=list)
 

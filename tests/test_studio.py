@@ -663,3 +663,136 @@ def test_studio_source_list_filters_by_type_via_api(tmp_path, monkeypatch):
             assert titles == ["Article"]
     finally:
         reset_settings()
+
+
+def test_studio_api_can_sync_readwise_with_bounded_auto_brief(tmp_path, monkeypatch):
+    from app.config import reset_settings
+    from app.main import app
+    from app.services.brief_service import BriefCompilationResult, CompiledBriefSource
+    from app.services.readwise_import_service import ReadwiseImportResult
+
+    db_path = tmp_path / "studio.db"
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("VAULT_PATH", str(vault_path))
+    monkeypatch.delenv("EPISTORA_API_KEY", raising=False)
+    reset_settings()
+    try:
+        with patch("app.api.routes_studio.sync_readwise_for_studio") as sync:
+            sync.return_value = ReadwiseImportResult(
+                imported=[
+                    MagicMock(source_uid="src_1", raw_capture_path="raw/articles/one.md"),
+                    MagicMock(source_uid="src_2", raw_capture_path="raw/articles/two.md"),
+                ],
+                failures=["https://example.com/bad: missing content"],
+                auto_brief_result=BriefCompilationResult(
+                    compiled=[
+                        CompiledBriefSource(
+                            source_uid="src_1",
+                            source_note_path="wiki/sources/articles/one.md",
+                            raw_capture_path="raw/articles/one.md",
+                        )
+                    ]
+                ),
+            )
+
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/studio/readwise/sync",
+                    json={"limit": 25, "force": True, "auto_brief_limit": 1},
+                )
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "imported_count": 2,
+            "failed_count": 1,
+            "auto_brief_compiled_count": 1,
+            "auto_brief_failed_count": 0,
+        }
+        sync.assert_awaited_once_with(limit=25, force=True, auto_brief_limit=1)
+    finally:
+        reset_settings()
+
+
+def test_studio_api_can_compile_pending_source_briefs(tmp_path, monkeypatch):
+    from app.config import reset_settings
+    from app.main import app
+    from app.services.brief_service import BriefCompilationResult, CompiledBriefSource
+
+    db_path = tmp_path / "studio.db"
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("VAULT_PATH", str(vault_path))
+    monkeypatch.delenv("EPISTORA_API_KEY", raising=False)
+    reset_settings()
+    try:
+        with patch("app.api.routes_studio.compile_pending_briefs_for_studio") as compile_pending:
+            compile_pending.return_value = BriefCompilationResult(
+                compiled=[
+                    CompiledBriefSource(
+                        source_uid="src_1",
+                        source_note_path="wiki/sources/articles/one.md",
+                        raw_capture_path="raw/articles/one.md",
+                    ),
+                    CompiledBriefSource(
+                        source_uid="src_2",
+                        source_note_path="wiki/sources/articles/two.md",
+                        raw_capture_path="raw/articles/two.md",
+                    ),
+                ],
+                failures=["https://example.com/bad: backend failed"],
+            )
+
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/studio/briefs/pending",
+                    json={"limit": 10, "force": True},
+                )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"compiled_count": 2, "failed_count": 1}
+        compile_pending.assert_awaited_once_with(limit=10, force=True)
+    finally:
+        reset_settings()
+
+
+def test_studio_api_can_brief_one_source(tmp_path, monkeypatch):
+    from app.config import reset_settings
+    from app.main import app
+    from app.services.brief_service import BriefCompilationResult, CompiledBriefSource
+
+    db_path = tmp_path / "studio.db"
+    vault_path = tmp_path / "vault"
+    vault_path.mkdir()
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db_path}")
+    monkeypatch.setenv("VAULT_PATH", str(vault_path))
+    monkeypatch.delenv("EPISTORA_API_KEY", raising=False)
+    reset_settings()
+    try:
+        with patch("app.api.routes_studio.compile_source_brief_for_studio") as compile_source:
+            compile_source.return_value = BriefCompilationResult(
+                compiled=[
+                    CompiledBriefSource(
+                        source_uid="src_1",
+                        source_note_path="wiki/sources/articles/one.md",
+                        raw_capture_path="raw/articles/one.md",
+                    )
+                ]
+            )
+
+            with TestClient(app) as client:
+                resp = client.post(
+                    "/studio/sources/src_1/brief",
+                    json={"force": True},
+                )
+
+        assert resp.status_code == 200
+        assert resp.json() == {"compiled_count": 1, "failed_count": 0}
+        compile_source.assert_awaited_once_with(source_uid="src_1", force=True)
+    finally:
+        reset_settings()

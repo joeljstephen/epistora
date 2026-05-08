@@ -17,7 +17,9 @@ export default defineConfig({
       "/studio/stats": "http://127.0.0.1:8765",
       "/studio/knowledge": "http://127.0.0.1:8765",
       "/studio/snapshots": "http://127.0.0.1:8765",
-      "/status": "http://127.0.0.1:8765"
+      "/studio/chat": "http://127.0.0.1:8765",
+      "/studio/conversations": "http://127.0.0.1:8765",
+      "/status": "http://0.0.0.1:8765"
     }
   }
 });

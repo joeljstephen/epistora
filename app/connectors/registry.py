@@ -8,6 +8,7 @@ from typing import Protocol
 
 from app.config import Settings, get_settings
 from app.connectors.raindrop import RaindropConnector
+from app.connectors.readwise import ReadwiseConnector
 from app.models.source import SourceItem
 from app.plugins.loader import plugin_factories
 
@@ -29,6 +30,10 @@ def build_inbox_connectors(settings: Settings | None = None) -> dict[str, LinkIn
         connectors[RaindropConnector.connector_id] = RaindropConnector(
             api_token=resolved_settings.raindrop_api_token,
             collection_id=resolved_settings.raindrop_collection_id,
+        )
+    if resolved_settings.readwise_api_token:
+        connectors[ReadwiseConnector.connector_id] = ReadwiseConnector(
+            api_token=resolved_settings.readwise_api_token,
         )
 
     for connector_id, factory in plugin_factories("inbox_provider", resolved_settings).items():

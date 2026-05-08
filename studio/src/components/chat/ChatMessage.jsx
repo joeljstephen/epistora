@@ -1,4 +1,5 @@
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 function textFromParts(parts = []) {
   return parts
@@ -22,7 +23,7 @@ function sourceRefsFromPart(part) {
 
 export default function ChatMessage({ message, onOpenSource }) {
   const role = message.role || "assistant";
-  const text = message.content || textFromParts(message.parts);
+  const text = cleanDisplayText(message.content || textFromParts(message.parts));
   const toolParts = (message.parts || []).filter((part) => part.type?.startsWith("tool-"));
   const dataParts = (message.parts || []).filter((part) => part.type === "data-tool-status");
   const persistedToolCalls = message.metadata?.toolCalls || [];
@@ -48,10 +49,82 @@ export default function ChatMessage({ message, onOpenSource }) {
             <span>{call.name}</span>
           </div>
         ))}
-        {text ? <ReactMarkdown>{text}</ReactMarkdown> : null}
+        {text ? (
+          <div className="chat-markdown">
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
+              components={markdownComponents}
+            >
+              {text}
+            </ReactMarkdown>
+          </div>
+        ) : null}
       </div>
     </article>
   );
+}
+
+const markdownComponents = {
+  a({ href, children }) {
+    return (
+      <a href={href} target="_blank" rel="noreferrer">
+        {children}
+      </a>
+    );
+  },
+  h1({ children }) {
+    return <h3>{children}</h3>;
+  },
+  h2({ children }) {
+    return <h3>{children}</h3>;
+  },
+  h3({ children }) {
+    return <h4>{children}</h4>;
+  },
+};
+
+function cleanDisplayText(text = "") {
+  const lines = text.split(/\r?\n/);
+  const cleaned = [];
+  let droppingSql = false;
+
+  for (const line of lines) {
+    const stripped = line.trim();
+    if (!stripped) {
+      droppingSql = false;
+      if (cleaned.length && cleaned[cleaned.length - 1] !== "") cleaned.push("");
+      continue;
+    }
+    if (looksLikeNoise(stripped) || droppingSql) {
+      droppingSql = startsSqlBlock(stripped);
+      continue;
+    }
+    cleaned.push(line);
+  }
+
+  return cleaned.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function looksLikeNoise(line) {
+  if (line === "(no output)") return true;
+  if (line.startsWith("✱ ") || line.startsWith("✗ ") || line.startsWith("$ ") || line.startsWith("→ ")) {
+    return true;
+  }
+  if (line.startsWith("ls: ") || line.includes("no such file or directory")) return true;
+  if (line.includes("knowledge_vault/") || line.includes(".system/epistora.db")) return true;
+  if (line.toLowerCase().includes("haven't been written to disk")) return true;
+  if (line.startsWith("Error: in prepare")) return true;
+  if (startsSqlBlock(line)) return true;
+  if (line.includes("sqlite_sequence")) return true;
+  if (line.includes("processed_sources") && line.includes("vault_notes")) return true;
+  if (!line.startsWith("|") && line.split("|").length >= 4) {
+    return line.includes("http") || line.includes("wiki/") || /^\d+\|/.test(line);
+  }
+  return false;
+}
+
+function startsSqlBlock(line) {
+  return /^(CREATE TABLE|CREATE INDEX|SELECT|FROM|WHERE|ORDER BY)\b/i.test(line);
 }
 
 export function SourceReferenceList({ sources, onOpenSource }) {

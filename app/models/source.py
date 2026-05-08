@@ -32,6 +32,31 @@ class ExtractionQuality(StrEnum):
     FAILED = "failed"
 
 
+class ProviderContentMode(StrEnum):
+    LINK_ONLY = "link_only"
+    EXTRACTED_CONTENT = "extracted_content"
+
+
+class PreExtractedSourceContent(BaseModel):
+    """Provider-supplied evidence captured before Epistora fetches a URL itself."""
+
+    raw_text: str = ""
+    cleaned_text: str = ""
+    archived_markdown: str = ""
+    raw_capture_kind: str = ""
+    author: str = ""
+    published_date: str = ""
+    word_count: int = 0
+    language: str = "en"
+    extraction_quality: str = ExtractionQuality.FULL
+    extraction_method: str = ""
+    extraction_notes: str = ""
+    raw_metadata: dict[str, Any] = Field(default_factory=dict)
+    evidence_metadata: dict[str, Any] = Field(default_factory=dict)
+    canonical_url: str = ""
+    content_hash: str = ""
+
+
 class SourceItem(BaseModel):
     """Metadata about a saved source before content is fetched."""
 
@@ -42,6 +67,8 @@ class SourceItem(BaseModel):
     saved_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     inbox_provider: str = ""
     external_id: str = ""
+    provider_content_mode: ProviderContentMode = ProviderContentMode.LINK_ONLY
+    pre_extracted_content: PreExtractedSourceContent | None = None
     provider_metadata: dict[str, Any] = Field(default_factory=dict)
     extra: dict[str, Any] = Field(default_factory=dict)
     derived_work_kind: str = ""

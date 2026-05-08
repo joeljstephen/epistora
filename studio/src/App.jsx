@@ -58,6 +58,13 @@ const LIBRARY_SECTIONS = {
     filter: () => ({ display_state: "metadata_only" }),
     empty: "Nothing in metadata-only state.",
   },
+  "state-content_available": {
+    title: "Brief pending",
+    subtitle: "Sources with Raw Capture evidence ready for Source Brief compilation.",
+    caption: "Content-ready sources that still need Source Briefs.",
+    filter: () => ({ display_state: "content_available" }),
+    empty: "No content-ready sources are waiting for briefs.",
+  },
   "state-brief_ready": {
     title: "Brief ready",
     subtitle: "Sources with a compiled brief note ready to read.",
@@ -114,6 +121,7 @@ const NAV_GROUPS = [
       ["library:x_thread", "Threads"],
       ["library:pdf", "Documents"],
       ["library:state-metadata_only", "Metadata only"],
+      ["library:state-content_available", "Brief pending"],
       ["library:state-brief_ready", "Brief ready"],
       ["library:state-deep_compiled", "Deep compiled"],
       ["library:state-failed", "Needs attention"],
@@ -650,6 +658,48 @@ export default function App() {
     }
   }
 
+  async function briefSource(uid, force = false) {
+    try {
+      const res = await api(`/studio/sources/${encodeURIComponent(uid)}/brief`, {
+        method: "POST",
+        body: JSON.stringify({ limit: 1, force }),
+      });
+      setMessage({ text: `Compiled ${res.compiled_count}; ${res.failed_count} failed.`, kind: res.failed_count ? "error" : "info" });
+      await openSourceDetail(uid);
+      await loadLibrary();
+    } catch (err) {
+      setMessage({ text: err.message, kind: "error" });
+    }
+  }
+
+  async function syncReadwise(autoBriefLimit = null) {
+    try {
+      const body = autoBriefLimit ? { limit: 100, force: false, auto_brief_limit: autoBriefLimit } : { limit: 100, force: false };
+      const res = await api("/studio/readwise/sync", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const briefText = autoBriefLimit ? ` Briefed ${res.auto_brief_compiled_count}; ${res.auto_brief_failed_count} failed.` : "";
+      setMessage({ text: `Imported ${res.imported_count}; ${res.failed_count} failed.${briefText}`, kind: res.failed_count || res.auto_brief_failed_count ? "error" : "info" });
+      await loadLibrary();
+    } catch (err) {
+      setMessage({ text: err.message, kind: "error" });
+    }
+  }
+
+  async function compilePendingBriefs(limit = 5, force = false) {
+    try {
+      const res = await api("/studio/briefs/pending", {
+        method: "POST",
+        body: JSON.stringify({ limit, force }),
+      });
+      setMessage({ text: `Compiled ${res.compiled_count}; ${res.failed_count} failed.`, kind: res.failed_count ? "error" : "info" });
+      await loadLibrary();
+    } catch (err) {
+      setMessage({ text: err.message, kind: "error" });
+    }
+  }
+
   async function openKnowledgeSection(noteType) {
     const config = KNOWLEDGE_SECTIONS[noteType] || KNOWLEDGE_SECTIONS.topic;
     setView("knowledge");
@@ -862,6 +912,8 @@ export default function App() {
             sources={librarySources}
             activeUid={selectedSourceUid}
             onRefresh={() => loadLibrary()}
+            onSyncReadwise={() => syncReadwise()}
+            onBriefPending={() => compilePendingBriefs(5)}
             onOpen={(uid) => navigate(`source:${uid}`)}
           />
         ) : null}
@@ -875,6 +927,7 @@ export default function App() {
             setReaderMode={setReaderMode}
             onBack={() => navigate(activeLibraryKey ? `library:${activeLibraryKey}` : "library:all")}
             onAction={enqueueAction}
+            onBrief={briefSource}
             onChat={() => setSidebarChatOpen(true)}
           />
         ) : null}
@@ -1029,12 +1082,14 @@ export default function App() {
   );
 }
 
-function LibraryView({ config, loading, sources, activeUid, onRefresh, onOpen }) {
+function LibraryView({ config, loading, sources, activeUid, onRefresh, onSyncReadwise, onBriefPending, onOpen }) {
   return (
     <section className="view is-active" aria-label="Library">
       <div className="library-meta">
         <p className="caption">{config.caption}</p>
         <div className="library-actions">
+          <button className="ghost" type="button" onClick={onSyncReadwise}>Sync Readwise</button>
+          <button className="primary" type="button" onClick={onBriefPending}>Brief 5 pending</button>
           <button className="ghost" type="button" onClick={onRefresh}>Refresh</button>
         </div>
       </div>
@@ -1111,7 +1166,7 @@ function SourcePreview({ preview }) {
   );
 }
 
-function SourceView({ loading, detail, reader, readerMode, setReaderMode, onBack, onAction, onChat }) {
+function SourceView({ loading, detail, reader, readerMode, setReaderMode, onBack, onAction, onBrief, onChat }) {
   if (loading) return <section className="view is-active" aria-label="Source detail"><div className="reader-frame"><Skeleton count={3} /></div></section>;
   if (!detail) return <section className="view is-active" aria-label="Source detail"><div className="empty-state">No source selected.</div></section>;
 
@@ -1134,7 +1189,18 @@ function SourceView({ loading, detail, reader, readerMode, setReaderMode, onBack
           <div className="reader-actions">
             <button type="button" className="primary" onClick={onChat}>Chat</button>
             {["capture", "brief", "deep_compile", "refresh"].map((action) => (
-              <button key={action} type="button" className={action === "refresh" ? "ghost" : ""} onClick={() => onAction(detail.uid, action)}>{label(action)}</button>
+              <button
+                key={action}
+                type="button"
+                className={action === "refresh" ? "ghost" : ""}
+                onClick={() => (
+                  action === "brief"
+                    ? onBrief(detail.uid, detail.brief_status === "ready")
+                    : onAction(detail.uid, action)
+                )}
+              >
+                {action === "brief" && detail.brief_status === "ready" ? "Rebrief" : label(action)}
+              </button>
             ))}
             <a className="tag kind-provider" href={detail.url} target="_blank" rel="noreferrer">Original</a>
           </div>

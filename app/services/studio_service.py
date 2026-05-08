@@ -28,6 +28,12 @@ from app.models.studio import (
     StudioTagResponse,
 )
 from app.read_model.store import ReadModelStore
+from app.services.brief_service import (
+    BriefCompilationResult,
+    compile_pending_source_briefs,
+    compile_source_brief,
+)
+from app.services.readwise_import_service import ReadwiseImportResult, import_readwise_sources
 from app.storage.repositories import SourceCatalogRepository, SourceRepository
 from app.storage.sqlite import Database
 from app.utils.dates import utcnow
@@ -313,6 +319,36 @@ async def process_source_jobs_once(
         return completed
     finally:
         db.close()
+
+
+async def sync_readwise_for_studio(
+    *,
+    limit: int = 100,
+    force: bool = False,
+    auto_brief_limit: int | None = None,
+) -> ReadwiseImportResult:
+    return await import_readwise_sources(
+        limit=limit,
+        force=force,
+        auto_brief=auto_brief_limit is not None,
+        auto_brief_limit=auto_brief_limit,
+    )
+
+
+async def compile_pending_briefs_for_studio(
+    *,
+    limit: int = 5,
+    force: bool = False,
+) -> BriefCompilationResult:
+    return await compile_pending_source_briefs(limit=limit, force=force)
+
+
+async def compile_source_brief_for_studio(
+    *,
+    source_uid: str,
+    force: bool = False,
+) -> BriefCompilationResult:
+    return await compile_source_brief(source_uid, force=force)
 
 
 async def _process_one_source_job(

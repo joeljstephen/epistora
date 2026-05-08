@@ -11,6 +11,8 @@ from typer.testing import CliRunner
 
 from app.cli.main import app
 from app.models.results import IngestResult
+from app.services.brief_service import BriefCompilationResult, CompiledBriefSource
+from app.services.readwise_import_service import ReadwiseImportedSource, ReadwiseImportResult
 
 runner = CliRunner()
 
@@ -48,6 +50,16 @@ class TestCLIHelp:
         result = runner.invoke(app, ["ingest", "latest", "--help"])
         assert result.exit_code == 0
         assert "connector" in result.output.lower()
+
+    def test_sync_readwise_help(self):
+        result = runner.invoke(app, ["sync-readwise", "--help"])
+        assert result.exit_code == 0
+        assert "auto-brief" in result.output.lower()
+
+    def test_brief_pending_help(self):
+        result = runner.invoke(app, ["brief", "pending", "--help"])
+        assert result.exit_code == 0
+        assert "force" in result.output.lower()
 
     def test_views_help(self):
         result = runner.invoke(app, ["views", "--help"])
@@ -103,6 +115,10 @@ class TestCLIHelp:
 
     def test_connect_raindrop_help(self):
         result = runner.invoke(app, ["connect", "raindrop", "--help"])
+        assert result.exit_code == 0
+
+    def test_connect_readwise_help(self):
+        result = runner.invoke(app, ["connect", "readwise", "--help"])
         assert result.exit_code == 0
 
     def test_version_option(self):
@@ -267,6 +283,143 @@ class TestIngestProgress:
         assert "Starting sync" in result.output
         assert "[1/1] Synced item" in result.output
         assert "1 ingested, 0 skipped, 0 failed" in result.output
+
+    def test_sync_readwise_with_auto_brief_shows_import_and_brief_counts(self):
+        async def fake_import_readwise_sources(
+            *,
+            limit: int = 100,
+            force: bool = False,
+            auto_brief: bool = False,
+            auto_brief_limit: int | None = None,
+            progress_callback=None,
+        ):
+            assert limit == 3
+            assert force is False
+            assert auto_brief is True
+            assert auto_brief_limit == 2
+            if progress_callback:
+                progress_callback("readwise_import_start", {"limit": limit})
+                progress_callback("readwise_import_done", {"imported_count": 3, "failed_count": 0})
+                progress_callback("readwise_auto_brief_start", {"limit": 2})
+                progress_callback(
+                    "readwise_auto_brief_done",
+                    {"compiled_count": 2, "failed_count": 0},
+                )
+            return ReadwiseImportResult(
+                imported=[
+                    ReadwiseImportedSource(
+                        source_uid=f"src_{index}",
+                        url=f"https://example.com/{index}",
+                        raw_capture_path=f"raw/articles/{index}.md",
+                    )
+                    for index in range(3)
+                ],
+                auto_brief_result=BriefCompilationResult(
+                    compiled=[
+                        CompiledBriefSource(
+                            source_uid="src_0",
+                            source_note_path="wiki/sources/articles/0.md",
+                            raw_capture_path="raw/articles/0.md",
+                        ),
+                        CompiledBriefSource(
+                            source_uid="src_1",
+                            source_note_path="wiki/sources/articles/1.md",
+                            raw_capture_path="raw/articles/1.md",
+                        ),
+                    ]
+                ),
+            )
+
+        with patch(
+            "app.services.readwise_import_service.import_readwise_sources",
+            new=fake_import_readwise_sources,
+        ):
+            result = runner.invoke(
+                app,
+                ["sync-readwise", "--limit", "3", "--auto-brief", "--auto-brief-limit", "2"],
+            )
+
+        assert result.exit_code == 0
+        assert "Starting Readwise sync" in result.output
+        assert "3 imported, 0 failed" in result.output
+        assert "2 briefed, 0 brief failures" in result.output
+
+    def test_brief_pending_cli_compiles_limited_pending_sources(self):
+        async def fake_compile_pending_source_briefs(
+            *,
+            limit: int = 5,
+            force: bool = False,
+            progress_callback=None,
+        ):
+            assert limit == 4
+            assert force is False
+            if progress_callback:
+                progress_callback("brief_compile_start", {"limit": limit})
+                progress_callback("brief_compile_done", {"compiled_count": 4, "failed_count": 0})
+            return BriefCompilationResult(
+                compiled=[
+                    CompiledBriefSource(
+                        source_uid=f"src_{index}",
+                        source_note_path=f"wiki/sources/articles/{index}.md",
+                        raw_capture_path=f"raw/articles/{index}.md",
+                    )
+                    for index in range(4)
+                ]
+            )
+
+        with patch(
+            "app.services.brief_service.compile_pending_source_briefs",
+            new=fake_compile_pending_source_briefs,
+        ):
+            result = runner.invoke(app, ["brief", "pending", "--limit", "4"])
+
+        assert result.exit_code == 0
+        assert "Starting Source Brief compilation" in result.output
+        assert "4 briefed, 0 failed" in result.output
+
+    def test_brief_pending_cli_passes_force_rebrief_option(self):
+        async def fake_compile_pending_source_briefs(
+            *,
+            limit: int = 5,
+            force: bool = False,
+            progress_callback=None,
+        ):
+            del progress_callback
+            assert limit == 1
+            assert force is True
+            return BriefCompilationResult(
+                compiled=[
+                    CompiledBriefSource(
+                        source_uid="src_force",
+                        source_note_path="wiki/sources/articles/force.md",
+                        raw_capture_path="raw/articles/force.md",
+                    )
+                ]
+            )
+
+        with patch(
+            "app.services.brief_service.compile_pending_source_briefs",
+            new=fake_compile_pending_source_briefs,
+        ):
+            result = runner.invoke(app, ["brief", "pending", "--limit", "1", "--force"])
+
+        assert result.exit_code == 0
+        assert "1 briefed, 0 failed" in result.output
+
+    def test_sync_readwise_shows_actionable_configuration_hint(self):
+        async def fake_import_readwise_sources(*args, **kwargs):
+            raise ValueError("Readwise authentication failed. Check your READWISE_API_TOKEN.")
+
+        with patch(
+            "app.services.readwise_import_service.import_readwise_sources",
+            new=fake_import_readwise_sources,
+        ):
+            result = runner.invoke(app, ["sync-readwise", "--limit", "1"])
+
+        assert result.exit_code == 1
+        assert "Readwise sync failed" in result.output
+        assert "READWISE_API_TOKEN" in result.output
+        assert "connect readwise" in result.output.lower()
 
     def test_ingest_latest_shows_actionable_error_hint(self):
         async def fake_sync_inbox(*args, **kwargs):

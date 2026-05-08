@@ -126,6 +126,8 @@ def _error_help_lines(message: str) -> list[str]:
         hints.append("Run `epistora connect raindrop` to configure your connector.")
     if "raindrop authentication failed" in text:
         hints.append("Run `epistora connect raindrop` and save a valid token.")
+    if "readwise authentication failed" in text or "readwise_api_token" in text:
+        hints.append("Run `epistora connect readwise` and save a valid token.")
     if "raindrop collection not found" in text:
         hints.append(
             "Check the Raindrop collection ID in your config "
@@ -489,6 +491,14 @@ ingest_app = typer.Typer(
 app.add_typer(ingest_app, name="ingest")
 
 
+brief_app = typer.Typer(
+    name="brief",
+    help="Compile Source Briefs from captured evidence.",
+    add_completion=False,
+)
+app.add_typer(brief_app, name="brief")
+
+
 @ingest_app.command("url")
 def ingest_url(
     url: str = typer.Argument(..., help="URL to ingest"),
@@ -709,6 +719,114 @@ def sync_inbox(
 ):
     """Sync recent items from a configured inbox connector and ingest them."""
     _sync_inbox_impl(connector=connector, limit=limit, force=force, label="sync")
+
+
+@app.command("sync-readwise")
+def sync_readwise(
+    limit: int = typer.Option(25, "--limit", "-n", help="Max Readwise items to import"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Re-import items even if their content was already captured",
+    ),
+    auto_brief: bool = typer.Option(
+        False,
+        "--auto-brief",
+        help="Compile a bounded number of Source Briefs after import",
+    ),
+    auto_brief_limit: int | None = typer.Option(
+        None,
+        "--auto-brief-limit",
+        help="Number of pending Source Briefs to compile after import (default: 5)",
+    ),
+):
+    """Sync Readwise Reader items as raw evidence without mandatory LLM calls."""
+    from app.services.readwise_import_service import import_readwise_sources
+
+    try:
+        console.print(f"[blue]Starting Readwise sync:[/blue] latest {limit} items")
+        with console.status("Importing Readwise items...", spinner="dots") as status:
+
+            def _progress(stage: str, payload: dict[str, Any]) -> None:
+                if stage == "readwise_import_start":
+                    status.update("Importing Readwise items...")
+                elif stage == "readwise_import_done":
+                    imported = int(payload.get("imported_count") or 0)
+                    failed = int(payload.get("failed_count") or 0)
+                    status.update(f"Imported {imported}; {failed} failed.")
+                elif stage == "readwise_auto_brief_start":
+                    status.update(f"Compiling up to {int(payload.get('limit') or 0)} briefs...")
+                elif stage == "readwise_auto_brief_done":
+                    compiled = int(payload.get("compiled_count") or 0)
+                    failed = int(payload.get("failed_count") or 0)
+                    status.update(f"Briefed {compiled}; {failed} failed.")
+
+            result = _run(
+                import_readwise_sources(
+                    limit=limit,
+                    force=force,
+                    auto_brief=auto_brief,
+                    auto_brief_limit=auto_brief_limit,
+                    progress_callback=_progress,
+                )
+            )
+    except Exception as e:
+        _print_actionable_error("Readwise sync failed", str(e))
+        raise typer.Exit(1) from e
+
+    console.print(
+        f"[green]✓ Readwise sync complete:[/green] "
+        f"{result.imported_count} imported, {result.failed_count} failed"
+    )
+    if result.auto_brief_result is not None:
+        console.print(
+            f"[green]✓ Auto-brief complete:[/green] "
+            f"{result.auto_brief_result.compiled_count} briefed, "
+            f"{result.auto_brief_result.failed_count} brief failures"
+        )
+
+
+@brief_app.command("pending")
+def brief_pending(
+    limit: int = typer.Option(5, "--limit", "-n", help="Max pending Source Briefs to compile"),
+    force: bool = typer.Option(
+        False,
+        "--force",
+        help="Re-brief already-ready or failed Sources instead of only pending Sources",
+    ),
+):
+    """Compile pending content-ready Sources into Source Brief notes."""
+    from app.services.brief_service import compile_pending_source_briefs
+
+    try:
+        console.print(f"[blue]Starting Source Brief compilation:[/blue] up to {limit} sources")
+        with console.status("Compiling Source Briefs...", spinner="dots") as status:
+
+            def _progress(stage: str, payload: dict[str, Any]) -> None:
+                if stage == "brief_compile_start":
+                    status.update(
+                        f"Compiling up to {int(payload.get('limit') or limit)} Source Briefs..."
+                    )
+                elif stage == "brief_compile_done":
+                    compiled = int(payload.get("compiled_count") or 0)
+                    failed = int(payload.get("failed_count") or 0)
+                    status.update(f"Compiled {compiled}; {failed} failed.")
+
+            result = _run(
+                compile_pending_source_briefs(
+                    limit=limit,
+                    force=force,
+                    progress_callback=_progress,
+                )
+            )
+    except Exception as e:
+        _print_actionable_error("Brief compilation failed", str(e))
+        raise typer.Exit(1) from e
+
+    console.print(
+        f"[green]✓ Source Brief compilation complete:[/green] "
+        f"{result.compiled_count} briefed, {result.failed_count} failed"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1183,6 +1301,36 @@ def connect_raindrop():
     console.print(
         "  [cyan]epistora automation run-personal-learning[/cyan] — full personal learning run"
     )
+
+
+@connect_app.command("readwise")
+def connect_readwise():
+    """Set up Readwise Reader connection interactively."""
+    from app.cli.setup_wizard import _write_env_file
+    from app.config import preferred_env_file
+
+    console.print("[bold blue]Readwise Reader Connection Setup[/bold blue]\n")
+    console.print(
+        "Epistora imports saved Reader documents from Readwise.\n"
+        "You need a Readwise access token to connect.\n"
+    )
+    console.print("  1. Go to [link=https://readwise.io/access_token]https://readwise.io/access_token[/link]")
+    console.print("  2. Copy your access token")
+    console.print()
+
+    token = typer.prompt("Readwise API token").strip()
+    if not token:
+        console.print("[yellow]No token provided. Aborting.[/yellow]")
+        raise typer.Abort()
+
+    env_path = preferred_env_file()
+    _write_env_file(env_path, {"readwise_api_token": token})
+
+    console.print("\n[green]✓ Readwise configured![/green]")
+    console.print(f"  Token saved to {env_path}")
+    console.print("\nNext steps:")
+    console.print("  [cyan]epistora sync-readwise[/cyan]        — import recent Reader items")
+    console.print("  [cyan]epistora sync-readwise --auto-brief[/cyan] — import and brief a few")
 
 
 # ---------------------------------------------------------------------------

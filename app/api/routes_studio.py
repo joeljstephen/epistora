@@ -8,14 +8,18 @@ from app.api.auth import require_api_key
 from app.config import get_settings
 from app.dependencies import get_database
 from app.models.studio import (
+    StudioBriefCompileResponse,
     StudioEnqueueActionRequest,
     StudioJobListResponse,
     StudioKnowledgeDetailResponse,
     StudioKnowledgeListResponse,
     StudioManualAddRequest,
     StudioManualAddResponse,
-    StudioProcessJobsResponse,
+    StudioPendingBriefRequest,
     StudioProcessingJobResponse,
+    StudioProcessJobsResponse,
+    StudioReadwiseSyncRequest,
+    StudioReadwiseSyncResponse,
     StudioSearchResponse,
     StudioSnapshotExportResponse,
     StudioSnapshotImportRequest,
@@ -27,6 +31,8 @@ from app.models.studio import (
 )
 from app.services.studio_service import (
     KNOWLEDGE_NOTE_TYPES,
+    compile_pending_briefs_for_studio,
+    compile_source_brief_for_studio,
     default_snapshot_path,
     enqueue_source_action,
     get_knowledge_detail,
@@ -39,6 +45,7 @@ from app.services.studio_service import (
     manual_add_url,
     process_source_jobs_once,
     studio_search,
+    sync_readwise_for_studio,
 )
 from app.storage.repositories import SourceCatalogRepository
 from app.storage.sqlite import Database
@@ -174,6 +181,46 @@ async def process_jobs_once(
         succeeded=sum(1 for job in responses if job.status == "completed"),
         failed=sum(1 for job in responses if job.status == "failed"),
         jobs=responses,
+    )
+
+
+@router.post("/readwise/sync", response_model=StudioReadwiseSyncResponse)
+async def sync_readwise(req: StudioReadwiseSyncRequest):
+    result = await sync_readwise_for_studio(
+        limit=req.limit,
+        force=req.force,
+        auto_brief_limit=req.auto_brief_limit,
+    )
+    auto_brief = result.auto_brief_result
+    return StudioReadwiseSyncResponse(
+        imported_count=result.imported_count,
+        failed_count=result.failed_count,
+        auto_brief_compiled_count=auto_brief.compiled_count if auto_brief else 0,
+        auto_brief_failed_count=auto_brief.failed_count if auto_brief else 0,
+    )
+
+
+@router.post("/briefs/pending", response_model=StudioBriefCompileResponse)
+async def compile_pending_briefs(req: StudioPendingBriefRequest):
+    result = await compile_pending_briefs_for_studio(limit=req.limit, force=req.force)
+    return StudioBriefCompileResponse(
+        compiled_count=result.compiled_count,
+        failed_count=result.failed_count,
+    )
+
+
+@router.post("/sources/{source_uid}/brief", response_model=StudioBriefCompileResponse)
+async def compile_source_brief_action(source_uid: str, req: StudioPendingBriefRequest):
+    try:
+        result = await compile_source_brief_for_studio(
+            source_uid=source_uid,
+            force=req.force,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return StudioBriefCompileResponse(
+        compiled_count=result.compiled_count,
+        failed_count=result.failed_count,
     )
 
 
