@@ -68,9 +68,9 @@ async def import_readwise_sources(
     cursor_repo = SyncCursorRepository(db)
     last_cursor = cursor_repo.get(connector.connector_id)
     since = (
-        last_cursor.last_sync_at
-        if last_cursor is not None
-        else datetime(2020, 1, 1, tzinfo=timezone.utc)
+        datetime(2020, 1, 1, tzinfo=timezone.utc)
+        if force or last_cursor is None
+        else last_cursor.last_sync_at
     )
 
     sink = MarkdownVaultSink(

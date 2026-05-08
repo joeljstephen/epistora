@@ -7,6 +7,7 @@ from typing import Any
 
 import httpx
 
+from app.connectors.classifier import classify_url
 from app.models.source import (
     ExtractionQuality,
     PreExtractedSourceContent,
@@ -78,7 +79,7 @@ class ReadwiseConnector:
 def _document_to_source_item(doc: dict[str, Any]) -> SourceItem:
     source_url = str(doc.get("source_url") or doc.get("url") or "")
     title = str(doc.get("title") or source_url)
-    source_type = _source_type(str(doc.get("category") or ""))
+    source_type = _source_type(str(doc.get("category") or ""), source_url)
     html_content = str(doc.get("html_content") or "")
     summary = str(doc.get("summary") or "")
     notes = str(doc.get("notes") or "")
@@ -119,7 +120,11 @@ def _document_to_source_item(doc: dict[str, Any]) -> SourceItem:
     )
 
 
-def _source_type(category: str) -> SourceType:
+def _source_type(category: str, url: str = "") -> SourceType:
+    url_type = classify_url(url) if url else SourceType.GENERIC
+    if url_type in {SourceType.YOUTUBE, SourceType.X_THREAD, SourceType.PDF}:
+        return url_type
+
     normalized = category.strip().lower()
     if normalized == "video":
         return SourceType.YOUTUBE

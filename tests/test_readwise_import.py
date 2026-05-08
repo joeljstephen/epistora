@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from app.backends.models import BackendResponse, BackendType
+from app.models.db import SyncCursor
 from app.models.source import (
     ExtractionQuality,
     PreExtractedSourceContent,
@@ -58,6 +59,37 @@ def test_readwise_connector_maps_reader_documents_to_extracted_sources(respx_moc
     assert items[0].pre_extracted_content is not None
     assert "<article>" in items[0].pre_extracted_content.archived_markdown
     assert items[0].pre_extracted_content.author == "Jane Doe"
+
+
+def test_readwise_connector_classifies_youtube_rss_items_by_url(respx_mock):
+    from app.connectors.readwise import READWISE_READER_API_BASE, ReadwiseConnector
+
+    respx_mock.get(f"{READWISE_READER_API_BASE}/list/").respond(
+        json={
+            "count": 1,
+            "nextPageCursor": None,
+            "results": [
+                {
+                    "id": "doc_video",
+                    "url": "https://readwise.io/read/doc_video",
+                    "source_url": "https://www.youtube.com/shorts/lA69cAMrOOE",
+                    "title": "Building MCP under 60 seconds",
+                    "category": "rss",
+                    "site_name": "YouTube",
+                    "html_content": "Transcript text from Readwise.",
+                }
+            ],
+        }
+    )
+
+    items = ReadwiseConnector(api_token="token").fetch_since(
+        datetime(2026, 5, 1, tzinfo=timezone.utc),
+        limit=1,
+    )
+
+    assert items[0].source_type == SourceType.YOUTUBE
+    assert items[0].pre_extracted_content is not None
+    assert items[0].pre_extracted_content.raw_capture_kind == "readwise_video"
 
 
 def test_readwise_connector_registers_when_token_is_configured():
@@ -204,6 +236,56 @@ async def test_readwise_import_isolates_item_failures(tmp_db, tmp_vault):
     assert failed_sources[0].content_status == "failed"
     assert "pre-extracted content" in failed_sources[0].last_failure_reason
     assert cursor is not None
+
+
+@pytest.mark.asyncio
+async def test_force_readwise_import_ignores_existing_sync_cursor(tmp_db, tmp_vault):
+    from app.services.readwise_import_service import import_readwise_sources
+
+    SyncCursorRepository(tmp_db).upsert(
+        SyncCursor(
+            connector="readwise",
+            last_sync_at=datetime(2026, 5, 8, tzinfo=timezone.utc),
+        )
+    )
+    item = SourceItem(
+        url="https://example.com/force-readwise",
+        title="Force Readwise",
+        source_type=SourceType.ARTICLE,
+        inbox_provider="readwise",
+        external_id="rw_force",
+        provider_content_mode=ProviderContentMode.EXTRACTED_CONTENT,
+        pre_extracted_content=PreExtractedSourceContent(
+            cleaned_text="Force import captured content",
+            raw_capture_kind="readwise_article",
+            extraction_method="readwise",
+        ),
+    )
+    connector = MagicMock()
+    connector.connector_id = "readwise"
+    connector.fetch_since.return_value = [item]
+
+    with (
+        patch("app.services.readwise_import_service.get_settings") as mock_settings,
+        patch(
+            "app.services.readwise_import_service.get_inbox_connector",
+            return_value=connector,
+        ),
+        patch("app.services.readwise_import_service.Database") as MockDB,
+    ):
+        mock_settings.return_value.db_path = tmp_db._path
+        mock_settings.return_value.vault_path = tmp_vault
+        mock_settings.return_value.evidence_blob_dir = ".system/blobs"
+        mock_settings.return_value.evidence_blob_threshold_bytes = 50_000
+        mock_settings.return_value.evidence_blob_preview_chars = 4_000
+        MockDB.return_value = tmp_db
+
+        result = await import_readwise_sources(limit=1, force=True)
+
+    since = connector.fetch_since.call_args.args[0]
+
+    assert result.imported_count == 1
+    assert since == datetime(2020, 1, 1, tzinfo=timezone.utc)
 
 
 @pytest.mark.asyncio

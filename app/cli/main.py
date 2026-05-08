@@ -122,7 +122,9 @@ def _error_help_lines(message: str) -> list[str]:
     text = message.lower()
     hints: list[str] = []
 
-    if "connector" in text and "not configured" in text:
+    if "readwise" in text and "connector" in text and "not configured" in text:
+        hints.append("Run `epistora connect readwise` to configure your connector.")
+    elif "connector" in text and "not configured" in text:
         hints.append("Run `epistora connect raindrop` to configure your connector.")
     if "raindrop authentication failed" in text:
         hints.append("Run `epistora connect raindrop` and save a valid token.")
