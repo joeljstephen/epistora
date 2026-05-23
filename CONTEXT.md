@@ -19,7 +19,7 @@ architecture and will be expanded after the Readwise → Obsidian flow is excell
 | **Source** | A saved link (article, YouTube video, X thread, PDF, etc.) that enters the knowledge pipeline. Has a lifecycle: metadata-only → captured → briefed → deep-compiled. |
 | **SourceType** | The kind of source: `article`, `youtube`, `x_thread`, `pdf`, `generic`, or `derived_work`. |
 | **Source Content** | Normalized extracted evidence after fetch. Includes raw text, cleaned text, archived markdown, and extraction quality metadata. |
-| **Source Brief** | The lean v1 LLM analysis of a source. Evolved in-place from the original 22-field analysis. Produces: quick_brief, best_next_action, consume_recommendation, key_ideas (array), takeaways, important_terms, evidence_limits, plus type-specific fields (watch_verdict for video, read_verdict for articles, thread_summary for threads). |
+| **Source Brief** | The rich v1 LLM analysis of a Source. It is the stable compiler contract between Source Content and Artifact Bundle construction. Produces triage fields, reading fields, evidence fields, topic/entity/concept extraction, evidence limits, and type-specific fields such as watch/read verdicts or thread claims. |
 | **Compiled Note** | The Markdown source note in `wiki/sources/` rendered from the Source Brief. Contains the verdict, overview, key ideas, takeaways, and next actions. |
 | **Raw Capture** | The immutable evidence entrypoint in `raw/`. The original extracted text (article body, transcript, etc.) before LLM analysis. |
 | **Artifact Bundle** | The canonical compiler output: source artifact, topic/entity/concept artifacts, relationship artifacts, and evidence references. |

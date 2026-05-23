@@ -18,6 +18,13 @@ import trafilatura
 from app.config import get_settings
 from app.connectors.fetchers.browser import fetch_rendered_html, is_browser_available
 from app.connectors.fetchers.readability import extract_with_readability
+from app.connectors.fetchers.readable import (
+    ReadableExtractionDraft,
+    apply_metadata_only_fallback,
+    apply_summarize_candidate,
+    assess_draft_weakness,
+    build_source_content,
+)
 from app.connectors.fetchers.summarize_cli import (
     extract_url as summarize_extract_url,
 )
@@ -29,14 +36,11 @@ from app.connectors.fetchers.summarize_cli import (
 )
 from app.models.source import SourceContent, SourceItem
 from app.utils.extraction import (
-    assess_weak_extraction,
     extract_og_metadata,
     normalize_whitespace,
-    prefer_extraction_candidate,
     resolve_canonical_url,
-    score_extraction_quality,
 )
-from app.utils.hashing import content_hash, url_hash
+from app.utils.hashing import url_hash
 from app.utils.http import assert_safe_http_url
 
 logger = logging.getLogger(__name__)
@@ -59,35 +63,39 @@ async def fetch_article(item: SourceItem) -> SourceContent:
     cleaned, markdown_body, author, published, method = _coerce_trafilatura_result(
         _try_trafilatura(html)
     )
-    fallback_chain.append("trafilatura")
+    draft = ReadableExtractionDraft(
+        text=cleaned,
+        markdown=markdown_body,
+        author=author,
+        published_date=published,
+        method=method,
+        canonical_url=canonical,
+        raw_capture_kind="readable_article_markdown",
+        fallback_chain=fallback_chain,
+        notes=notes_parts,
+    )
+    draft.fallback_chain.append("trafilatura")
 
-    if len(cleaned) < 200 and settings.article_use_readability_fallback:
+    if len(draft.text) < 200 and settings.article_use_readability_fallback:
         readability_text, readability_title = extract_with_readability(html)
-        fallback_chain.append("readability")
-        if len(readability_text) > len(cleaned):
-            notes_parts.append(
-                f"Trafilatura yielded {len(cleaned)} chars; "
+        draft.fallback_chain.append("readability")
+        if len(readability_text) > len(draft.text):
+            draft.notes.append(
+                f"Trafilatura yielded {len(draft.text)} chars; "
                 f"readability improved to {len(readability_text)}."
             )
-            cleaned = readability_text
-            markdown_body = _plain_text_to_markdown(readability_text)
-            method = "readability"
+            draft.text = readability_text
+            draft.markdown = _plain_text_to_markdown(readability_text)
+            draft.method = "readability"
             if not item.title and readability_title:
                 item.title = readability_title
 
-    current_quality = score_extraction_quality(
-        cleaned,
-        has_title=bool(item.title or og_meta.get("og_title") or og_meta.get("page_title")),
-        is_metadata_only=(method == "metadata_only"),
-    )
-    weakness = assess_weak_extraction(
-        cleaned,
+    title_hint = item.title or og_meta.get("og_title") or og_meta.get("page_title") or ""
+    weakness = assess_draft_weakness(
+        draft,
         title=item.title or og_meta.get("og_title") or og_meta.get("page_title") or "",
-        extraction_quality=current_quality.value,
         source_kind="article",
-        min_chars=settings.summarize_weak_text_min_chars,
-        min_paragraphs=settings.summarize_weak_paragraph_min_count,
-        x_snippet_max_chars=settings.summarize_weak_x_snippet_max_chars,
+        settings=settings,
     )
 
     if (
@@ -110,44 +118,29 @@ async def fetch_article(item: SourceItem) -> SourceContent:
                 fallback_chain=fallback_chain.copy(),
                 notes_prefix="summarize fallback for article extraction.",
             )
-            if prefer_extraction_candidate(
-                current_text=cleaned,
-                current_quality=current_quality.value,
-                candidate_text=summarize_content.cleaned_text,
-                candidate_quality=summarize_content.extraction_quality,
-            ):
-                notes_parts.append(
-                    "summarize replaced weak local extraction: "
-                    + ", ".join(weakness.reasons)
-                    + "."
-                )
-                cleaned = summarize_content.cleaned_text
-                markdown_body = _coerce_summarize_markdown_body(
-                    summarize_content.archived_markdown,
-                    item.title or summarize_content.source.title,
-                ) or _plain_text_to_markdown(summarize_content.cleaned_text)
-                method = summarize_content.extraction_method
-                author = summarize_content.author or author
-                published = summarize_content.published_date or published
-                canonical = summarize_content.canonical_url or canonical
-            else:
-                notes_parts.append("summarize fallback did not improve article extraction.")
+            apply_summarize_candidate(
+                draft,
+                summarize_content=summarize_content,
+                weakness=weakness,
+                improved_note="summarize replaced weak local extraction",
+                not_improved_note="summarize fallback did not improve article extraction.",
+                markdown=(
+                    _coerce_summarize_markdown_body(
+                        summarize_content.archived_markdown,
+                        item.title or summarize_content.source.title,
+                    )
+                    or _plain_text_to_markdown(summarize_content.cleaned_text)
+                ),
+            )
         else:
-            notes_parts.append(f"summarize fallback failed: {summarize_result.provider_notes}")
+            draft.notes.append(f"summarize fallback failed: {summarize_result.provider_notes}")
 
     if (
-        assess_weak_extraction(
-            cleaned,
-            title=item.title or og_meta.get("og_title") or og_meta.get("page_title") or "",
-            extraction_quality=score_extraction_quality(
-                cleaned,
-                has_title=bool(item.title or og_meta.get("og_title") or og_meta.get("page_title")),
-                is_metadata_only=(method == "metadata_only"),
-            ).value,
+        assess_draft_weakness(
+            draft,
+            title=title_hint,
             source_kind="article",
-            min_chars=settings.summarize_weak_text_min_chars,
-            min_paragraphs=settings.summarize_weak_paragraph_min_count,
-            x_snippet_max_chars=settings.summarize_weak_x_snippet_max_chars,
+            settings=settings,
         ).is_weak
         and settings.article_use_browser_fallback
         and settings.browser_fallback_enabled
@@ -157,73 +150,63 @@ async def fetch_article(item: SourceItem) -> SourceContent:
             item.url, timeout_ms=settings.browser_fallback_timeout_seconds * 1000
         )
         if rendered_html:
-            fallback_chain.append("browser_rendered")
+            draft.fallback_chain.append("browser_rendered")
             browser_text, browser_markdown, browser_method = _extract_best_text(
                 rendered_html,
                 allow_readability=settings.article_use_readability_fallback,
             )
-            if len(browser_text) > len(cleaned):
-                notes_parts.append(
+            if len(browser_text) > len(draft.text):
+                draft.notes.append(
                     f"Browser rendering recovered {len(browser_text)} chars "
-                    f"vs {len(cleaned)} from static."
+                    f"vs {len(draft.text)} from static."
                 )
-                cleaned = browser_text
-                markdown_body = browser_markdown
-                method = f"browser_rendered+{browser_method}"
+                draft.text = browser_text
+                draft.markdown = browser_markdown
+                draft.method = f"browser_rendered+{browser_method}"
 
-    if not cleaned:
-        fallback_chain.append("metadata_only")
-        method = "metadata_only"
-        cleaned = og_meta.get("og_description") or og_meta.get("description") or ""
-        markdown_body = _plain_text_to_markdown(cleaned)
-        notes_parts.append("All extractors failed; using metadata-only content.")
+    if not draft.text:
+        fallback_text = og_meta.get("og_description") or og_meta.get("description") or ""
+        apply_metadata_only_fallback(
+            draft,
+            text=fallback_text,
+            note="All extractors failed; using metadata-only content.",
+        )
+        draft.markdown = _plain_text_to_markdown(fallback_text)
 
-    cleaned = normalize_whitespace(cleaned)
-    if not author:
-        author = og_meta.get("author", "")
+    draft.text = normalize_whitespace(draft.text)
+    if not draft.author:
+        draft.author = og_meta.get("author", "")
     if not item.title:
         item.title = og_meta.get("og_title") or og_meta.get("page_title") or ""
-    if not item.title and cleaned:
-        item.title = cleaned.split("\n")[0][:120]
+    if not item.title and draft.text:
+        item.title = draft.text.split("\n")[0][:120]
     item.title = item.title or item.url
 
-    quality = score_extraction_quality(
-        cleaned,
-        has_title=bool(item.title),
-        is_metadata_only=(method == "metadata_only"),
+    resolved = build_source_content(
+        item=item,
+        raw_text=html[:50000],
+        draft=draft,
+        title=item.title,
     )
-
-    archived_markdown = _build_article_archive_markdown(
+    draft.markdown = _build_article_archive_markdown(
         title=item.title,
         source_url=item.url,
-        canonical_url=canonical,
-        author=author,
-        published=published,
-        extraction_method=method,
-        extraction_quality=quality.value,
-        body_markdown=markdown_body,
-        cleaned_text=cleaned,
+        canonical_url=draft.canonical_url,
+        author=draft.author,
+        published=draft.published_date,
+        extraction_method=draft.method,
+        extraction_quality=resolved.extraction_quality,
+        body_markdown=draft.markdown,
+        cleaned_text=draft.text,
     )
 
-    raw_metadata = {"article_archive_available": bool(archived_markdown), **og_meta}
+    draft.raw_metadata = {"article_archive_available": bool(draft.markdown), **og_meta}
 
-    return SourceContent(
-        source=item,
+    return build_source_content(
+        item=item,
         raw_text=html[:50000],
-        cleaned_text=cleaned,
-        archived_markdown=archived_markdown,
-        raw_capture_kind="readable_article_markdown",
-        author=author,
-        published_date=published,
-        word_count=len(cleaned.split()) if cleaned else 0,
-        extraction_quality=quality.value,
-        extraction_method=method,
-        extraction_fallback_chain=fallback_chain,
-        extraction_notes=" ".join(notes_parts),
-        raw_metadata=raw_metadata,
-        canonical_url=canonical,
-        content_hash=content_hash(cleaned) if cleaned else "",
-        url_hash=url_hash(item.url),
+        draft=draft,
+        title=item.title,
     )
 
 

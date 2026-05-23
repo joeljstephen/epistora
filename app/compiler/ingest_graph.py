@@ -26,6 +26,7 @@ from app.events import EventType, publish
 from app.models.db import CatalogSource, ProcessedSource, SourceProviderRef, VaultNoteMapping
 from app.models.results import IngestResult, VaultUpdate
 from app.models.source import SourceContent, SourceItem
+from app.models.source_lifecycle import brief_published, duplicate_published
 from app.sinks.registry import build_default_sink
 from app.storage.repositories import SourceCatalogRepository, SourceRepository, VaultNoteRepository
 from app.storage.sqlite import Database
@@ -258,7 +259,8 @@ def _derive_detailed_sections(text: str, detailed_reading_note: str) -> str:
     if sections:
         rendered = []
         for label, body in sections[:10]:
-            rendered.append(f"### {label}\n{_section_excerpt(body, max_paragraphs=2, max_chars=700)}")
+            excerpt = _section_excerpt(body, max_paragraphs=2, max_chars=700)
+            rendered.append(f"### {label}\n{excerpt}")
         if rendered:
             return "\n\n".join(rendered)
     return detailed_reading_note
@@ -649,14 +651,14 @@ def _normalize_analysis(analysis: dict[str, Any], *, content: SourceContent) -> 
         brief_status="partial",
     )
 
-    legacy_key_map = {
+    alias_key_map = {
         "key_takeaways": "key_ideas",
         "important_claims": "important_examples",
         "why_matters": "why_it_matters",
     }
-    for old_key, new_key in legacy_key_map.items():
-        if analysis.get(old_key) and not analysis.get(new_key):
-            analysis[new_key] = analysis[old_key]
+    for alias_key, canonical_key in alias_key_map.items():
+        if analysis.get(alias_key) and not analysis.get(canonical_key):
+            analysis[canonical_key] = analysis[alias_key]
 
     normalized = dict(baseline)
     for key in baseline:
@@ -1052,6 +1054,7 @@ async def _persist_duplicate(state: IngestState) -> dict:
             )
         )
         catalog_repo = SourceCatalogRepository(db)
+        duplicate = duplicate_published().updates
         catalog = catalog_repo.upsert_source(
             CatalogSource(
                 url=content.source.url,
@@ -1059,11 +1062,12 @@ async def _persist_duplicate(state: IngestState) -> dict:
                 content_hash=content.content_hash or existing.content_hash,
                 source_type=existing.source_type or content.source.source_type.value,
                 title=content.source.title or existing.title,
-                metadata_status="captured",
-                content_status="available",
-                brief_status="ready",
-                output_status="published",
-                failure_status="none",
+                metadata_status=str(duplicate["metadata_status"]),
+                content_status=str(duplicate["content_status"]),
+                brief_status=str(duplicate["brief_status"]),
+                output_status=str(duplicate["output_status"]),
+                failure_status=str(duplicate["failure_status"]),
+                last_failure_reason=str(duplicate["last_failure_reason"]),
             )
         )
         if content.source.inbox_provider:
@@ -1140,6 +1144,7 @@ async def _persist_state(state: IngestState) -> dict:
             status="completed",
         )
     )
+    published = brief_published(content_hash=content.content_hash or "").updates
     catalog = catalog_repo.upsert_source(
         CatalogSource(
             url=content.source.url,
@@ -1150,12 +1155,12 @@ async def _persist_state(state: IngestState) -> dict:
             title=content.source.title or content.source.url,
             author=content.author,
             published_date=content.published_date,
-            metadata_status="captured",
-            content_status="available",
-            brief_status="ready",
-            output_status="published",
-            failure_status="none",
-            last_failure_reason="",
+            metadata_status=str(published["metadata_status"]),
+            content_status=str(published["content_status"]),
+            brief_status=str(published["brief_status"]),
+            output_status=str(published["output_status"]),
+            failure_status=str(published["failure_status"]),
+            last_failure_reason=str(published["last_failure_reason"]),
         )
     )
     if content.source.inbox_provider:

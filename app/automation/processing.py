@@ -359,6 +359,12 @@ def _mark_catalog_success_for_queue_item(
     item: QueuedItem,
     mode: str,
 ) -> int | None:
+    from app.models.source_lifecycle import (
+        apply_transition,
+        brief_published,
+        capture_published,
+        deep_compiled,
+    )
     from app.storage.repositories import SourceCatalogRepository, SourceRepository
 
     db = queue_repo._db  # noqa: SLF001 - queue and catalog share the same store.
@@ -369,22 +375,21 @@ def _mark_catalog_success_for_queue_item(
     if catalog_source is None:
         return processed.id if processed else None
 
-    update: dict[str, str | None] = {
-        "metadata_status": "captured",
-        "content_status": "available",
-        "output_status": "published",
-        "failure_status": "none",
-        "last_failure_reason": "",
-        "content_hash": processed.content_hash if processed else None,
-        "title": processed.title if processed and processed.title else None,
-        "source_type": processed.source_type if processed and processed.source_type else None,
-    }
     if mode == AutomationMode.DEEP:
-        update["brief_status"] = "ready"
-        update["deep_status"] = "compiled"
+        transition = deep_compiled(
+            content_hash=processed.content_hash if processed else None,
+            title=processed.title if processed and processed.title else None,
+            source_type=processed.source_type if processed and processed.source_type else None,
+        )
     elif mode == AutomationMode.BALANCED:
-        update["brief_status"] = "ready"
-    catalog_repo.update_lifecycle(catalog_source.uid, **update)
+        transition = brief_published(content_hash=processed.content_hash if processed else None)
+    else:
+        transition = capture_published(
+            content_hash=processed.content_hash if processed else None,
+            title=processed.title if processed and processed.title else None,
+            source_type=processed.source_type if processed and processed.source_type else None,
+        )
+    apply_transition(catalog_repo, catalog_source.uid, transition)
     return processed.id if processed else None
 
 
@@ -394,6 +399,7 @@ def _mark_catalog_failure_for_queue_item(
     item: QueuedItem,
     error: str,
 ) -> None:
+    from app.models.source_lifecycle import apply_transition, partial_failure
     from app.storage.repositories import SourceCatalogRepository
 
     db = queue_repo._db  # noqa: SLF001 - queue and catalog share the same store.
@@ -401,11 +407,7 @@ def _mark_catalog_failure_for_queue_item(
     catalog_source = catalog_repo.find_by_url_hash(item.url_hash or compute_url_hash(item.url))
     if catalog_source is None:
         return
-    catalog_repo.update_lifecycle(
-        catalog_source.uid,
-        failure_status="partial",
-        last_failure_reason=error[:500],
-    )
+    apply_transition(catalog_repo, catalog_source.uid, partial_failure(error))
 
 
 async def _process_safe(item: QueuedItem, settings: Settings) -> ProcessResult:

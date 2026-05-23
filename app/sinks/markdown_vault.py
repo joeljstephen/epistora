@@ -7,14 +7,14 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.artifacts.compat import (
-    legacy_concept,
-    legacy_entity,
-    legacy_synthesis,
-    legacy_topic,
-    source_note_payload,
+from app.artifacts.models import (
+    ArtifactBundle,
+    ConceptArtifact,
+    EntityArtifact,
+    SynthesisArtifact,
+    TopicArtifact,
 )
-from app.artifacts.models import ArtifactBundle
+from app.artifacts.vault_payloads import source_note_payload
 from app.events import EventType, publish
 from app.models.knowledge import Concept, Entity, SynthesisNote, Topic
 from app.models.results import VaultUpdate
@@ -106,7 +106,7 @@ class MarkdownVaultSink:
                 key_ideas=source_payload["key_ideas"],
                 detailed_outline=source_payload["detailed_outline"],
                 important_examples=source_payload["important_examples"],
-                actionable_takeaways=source_payload["actionable_takeaways"],
+                actionable_takeaways=source_payload["takeaways"],
                 notable_quotes=source_payload["notable_quotes"],
                 best_for=source_payload["best_for"],
                 consume_recommendation=source_payload["consume_recommendation"],
@@ -119,18 +119,16 @@ class MarkdownVaultSink:
         ]
 
         for topic in bundle.topics:
-            updates.append(self.write_topic(legacy_topic(topic, bundle=bundle), [source.title]))
+            updates.append(self.write_topic_artifact(topic, bundle=bundle))
 
         for entity in bundle.entities:
-            updates.append(self.write_entity(legacy_entity(entity, bundle=bundle), [source.title]))
+            updates.append(self.write_entity_artifact(entity, bundle=bundle))
 
         for concept in bundle.concepts:
-            updates.append(
-                self.write_concept(legacy_concept(concept, bundle=bundle), [source.title])
-            )
+            updates.append(self.write_concept_artifact(concept, bundle=bundle))
 
         for synthesis in bundle.synthesis:
-            updates.append(self.write_synthesis(legacy_synthesis(synthesis)))
+            updates.append(self.write_synthesis_artifact(synthesis))
 
         return updates
 
@@ -255,11 +253,44 @@ class MarkdownVaultSink:
         md = templates.topic_note_md(topic, source_titles)
         return self._write(p, md, "topic")
 
+    def write_topic_artifact(
+        self,
+        topic: TopicArtifact,
+        *,
+        bundle: ArtifactBundle,
+    ) -> VaultUpdate:
+        p = paths.topic_note_path(self.vault_path, topic.slug)
+        if p.exists():
+            return self._update_topic_artifact(p, topic, bundle=bundle)
+        md = templates.topic_artifact_note_md(
+            topic,
+            self._artifact_titles(topic.source_artifact_ids, bundle=bundle),
+            related_concepts=self._artifact_titles(topic.related_concept_ids, bundle=bundle),
+            related_entities=self._artifact_titles(topic.related_entity_ids, bundle=bundle),
+        )
+        return self._write(p, md, "topic")
+
     def write_entity(self, entity: Entity, source_titles: list[str]) -> VaultUpdate:
         p = paths.entity_note_path_for_type(self.vault_path, entity.slug, entity.entity_type)
         if p.exists():
             return self._update_entity(p, entity, source_titles)
         md = templates.entity_note_md(entity, source_titles)
+        return self._write(p, md, "entity")
+
+    def write_entity_artifact(
+        self,
+        entity: EntityArtifact,
+        *,
+        bundle: ArtifactBundle,
+    ) -> VaultUpdate:
+        p = paths.entity_note_path_for_type(self.vault_path, entity.slug, entity.entity_type)
+        if p.exists():
+            return self._update_entity_artifact(p, entity, bundle=bundle)
+        md = templates.entity_artifact_note_md(
+            entity,
+            self._artifact_titles(entity.source_artifact_ids, bundle=bundle),
+            related_concepts=self._artifact_titles(entity.related_concept_ids, bundle=bundle),
+        )
         return self._write(p, md, "entity")
 
     def write_concept(self, concept: Concept, source_titles: list[str]) -> VaultUpdate:
@@ -269,9 +300,30 @@ class MarkdownVaultSink:
         md = templates.concept_note_md(concept, source_titles)
         return self._write(p, md, "concept")
 
+    def write_concept_artifact(
+        self,
+        concept: ConceptArtifact,
+        *,
+        bundle: ArtifactBundle,
+    ) -> VaultUpdate:
+        p = paths.concept_note_path(self.vault_path, concept.slug)
+        if p.exists():
+            return self._update_concept_artifact(p, concept, bundle=bundle)
+        md = templates.concept_artifact_note_md(
+            concept,
+            self._artifact_titles(concept.source_artifact_ids, bundle=bundle),
+            related_concepts=self._artifact_titles(concept.related_concept_ids, bundle=bundle),
+        )
+        return self._write(p, md, "concept")
+
     def write_synthesis(self, note: SynthesisNote) -> VaultUpdate:
         p = paths.synthesis_note_path(self.vault_path, note.slug)
         md = templates.synthesis_note_md(note)
+        return self._write(p, md, "synthesis")
+
+    def write_synthesis_artifact(self, note: SynthesisArtifact) -> VaultUpdate:
+        p = paths.synthesis_note_path(self.vault_path, note.slug)
+        md = templates.synthesis_artifact_note_md(note)
         return self._write(p, md, "synthesis")
 
     def _write(self, path: Path, content: str, note_type: str) -> VaultUpdate:
@@ -311,6 +363,45 @@ class MarkdownVaultSink:
         md = templates.topic_note_md(merged_topic, all_sources, sections=sections)
         return self._write(path, md, "topic")
 
+    def _update_topic_artifact(
+        self,
+        path: Path,
+        topic: TopicArtifact,
+        *,
+        bundle: ArtifactBundle,
+    ) -> VaultUpdate:
+        _, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+        sections = self._extract_sections(body)
+        existing_sources = self._extract_section_list(body, "What I Have Saved")
+        source_titles = self._artifact_titles(topic.source_artifact_ids, bundle=bundle)
+        all_sources = list(dict.fromkeys(existing_sources + source_titles))
+        existing_concepts = self._extract_section_list(body, "Related Concepts")
+        existing_entities = self._extract_section_list(body, "Important Entities")
+        related_concepts = list(
+            dict.fromkeys(
+                existing_concepts
+                + self._artifact_titles(topic.related_concept_ids, bundle=bundle)
+            )
+        )
+        related_entities = list(
+            dict.fromkeys(
+                existing_entities
+                + self._artifact_titles(topic.related_entity_ids, bundle=bundle)
+            )
+        )
+        if topic.summary and not self._clean_section_text(sections.get("Topic Summary", "")):
+            sections["Topic Summary"] = topic.summary
+        sections["Related Concepts"] = self._render_wikilink_list(related_concepts)
+        sections["Important Entities"] = self._render_wikilink_list(related_entities)
+        md = templates.topic_artifact_note_md(
+            topic,
+            all_sources,
+            related_concepts=related_concepts,
+            related_entities=related_entities,
+            sections=sections,
+        )
+        return self._write(path, md, "topic")
+
     def _update_entity(self, path: Path, entity: Entity, source_titles: list[str]) -> VaultUpdate:
         _, body = parse_frontmatter(path.read_text(encoding="utf-8"))
         sections = self._extract_sections(body)
@@ -330,6 +421,36 @@ class MarkdownVaultSink:
             sections["What It Is"] = merged_entity.description
         sections["Related Concepts"] = self._render_wikilink_list(merged_entity.related_concepts)
         md = templates.entity_note_md(merged_entity, all_sources, sections=sections)
+        return self._write(path, md, "entity")
+
+    def _update_entity_artifact(
+        self,
+        path: Path,
+        entity: EntityArtifact,
+        *,
+        bundle: ArtifactBundle,
+    ) -> VaultUpdate:
+        _, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+        sections = self._extract_sections(body)
+        existing_sources = self._extract_section_list(body, "Mentioned In")
+        source_titles = self._artifact_titles(entity.source_artifact_ids, bundle=bundle)
+        all_sources = list(dict.fromkeys(existing_sources + source_titles))
+        existing_concepts = self._extract_section_list(body, "Related Concepts")
+        related_concepts = list(
+            dict.fromkeys(
+                existing_concepts
+                + self._artifact_titles(entity.related_concept_ids, bundle=bundle)
+            )
+        )
+        if entity.summary and not self._clean_section_text(sections.get("What It Is", "")):
+            sections["What It Is"] = entity.summary
+        sections["Related Concepts"] = self._render_wikilink_list(related_concepts)
+        md = templates.entity_artifact_note_md(
+            entity,
+            all_sources,
+            related_concepts=related_concepts,
+            sections=sections,
+        )
         return self._write(path, md, "entity")
 
     def _update_concept(
@@ -354,6 +475,45 @@ class MarkdownVaultSink:
         sections["Related Concepts"] = self._render_wikilink_list(merged_concept.related_concepts)
         md = templates.concept_note_md(merged_concept, all_sources, sections=sections)
         return self._write(path, md, "concept")
+
+    def _update_concept_artifact(
+        self,
+        path: Path,
+        concept: ConceptArtifact,
+        *,
+        bundle: ArtifactBundle,
+    ) -> VaultUpdate:
+        _, body = parse_frontmatter(path.read_text(encoding="utf-8"))
+        sections = self._extract_sections(body)
+        existing_sources = self._extract_section_list(body, "Where It Appears")
+        source_titles = self._artifact_titles(concept.source_artifact_ids, bundle=bundle)
+        all_sources = list(dict.fromkeys(existing_sources + source_titles))
+        existing_related = self._extract_section_list(body, "Related Concepts")
+        related_concepts = list(
+            dict.fromkeys(
+                existing_related
+                + self._artifact_titles(concept.related_concept_ids, bundle=bundle)
+            )
+        )
+        if concept.definition and not self._clean_section_text(sections.get("Definition", "")):
+            sections["Definition"] = concept.definition
+        sections["Related Concepts"] = self._render_wikilink_list(related_concepts)
+        md = templates.concept_artifact_note_md(
+            concept,
+            all_sources,
+            related_concepts=related_concepts,
+            sections=sections,
+        )
+        return self._write(path, md, "concept")
+
+    @staticmethod
+    def _artifact_titles(artifact_ids: list[str], *, bundle: ArtifactBundle) -> list[str]:
+        artifacts = bundle.artifact_index()
+        return [
+            artifacts[artifact_id].title
+            for artifact_id in artifact_ids
+            if artifact_id in artifacts
+        ]
 
     @staticmethod
     def _extract_section_list(body: str, section_heading: str) -> list[str]:

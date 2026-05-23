@@ -47,7 +47,9 @@ def _sample_analysis() -> dict[str, object]:
         "summary": "A source about how agent memory improves long-running workflows.",
         "five_minute_read": "Memory lets agents retain useful state.",
         "detailed_reading_note": "The article compares short-term and durable memory layers.",
-        "best_next_action": "Read the brief first, then open the original if you need the examples.",
+        "best_next_action": (
+            "Read the brief first, then open the original if you need the examples."
+        ),
         "watch_verdict": "",
         "watch_verdict_reasoning": "",
         "quick_section_guide": "",

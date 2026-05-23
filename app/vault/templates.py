@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from app.artifacts.models import (
+    ConceptArtifact,
+    EntityArtifact,
+    SynthesisArtifact,
+    TopicArtifact,
+)
 from app.models.knowledge import Concept, Entity, SynthesisNote, Topic
 from app.models.source import SourceContent
 from app.utils.dates import friendly_date
@@ -504,6 +510,102 @@ def topic_note_md(
     return build_frontmatter_doc(meta, body)
 
 
+def topic_artifact_note_md(
+    topic: TopicArtifact,
+    source_titles: list[str],
+    *,
+    related_concepts: list[str] | None = None,
+    related_entities: list[str] | None = None,
+    sections: dict[str, str] | None = None,
+) -> str:
+    sections = sections or {}
+    related_concepts = related_concepts or []
+    related_entities = related_entities or []
+    topic_summary = topic.summary or "_This topic page will strengthen as more sources accumulate._"
+    recurring_patterns = (
+        "\n".join(f"- {pattern}" for pattern in topic.patterns)
+        if topic.patterns
+        else "_Patterns will be written here as repeated ideas emerge across sources._"
+    )
+    conflicting_viewpoints = (
+        "\n".join(f"- {conflict}" for conflict in topic.conflicts)
+        if topic.conflicts
+        else "_Record disagreements, tensions, or unresolved tradeoffs here._"
+    )
+    gaps = (
+        "\n".join(f"- {gap}" for gap in topic.gaps)
+        if topic.gaps
+        else "_Identify what still feels thin or under-explained._"
+    )
+    suggested_next = "_Add likely next sources or questions to pursue._"
+    meta = {
+        "title": topic.title,
+        "type": "topic",
+        "slug": topic.slug,
+        "updated_at": friendly_date(),
+        "lifecycle": topic.lifecycle.as_frontmatter(),
+    }
+
+    source_list = (
+        "\n".join(f"- {wikilink(title)}" for title in source_titles)
+        if source_titles
+        else "- _No sources yet_"
+    )
+    concept_links = (
+        ", ".join(wikilink(concept) for concept in related_concepts)
+        if related_concepts
+        else "_None yet_"
+    )
+    entity_links = (
+        ", ".join(wikilink(entity) for entity in related_entities)
+        if related_entities
+        else "_None yet_"
+    )
+
+    body = f"""# {topic.title}
+
+## Topic Summary
+
+{sections.get("Topic Summary", topic_summary)}
+
+## What I Have Saved
+
+{source_list}
+
+## Related Concepts
+
+{sections.get("Related Concepts", concept_links)}
+
+## Important Entities
+
+{sections.get("Important Entities", entity_links)}
+
+## Recurring Patterns
+
+{sections.get("Recurring Patterns", recurring_patterns)}
+
+## Conflicting Viewpoints
+
+{sections.get("Conflicting Viewpoints", conflicting_viewpoints)}
+
+## Gaps In My Understanding
+
+{sections.get("Gaps In My Understanding", gaps)}
+
+## Active Questions
+
+{sections.get(
+    "Active Questions",
+    "_Record live questions that should shape future ingest or synthesis._",
+)}
+
+## Suggested Next Reading / Watching
+
+{sections.get("Suggested Next Reading / Watching", suggested_next)}
+"""
+    return build_frontmatter_doc(meta, body)
+
+
 def entity_note_md(
     entity: Entity,
     source_titles: list[str],
@@ -538,6 +640,77 @@ def entity_note_md(
     )
 
     body = f"""# {entity.name}
+
+## What It Is
+
+{sections.get("What It Is", what_it_is)}
+
+## Why It Shows Up In My Vault
+
+{sections.get("Why It Shows Up In My Vault", why_it_shows_up)}
+
+## Recurring Contexts
+
+{sections.get("Recurring Contexts", recurring_contexts)}
+
+## Why It Matters
+
+{sections.get("Why It Matters", why_it_matters)}
+
+## Related Concepts
+
+{sections.get("Related Concepts", concept_links)}
+
+## Mentioned In
+
+{mentions}
+
+## Open Questions
+
+{sections.get("Open Questions", open_questions)}
+"""
+    return build_frontmatter_doc(meta, body)
+
+
+def entity_artifact_note_md(
+    entity: EntityArtifact,
+    source_titles: list[str],
+    *,
+    related_concepts: list[str] | None = None,
+    sections: dict[str, str] | None = None,
+) -> str:
+    sections = sections or {}
+    related_concepts = related_concepts or []
+    what_it_is = entity.summary or f"_{entity.entity_type.title()} referenced in saved sources._"
+    why_it_shows_up = f"Referenced in {len(source_titles)} source(s) in this vault."
+    recurring_contexts = (
+        "\n".join(f"- {context}" for context in entity.contexts)
+        if entity.contexts
+        else "_Capture the recurring roles or contexts this entity appears in._"
+    )
+    why_it_matters = "_State why this entity matters to the wider wiki, not just this source._"
+    open_questions = "_Track ambiguities, missing details, or follow-up questions here._"
+    meta = {
+        "title": entity.title,
+        "type": "entity",
+        "entity_type": entity.entity_type,
+        "slug": entity.slug,
+        "updated_at": friendly_date(),
+        "lifecycle": entity.lifecycle.as_frontmatter(),
+    }
+
+    mentions = (
+        "\n".join(f"- {wikilink(title)}" for title in source_titles)
+        if source_titles
+        else "- _No mentions yet_"
+    )
+    concept_links = (
+        ", ".join(wikilink(concept) for concept in related_concepts)
+        if related_concepts
+        else "_None yet_"
+    )
+
+    body = f"""# {entity.title}
 
 ## What It Is
 
@@ -635,6 +808,81 @@ def concept_note_md(
     return build_frontmatter_doc(meta, body)
 
 
+def concept_artifact_note_md(
+    concept: ConceptArtifact,
+    source_titles: list[str],
+    *,
+    related_concepts: list[str] | None = None,
+    sections: dict[str, str] | None = None,
+) -> str:
+    sections = sections or {}
+    related_concepts = related_concepts or []
+    definition = (
+        concept.definition or "_Definition will be refined as more sources mention this concept._"
+    )
+    examples = (
+        "\n".join(f"- {example}" for example in concept.examples)
+        if concept.examples
+        else "_Examples will be extracted as the vault grows._"
+    )
+    gaps = (
+        "\n".join(f"- {gap}" for gap in concept.gaps)
+        if concept.gaps
+        else "_Capture disagreements, boundary cases, or overloaded meanings here._"
+    )
+    open_questions = "_Track unclear edges, competing definitions, or missing examples._"
+    meta = {
+        "title": concept.title,
+        "type": "concept",
+        "slug": concept.slug,
+        "updated_at": friendly_date(),
+        "lifecycle": concept.lifecycle.as_frontmatter(),
+    }
+
+    sources = (
+        "\n".join(f"- {wikilink(title)}" for title in source_titles)
+        if source_titles
+        else "- _No examples yet_"
+    )
+    related = (
+        ", ".join(wikilink(item) for item in related_concepts)
+        if related_concepts
+        else "_None yet_"
+    )
+
+    body = f"""# {concept.title}
+
+## Definition
+
+{sections.get("Definition", definition)}
+
+## Why It Matters
+
+{sections.get("Why It Matters", "_Explain why this concept keeps showing up in the vault._")}
+
+## Where It Appears
+
+{sources}
+
+## Related Concepts
+
+{sections.get("Related Concepts", related)}
+
+## Examples From Saved Sources
+
+{sections.get("Examples From Saved Sources", examples)}
+
+## Competing Definitions / Edge Cases
+
+{sections.get("Competing Definitions / Edge Cases", gaps)}
+
+## Open Questions
+
+{sections.get("Open Questions", open_questions)}
+"""
+    return build_frontmatter_doc(meta, body)
+
+
 def synthesis_note_md(note: SynthesisNote) -> str:
     meta = {
         "title": note.title,
@@ -671,6 +919,61 @@ def synthesis_note_md(note: SynthesisNote) -> str:
 ## Reusable Takeaways / Next Moves
 
 {note.next_steps or "_No reusable takeaways recorded yet._"}
+"""
+    return build_frontmatter_doc(meta, body)
+
+
+def synthesis_artifact_note_md(note: SynthesisArtifact) -> str:
+    meta = {
+        "title": note.title,
+        "type": "synthesis",
+        "slug": note.slug,
+        "created_at": friendly_date(),
+        "lifecycle": note.lifecycle.as_frontmatter(),
+    }
+
+    basis = (
+        "\n".join(f"- {wikilink(source_id)}" for source_id in note.source_basis_ids)
+        if note.source_basis_ids
+        else "- _No sources_"
+    )
+    patterns = (
+        "\n".join(f"- {pattern}" for pattern in note.patterns)
+        if note.patterns
+        else "_No patterns identified yet._"
+    )
+    disagreements = (
+        "\n".join(f"- {disagreement}" for disagreement in note.disagreements)
+        if note.disagreements
+        else "_No conflicts detected._"
+    )
+    reusable_takeaways = (
+        "\n".join(f"- {takeaway}" for takeaway in note.reusable_takeaways)
+        if note.reusable_takeaways
+        else "_No reusable takeaways recorded yet._"
+    )
+
+    body = f"""# {note.title}
+
+## Durable Claim
+
+{note.summary}
+
+## Source Basis
+
+{basis}
+
+## Cross-Source Patterns
+
+{patterns}
+
+## Conflicts Or Tensions
+
+{disagreements}
+
+## Reusable Takeaways / Next Moves
+
+{reusable_takeaways}
 """
     return build_frontmatter_doc(meta, body)
 

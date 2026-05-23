@@ -12,10 +12,19 @@ from app.models.source_brief import (
 def _base_payload() -> dict:
     return {
         "quick_brief": "A concise orientation.",
+        "summary": "A short summary.",
+        "five_minute_read": "A readable briefing.",
+        "detailed_reading_note": "A detailed note.",
         "best_next_action": "Use the brief first.",
         "consume_recommendation": "Skim",
         "key_ideas": ["One idea"],
+        "detailed_outline": "## Outline\n- One section",
+        "important_examples": ["One example"],
         "takeaways": ["One takeaway"],
+        "notable_quotes": ["One quote"],
+        "best_for": ["One audience"],
+        "why_it_matters": "It helps decide whether to read.",
+        "open_questions": ["One question"],
         "important_terms": ["Term"],
         "topics": ["Topic"],
         "entities": [],
@@ -66,10 +75,19 @@ def test_article_source_brief_requires_article_fields_and_computes_evidence_limi
     brief = validate_source_brief(
         {
             "quick_brief": "A concise orientation to the article.",
+            "summary": "The article argues for brief-first reading.",
+            "five_minute_read": "A readable brief of the argument.",
+            "detailed_reading_note": "A detailed note about the argument.",
             "best_next_action": "Skim the key sections.",
             "consume_recommendation": "Skim",
             "key_ideas": ["The first useful idea."],
+            "detailed_outline": "## Useful Section\n- Practical middle section.",
+            "important_examples": ["A practical workflow example."],
             "takeaways": ["Try the practical recommendation."],
+            "notable_quotes": ["Briefs should support decisions."],
+            "best_for": ["People triaging saved sources."],
+            "why_it_matters": "It prevents wasting time on low-value reading.",
+            "open_questions": ["Whether this applies to all source types."],
             "important_terms": ["Source Brief"],
             "topics": ["Knowledge management"],
             "entities": [{"name": "Readwise", "type": "tool", "description": "Reader app"}],
@@ -131,6 +149,9 @@ def test_source_brief_json_schema_is_type_conditional():
     video_schema = source_brief_json_schema(SourceType.YOUTUBE)
 
     assert "read_verdict" in article_schema["required"]
+    assert "summary" in article_schema["required"]
+    assert "detailed_reading_note" in article_schema["required"]
+    assert "important_examples" in article_schema["required"]
     assert "watch_verdict" not in article_schema["required"]
     assert "watch_verdict" in video_schema["required"]
     assert "read_verdict" not in video_schema["required"]

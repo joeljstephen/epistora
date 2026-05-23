@@ -17,6 +17,7 @@ from app.artifacts.models import (
     SynthesisArtifact,
     TopicArtifact,
 )
+from app.artifacts.source_brief import build_artifact_bundle_from_source_brief
 
 __all__ = [
     "ArtifactBundle",
@@ -29,6 +30,7 @@ __all__ = [
     "TopicArtifact",
     "artifact_id",
     "build_artifact_bundle",
+    "build_artifact_bundle_from_source_brief",
     "canonical_name_key",
     "normalize_markdown_list",
     "resolve_existing_name",

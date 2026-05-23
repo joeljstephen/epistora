@@ -275,14 +275,6 @@ class StudioSnapshotImportResponse(BaseModel):
 
 
 def derive_display_state(source: CatalogSource) -> str:
-    if source.failure_status == "failed":
-        return "failed"
-    if source.deep_status == "compiled":
-        return "deep_compiled"
-    if source.brief_status == "ready":
-        return "brief_ready"
-    if source.content_status == "available":
-        return "content_available"
-    if source.failure_status == "partial":
-        return "failed_partial"
-    return "metadata_only"
+    from app.models.source_lifecycle import derive_display_state as derive
+
+    return derive(source)

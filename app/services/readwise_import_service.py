@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.connectors.registry import get_inbox_connector
 from app.models.db import CatalogSource, SourceProviderRef, SyncCursor
 from app.models.source import ProviderContentMode, SourceContent, SourceItem
+from app.models.source_lifecycle import extracted_content_imported, import_failed
 from app.services.brief_service import BriefCompilationResult, compile_pending_source_briefs
 from app.sinks.markdown_vault import MarkdownVaultSink
 from app.storage.evidence import evidence_storage_policy_from_settings
@@ -161,6 +162,7 @@ def _import_item(
     if existing and existing.content_status == "available" and not force:
         catalog = existing
     else:
+        imported = extracted_content_imported().updates
         catalog = catalog_repo.upsert_source(
             CatalogSource(
                 url=item.url,
@@ -172,12 +174,12 @@ def _import_item(
                 author=content.author,
                 published_date=content.published_date,
                 saved_at=item.saved_at,
-                metadata_status="captured",
-                content_status="available",
-                brief_status="not_started",
-                output_status="not_published",
-                failure_status="none",
-                last_failure_reason="",
+                metadata_status=str(imported["metadata_status"]),
+                content_status=str(imported["content_status"]),
+                brief_status=str(imported["brief_status"]),
+                output_status=str(imported["output_status"]),
+                failure_status=str(imported["failure_status"]),
+                last_failure_reason=str(imported["last_failure_reason"]),
             )
         )
 
@@ -244,6 +246,7 @@ def _record_failure(
     catalog_repo: SourceCatalogRepository,
     error: str,
 ) -> None:
+    failure = import_failed(error).updates
     catalog = catalog_repo.upsert_source(
         CatalogSource(
             url=item.url,
@@ -251,12 +254,12 @@ def _record_failure(
             source_type=item.source_type.value,
             title=item.title or item.url,
             saved_at=item.saved_at,
-            metadata_status="metadata_only",
-            content_status="failed",
-            brief_status="not_started",
-            output_status="not_published",
-            failure_status="failed",
-            last_failure_reason=error[:500],
+            metadata_status=str(failure["metadata_status"]),
+            content_status=str(failure["content_status"]),
+            brief_status=str(failure["brief_status"]),
+            output_status=str(failure["output_status"]),
+            failure_status=str(failure["failure_status"]),
+            last_failure_reason=str(failure["last_failure_reason"]),
         )
     )
     if item.inbox_provider:

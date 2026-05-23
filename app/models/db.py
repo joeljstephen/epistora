@@ -55,6 +55,7 @@ class SourceContentStatus(StrEnum):
 
 class SourceBriefStatus(StrEnum):
     NOT_STARTED = "not_started"
+    PARTIAL = "partial"
     READY = "ready"
     FAILED = "failed"
 

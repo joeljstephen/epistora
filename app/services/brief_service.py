@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
-from app.artifacts.builder import build_artifact_bundle
+from app.artifacts.source_brief import build_artifact_bundle_from_source_brief
 from app.backends.models import TaskName
 from app.compiler.llm import run_structured
 from app.config import get_settings
@@ -21,10 +21,10 @@ from app.models.db import (
 )
 from app.models.source import SourceContent, SourceItem, SourceType
 from app.models.source_brief import (
-    SourceBrief,
     source_brief_json_schema,
     validate_source_brief,
 )
+from app.models.source_lifecycle import apply_transition, brief_failed, brief_published
 from app.sinks.markdown_vault import MarkdownVaultSink
 from app.storage.evidence import evidence_storage_policy_from_settings
 from app.storage.repositories import (
@@ -102,12 +102,7 @@ async def compile_pending_source_briefs(
                 )
             except Exception as exc:
                 logger.warning("Brief compilation failed for %s: %s", source.url, exc)
-                catalog_repo.update_lifecycle(
-                    source.uid,
-                    brief_status="failed",
-                    failure_status="failed",
-                    last_failure_reason=str(exc)[:500],
-                )
+                apply_transition(catalog_repo, source.uid, brief_failed(str(exc)))
                 failures.append(f"{source.url}: {exc}")
 
         _emit_progress(
@@ -161,12 +156,7 @@ async def compile_source_brief(
             )
         except Exception as exc:
             logger.warning("Brief compilation failed for %s: %s", source.url, exc)
-            catalog_repo.update_lifecycle(
-                source.uid,
-                brief_status="failed",
-                failure_status="failed",
-                last_failure_reason=str(exc)[:500],
-            )
+            apply_transition(catalog_repo, source.uid, brief_failed(str(exc)))
             _emit_progress(
                 progress_callback,
                 "brief_compile_done",
@@ -236,8 +226,7 @@ async def _compile_source(
         source_type=content.source.source_type,
         content=content,
     )
-    analysis = _analysis_from_source_brief(brief)
-    bundle = build_artifact_bundle(content=content, slug=slug, analysis=analysis)
+    bundle = build_artifact_bundle_from_source_brief(content=content, slug=slug, brief=brief)
     updates = sink.publish(content=content, bundle=bundle)
 
     source_note_path = ""
@@ -258,14 +247,10 @@ async def _compile_source(
                 )
             )
 
-    catalog_repo.update_lifecycle(
+    apply_transition(
+        catalog_repo,
         source.uid,
-        content_status="available",
-        brief_status="ready",
-        output_status="published",
-        failure_status="none",
-        last_failure_reason="",
-        content_hash=content.content_hash,
+        brief_published(content_hash=content.content_hash),
     )
     source_repo.upsert(
         ProcessedSource(
@@ -337,45 +322,6 @@ def _source_content_from_catalog(
         url_hash=source.url_hash,
     )
     return content, slug, str(raw_path.relative_to(vault_path))
-
-
-def _analysis_from_source_brief(brief: SourceBrief) -> dict[str, object]:
-    evidence_limit_notes = "\n".join(f"- {note}" for note in brief.evidence_limits.notes)
-    return {
-        "_brief_status": "ready",
-        "quick_brief": brief.quick_brief,
-        "summary": brief.quick_brief,
-        "five_minute_read": brief.quick_brief,
-        "detailed_reading_note": brief.quick_brief,
-        "best_next_action": brief.best_next_action,
-        "watch_verdict": str(brief.watch_verdict or ""),
-        "watch_verdict_reasoning": brief.watch_verdict_reasoning,
-        "quick_section_guide": brief.quick_section_guide,
-        "detailed_sections": brief.detailed_sections,
-        "signal_vs_filler": brief.signal_vs_filler,
-        "important_terms": list(brief.important_terms),
-        "key_ideas": list(brief.key_ideas),
-        "detailed_outline": evidence_limit_notes,
-        "important_examples": [],
-        "actionable_takeaways": list(brief.takeaways),
-        "takeaways": list(brief.takeaways),
-        "notable_quotes": [],
-        "best_for": [],
-        "consume_recommendation": _consume_recommendation(brief),
-        "why_it_matters": brief.why_read_or_skip or brief.thread_summary or brief.quick_brief,
-        "open_questions": [],
-        "topics": list(brief.topics),
-        "entities": [entity.model_dump() for entity in brief.entities],
-        "concepts": [concept.model_dump() for concept in brief.concepts],
-    }
-
-
-def _consume_recommendation(brief: SourceBrief) -> str:
-    if brief.read_verdict:
-        return f"{brief.read_verdict}: {brief.consume_recommendation}"
-    if brief.watch_verdict:
-        return f"{brief.watch_verdict}: {brief.consume_recommendation}"
-    return brief.consume_recommendation
 
 
 def _brief_system_prompt(source_type: SourceType) -> str:

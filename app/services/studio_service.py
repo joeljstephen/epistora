@@ -12,6 +12,13 @@ from app.automation.queue_store import ItemAttemptRepository, QueueRepository
 from app.config import Settings, get_settings
 from app.connectors.classifier import classify_url
 from app.models.db import CatalogSource, ProcessingAttempt, ProcessingJob, SourceProviderRef
+from app.models.source_lifecycle import (
+    apply_transition,
+    brief_published,
+    capture_published,
+    deep_compiled,
+    partial_failure,
+)
 from app.models.studio import (
     StudioAction,
     StudioKnowledgeDetailResponse,
@@ -508,27 +515,21 @@ def _mark_source_success(
     if processed_source_id is not None:
         processed = SourceRepository(catalog_repo._db).find_by_id(processed_source_id)  # noqa: SLF001
 
-    common = {
-        "metadata_status": "captured",
-        "content_status": "available",
-        "output_status": "published",
-        "failure_status": "none",
-        "last_failure_reason": "",
-        "content_hash": processed.content_hash if processed else None,
-        "title": processed.title if processed else None,
-        "source_type": processed.source_type if processed else None,
-    }
     if job.task_type == "deep_compile":
-        catalog_repo.update_lifecycle(
-            source_uid,
-            brief_status="ready",
-            deep_status="compiled",
-            **common,
+        transition = deep_compiled(
+            content_hash=processed.content_hash if processed else None,
+            title=processed.title if processed else None,
+            source_type=processed.source_type if processed else None,
         )
     elif job.task_type == "brief":
-        catalog_repo.update_lifecycle(source_uid, brief_status="ready", **common)
+        transition = brief_published(content_hash=processed.content_hash if processed else None)
     else:
-        catalog_repo.update_lifecycle(source_uid, **common)
+        transition = capture_published(
+            content_hash=processed.content_hash if processed else None,
+            title=processed.title if processed else None,
+            source_type=processed.source_type if processed else None,
+        )
+    apply_transition(catalog_repo, source_uid, transition)
 
 
 def _mark_source_failure(
@@ -536,11 +537,7 @@ def _mark_source_failure(
     source_uid: str,
     error: str,
 ) -> None:
-    catalog_repo.update_lifecycle(
-        source_uid,
-        failure_status="partial",
-        last_failure_reason=error[:500],
-    )
+    apply_transition(catalog_repo, source_uid, partial_failure(error))
 
 
 def list_knowledge_notes(

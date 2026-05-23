@@ -438,30 +438,10 @@ class SourceCatalogRepository:
         Display states are derived in `derive_display_state`; we mirror the
         precedence here so filters return the same set the UI shows.
         """
-        if display_state == "metadata_only":
-            return (
-                "s.metadata_status = ? AND s.content_status = ? AND s.failure_status = ?"
-                " AND s.deep_status != ? AND s.brief_status != ?",
-                ["metadata_only", "not_fetched", "none", "compiled", "ready"],
-            )
-        if display_state == "content_available":
-            return (
-                "s.content_status = ? AND s.brief_status != ? AND s.deep_status != ?"
-                " AND s.failure_status != ?",
-                ["available", "ready", "compiled", "failed"],
-            )
-        if display_state == "brief_ready":
-            return (
-                "s.brief_status = ? AND s.deep_status != ? AND s.failure_status != ?",
-                ["ready", "compiled", "failed"],
-            )
-        if display_state == "deep_compiled":
-            return ("s.deep_status = ?", ["compiled"])
-        if display_state == "failed":
-            return ("s.failure_status = ?", ["failed"])
-        if display_state == "failed_partial":
-            return ("s.failure_status = ?", ["partial"])
-        return ("", [])
+        from app.models.source_lifecycle import display_state_clause
+
+        clause, params = display_state_clause(display_state)
+        return clause, list(params)
 
     def search_sources(self, query: str, *, limit: int = 50) -> list[CatalogSource]:
         return self.list_sources(limit=limit, query=query)

@@ -18,6 +18,13 @@ from bs4 import BeautifulSoup
 from app.config import get_settings
 from app.connectors.fetchers.browser import fetch_rendered_html, is_browser_available
 from app.connectors.fetchers.readability import extract_with_readability
+from app.connectors.fetchers.readable import (
+    ReadableExtractionDraft,
+    apply_metadata_only_fallback,
+    apply_summarize_candidate,
+    assess_draft_weakness,
+    build_source_content,
+)
 from app.connectors.fetchers.summarize_cli import (
     extract_url as summarize_extract_url,
 )
@@ -29,14 +36,10 @@ from app.connectors.fetchers.summarize_cli import (
 )
 from app.models.source import SourceContent, SourceItem
 from app.utils.extraction import (
-    assess_weak_extraction,
     extract_og_metadata,
-    normalize_whitespace,
-    prefer_extraction_candidate,
     resolve_canonical_url,
-    score_extraction_quality,
 )
-from app.utils.hashing import content_hash, url_hash
+from app.utils.hashing import url_hash
 from app.utils.http import assert_safe_http_url
 
 logger = logging.getLogger(__name__)
@@ -71,38 +74,31 @@ async def fetch_generic(item: SourceItem) -> SourceContent:
 
     og_meta = extract_og_metadata(html)
     canonical = resolve_canonical_url(html, item.url)
-    method = ""
-    archived_markdown = ""
-    raw_capture_kind = ""
-    summarize_metadata: dict = {}
+    draft = ReadableExtractionDraft(canonical_url=canonical)
 
     extracted = trafilatura.extract(html, include_comments=False, include_tables=True) or ""
-    fallback_chain.append("trafilatura")
-    method = "trafilatura"
+    draft.text = extracted
+    draft.method = "trafilatura"
+    draft.fallback_chain = fallback_chain
+    draft.notes = notes_parts
+    draft.fallback_chain.append("trafilatura")
 
-    if len(extracted) < 200:
+    if len(draft.text) < 200:
         readability_text, readability_title = extract_with_readability(html)
-        fallback_chain.append("readability")
-        if len(readability_text) > len(extracted):
-            extracted = readability_text
-            method = "readability"
+        draft.fallback_chain.append("readability")
+        if len(readability_text) > len(draft.text):
+            draft.text = readability_text
+            draft.method = "readability"
             if readability_title and not item.title:
                 item.title = readability_title
-            notes_parts.append("Readability fallback improved extraction.")
+            draft.notes.append("Readability fallback improved extraction.")
 
-    current_quality = score_extraction_quality(
-        extracted,
-        has_title=bool(item.title or og_meta.get("og_title") or og_meta.get("page_title")),
-        is_metadata_only=(method == "metadata_only"),
-    )
-    weakness = assess_weak_extraction(
-        extracted,
+    title_hint = item.title or og_meta.get("og_title") or og_meta.get("page_title") or ""
+    weakness = assess_draft_weakness(
+        draft,
         title=item.title or og_meta.get("og_title") or og_meta.get("page_title") or "",
-        extraction_quality=current_quality.value,
         source_kind="generic",
-        min_chars=settings.summarize_weak_text_min_chars,
-        min_paragraphs=settings.summarize_weak_paragraph_min_count,
-        x_snippet_max_chars=settings.summarize_weak_x_snippet_max_chars,
+        settings=settings,
     )
 
     if (
@@ -125,41 +121,22 @@ async def fetch_generic(item: SourceItem) -> SourceContent:
                 fallback_chain=fallback_chain.copy(),
                 notes_prefix="summarize fallback for generic extraction.",
             )
-            if prefer_extraction_candidate(
-                current_text=extracted,
-                current_quality=current_quality.value,
-                candidate_text=summarize_content.cleaned_text,
-                candidate_quality=summarize_content.extraction_quality,
-            ):
-                extracted = summarize_content.cleaned_text
-                archived_markdown = summarize_content.archived_markdown
-                raw_capture_kind = summarize_content.raw_capture_kind
-                method = summarize_content.extraction_method
-                canonical = summarize_content.canonical_url or canonical
-                summarize_metadata = {"summarize": summarize_content.raw_metadata}
-                notes_parts.append(
-                    "summarize improved weak generic extraction: "
-                    + ", ".join(weakness.reasons)
-                    + "."
-                )
-            else:
-                notes_parts.append("summarize fallback did not improve generic extraction.")
+            apply_summarize_candidate(
+                draft,
+                summarize_content=summarize_content,
+                weakness=weakness,
+                improved_note="summarize improved weak generic extraction",
+                not_improved_note="summarize fallback did not improve generic extraction.",
+            )
         else:
-            notes_parts.append(f"summarize fallback failed: {summarize_result.provider_notes}")
+            draft.notes.append(f"summarize fallback failed: {summarize_result.provider_notes}")
 
     if (
-        assess_weak_extraction(
-            extracted,
-            title=item.title or og_meta.get("og_title") or og_meta.get("page_title") or "",
-            extraction_quality=score_extraction_quality(
-                extracted,
-                has_title=bool(item.title or og_meta.get("og_title") or og_meta.get("page_title")),
-                is_metadata_only=(method == "metadata_only"),
-            ).value,
+        assess_draft_weakness(
+            draft,
+            title=title_hint,
             source_kind="generic",
-            min_chars=settings.summarize_weak_text_min_chars,
-            min_paragraphs=settings.summarize_weak_paragraph_min_count,
-            x_snippet_max_chars=settings.summarize_weak_x_snippet_max_chars,
+            settings=settings,
         ).is_weak
         and settings.browser_fallback_enabled
         and is_browser_available()
@@ -167,23 +144,22 @@ async def fetch_generic(item: SourceItem) -> SourceContent:
         rendered = await fetch_rendered_html(
             item.url, timeout_ms=settings.browser_fallback_timeout_seconds * 1000
         )
-        fallback_chain.append("browser_rendered")
+        draft.fallback_chain.append("browser_rendered")
         if rendered:
             browser_text, browser_method = _extract_best_text(rendered)
-            if len(browser_text) > len(extracted):
-                extracted = browser_text
-                method = f"browser_rendered+{browser_method}"
-                archived_markdown = ""
-                raw_capture_kind = ""
-                notes_parts.append("Browser rendering improved extraction.")
+            if len(browser_text) > len(draft.text):
+                draft.text = browser_text
+                draft.method = f"browser_rendered+{browser_method}"
+                draft.markdown = ""
+                draft.raw_capture_kind = ""
+                draft.notes.append("Browser rendering improved extraction.")
 
-    if not extracted:
-        fallback_chain.append("metadata_only")
-        method = "metadata_only"
-        extracted = og_meta.get("og_description") or og_meta.get("description") or ""
-        notes_parts.append("All extractors failed; generic metadata-only fallback.")
-
-    extracted = normalize_whitespace(extracted)
+    if not draft.text:
+        apply_metadata_only_fallback(
+            draft,
+            text=og_meta.get("og_description") or og_meta.get("description") or "",
+            note="All extractors failed; generic metadata-only fallback.",
+        )
 
     if not item.title:
         item.title = og_meta.get("og_title") or og_meta.get("page_title") or ""
@@ -192,27 +168,13 @@ async def fetch_generic(item: SourceItem) -> SourceContent:
         title_tag = soup.find("title")
         item.title = (title_tag.get_text(strip=True) if title_tag else "") or item.url
 
-    quality = score_extraction_quality(
-        extracted,
-        has_title=bool(item.title),
-        is_metadata_only=(method == "metadata_only"),
-    )
+    draft.raw_metadata = {**og_meta, **draft.raw_metadata}
 
-    return SourceContent(
-        source=item,
+    return build_source_content(
+        item=item,
         raw_text=html[:50000],
-        cleaned_text=extracted,
-        archived_markdown=archived_markdown,
-        raw_capture_kind=raw_capture_kind,
-        word_count=len(extracted.split()) if extracted else 0,
-        extraction_quality=quality.value,
-        extraction_method=method,
-        extraction_fallback_chain=fallback_chain,
-        extraction_notes=" ".join(notes_parts),
-        raw_metadata={**og_meta, **summarize_metadata},
-        canonical_url=canonical,
-        content_hash=content_hash(extracted) if extracted else "",
-        url_hash=url_hash(item.url),
+        draft=draft,
+        title=item.title,
     )
 
 

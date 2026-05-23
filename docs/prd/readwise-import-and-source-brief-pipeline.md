@@ -4,7 +4,7 @@
 
 Epistora needs a polished Readwise to Obsidian v1 path that can handle a large saved library without forcing every imported Source through an immediate LLM compile. Today, the ingestion path is optimized around direct URLs and link-only providers: a Source enters the pipeline, content is fetched, analysis runs, artifacts are built, and the Vault is written in one pass. That shape is too expensive and slow for Readwise because Readwise is an Extracted Content Provider: it already supplies useful article text, highlights, and transcripts.
 
-The user needs bulk Readwise sync to be fast, cheap, and safe, while still preserving enough Raw Capture evidence to compile high-signal Source Briefs later. The Source Brief also needs to be leaner than the existing 22-field source analysis so it answers the v1 decision: should I read, watch, skim, skip, or rely on the brief?
+The user needs bulk Readwise sync to be fast, cheap, and safe, while still preserving enough Raw Capture evidence to compile high-signal Source Briefs later. The Source Brief is the rich v1 analysis contract: it answers the immediate decision of whether to read, watch, skim, skip, or rely on the brief, while still carrying the durable fields needed for a useful Compiled Note.
 
 ## Solution
 
@@ -12,7 +12,7 @@ Build a split Readwise import and Source Brief compilation flow.
 
 Readwise import will pull recent Readwise items, normalize them into provider-neutral Sources, store provider references and raw evidence, and mark those Sources as content-ready but brief-pending. This import flow must not call an LLM.
 
-Brief compilation will be a separate graph that loads pending Sources with available Source Content, composes a SourceType-aware prompt, asks the configured Backend for a trimmed Source Brief, builds the canonical Artifact Bundle, writes the Compiled Note and Raw Capture through the existing Vault sink, and marks the brief lifecycle ready or failed.
+Brief compilation will be a separate graph that loads pending Sources with available Source Content, composes a SourceType-aware prompt, asks the configured Backend for a rich Source Brief, builds the canonical Artifact Bundle, writes the Compiled Note and Raw Capture through the existing Vault sink, and marks the brief lifecycle ready or failed.
 
 The v1 Studio and CLI experience should make this flow clear: sync Readwise cheaply, see pending Sources, compile a bounded number of Source Briefs, and optionally re-brief Sources when the prompt/schema improves. Raindrop and direct URL ingestion must continue using the existing single-pass flow.
 
@@ -59,7 +59,7 @@ The v1 Studio and CLI experience should make this flow clear: sync Readwise chea
 39. As an Epistora maintainer, I want the brief graph to reuse the canonical artifact builder and Markdown Vault sink, so that provider-specific code stops at normalization.
 40. As an Epistora maintainer, I want tests that prove import does not call the LLM, so that cost boundaries are protected.
 41. As an Epistora maintainer, I want tests that prove brief compilation writes the expected Source lifecycle statuses, so that Studio state remains trustworthy.
-42. As an Epistora maintainer, I want tests that prove trimmed Source Briefs render cleanly in Vault notes, so that the Obsidian product stays polished.
+42. As an Epistora maintainer, I want tests that prove rich Source Briefs render cleanly in Vault notes, so that the Obsidian product stays polished.
 
 ## Implementation Decisions
 
@@ -71,14 +71,14 @@ The v1 Studio and CLI experience should make this flow clear: sync Readwise chea
 - Import flow must not call any Backend or LLM helper.
 - Add a Source Brief compilation graph. It loads pending Sources with ready Source Content, composes a type-conditional prompt, calls the Backend router, validates or extracts JSON, builds an Artifact Bundle, writes through the existing Vault sink, updates catalog lifecycle, and records attempts/usage.
 - Evolve the existing source analysis into the Source Brief schema rather than creating a second parallel analysis output.
-- Source Brief base fields are: quick brief, best next action, consume recommendation, key ideas, takeaways, important terms, topics, entities, concepts, and evidence limits.
+- Source Brief base fields are: quick brief, summary, five-minute read, detailed reading note, best next action, consume recommendation, why it matters, key ideas, detailed outline, important examples, takeaways, notable quotes, best for, important terms, open questions, topics, entities, concepts, and evidence limits.
 - Source Brief video fields are: watch verdict, watch verdict reasoning, quick section guide, detailed sections, and signal versus filler.
 - Source Brief article fields are: read verdict, why read or skip, and key sections.
 - Source Brief thread fields are: thread summary, main claims, and useful links or references.
 - Evidence limits are computed from extraction quality, word count, and SourceType. They are not generated by the LLM.
 - The API Backend should use Pydantic-backed structured output for Source Briefs. CLI Backends should use JSON extraction fallback and validate into the same Pydantic model.
-- Artifact Bundle construction should accept the trimmed Source Brief and map it into canonical source, topic, entity, concept, relationship, and evidence structures without requiring deprecated fields.
-- The Markdown Vault sink and source note template should render the trimmed Source Brief with verdict-first structure and no empty irrelevant type-specific sections.
+- Artifact Bundle construction should accept the rich Source Brief and map it into canonical source, topic, entity, concept, relationship, and evidence structures without requiring a caller-built analysis dictionary.
+- The Markdown Vault sink and source note template should render the rich Source Brief with verdict-first structure and no empty irrelevant type-specific sections.
 - Add pending brief selection ordered by priority score, saved date, and created date. The default post-sync auto-brief limit is five.
 - Add force re-briefing. Force should allow a ready or failed brief to be regenerated while preserving source identity and raw evidence.
 - Add CLI commands for Readwise sync and pending Source Brief compilation. Commands should expose limit and force options.
@@ -97,7 +97,7 @@ The v1 Studio and CLI experience should make this flow clear: sync Readwise chea
 - Test prompt/schema composition by SourceType so only relevant fields are required for each SourceType.
 - Test the Source Brief compilation graph with fake Backend output for article, YouTube, and X thread Sources.
 - Test JSON extraction fallback for CLI Backends and structured validation for API Backend behavior where existing Backend test patterns allow it.
-- Test Artifact Bundle mapping from trimmed Source Briefs, especially replacement of actionable takeaways with takeaways and absence of dropped fields.
+- Test Artifact Bundle mapping from rich Source Briefs, especially canonical `takeaways` handling and absence of dropped fields.
 - Test Markdown rendering for article, video, and thread Compiled Notes so verdicts, quick brief, key ideas, takeaways, important terms, and next actions appear without empty irrelevant sections.
 - Test force re-briefing updates lifecycle and rendered outputs without duplicating Source identity.
 - Test Raindrop/direct URL regression by keeping existing ingest graph tests passing and adding a focused assertion that link-only providers still use the current path.
@@ -113,7 +113,7 @@ The v1 Studio and CLI experience should make this flow clear: sync Readwise chea
 - Deep compile behavior beyond lifecycle compatibility.
 - Multi-provider sync scheduling beyond fitting Readwise into the existing operator surfaces.
 - Rich cost dashboards beyond recording usage/attempt metadata needed for later reporting.
-- Perfect historical migration of already-compiled old 22-field notes.
+- Perfect migration of already-compiled notes.
 
 ## Further Notes
 
