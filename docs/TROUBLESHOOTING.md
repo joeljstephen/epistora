@@ -1,302 +1,277 @@
 # Troubleshooting
 
-Common issues and how to fix them.
-
-## First Steps
-
-Always start by running the doctor command:
+Start with:
 
 ```bash
 epistora doctor
 ```
 
-This checks your entire environment and gives specific recommendations.
+From a checkout:
 
----
-
-## Installation Issues
-
-### "epistora: command not found"
-
-**Cause:** The CLI is not on your PATH.
-
-**Fix:**
-
-If installed with `uv tool install`:
 ```bash
-# Make sure uv's bin directory is on your PATH
+uv run epistora doctor
+```
+
+The doctor command reports the config path, vault status, backend availability,
+plugin health, sink configuration, and storage-tier settings.
+
+## CLI Not Found
+
+If `epistora` is not on your PATH after `uv tool install .`, ensure uv's bin
+directory is on your PATH:
+
+```bash
 export PATH="$HOME/.local/bin:$PATH"
-# Add this line to your shell profile (~/.zshrc, ~/.bashrc, etc.)
 ```
 
-If installed from source:
+From a source checkout, use:
+
 ```bash
-cd epistora
-uv run epistora --help    # run via uv
-# or
-source .venv/bin/activate
-epistora --help            # run from virtualenv
+uv run epistora --help
 ```
 
-### "ModuleNotFoundError: No module named 'app'"
+## Config Not Taking Effect
 
-**Cause:** Epistora is not installed in your current environment.
+You are probably editing a different `.env` than Epistora is loading.
 
-**Fix:**
+Run:
+
 ```bash
-uv sync           # if using uv
-pip install -e .   # if using pip
+epistora doctor
 ```
 
-### uv is not installed
+Then check the reported loaded config path and preferred write target. You can
+force a config file with:
 
-**Fix:**
 ```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh   # macOS/Linux
-# Or on Windows:
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+EPISTORA_ENV_FILE=/absolute/path/to/.env epistora doctor
 ```
 
----
+## Missing Connector Credentials
 
-## Configuration Issues
+Readwise:
 
-### "No .env file found"
-
-**Fix:** Run the setup wizard:
 ```bash
-epistora setup
+epistora connect readwise
 ```
 
-Or manually copy the example:
-```bash
-cp .env.example .env
-# Then edit .env with your settings
-```
+Raindrop:
 
-If you're using the installed CLI instead of a source checkout, `epistora setup`
-creates the config file in Epistora's OS-specific app directory automatically.
-
-### "Configuration error: Raindrop API token not configured"
-
-**Fix:**
 ```bash
 epistora connect raindrop
 ```
 
-Or set `RAINDROP_API_TOKEN` in your Epistora config file. Get a token at:
-https://app.raindrop.io/settings/integrations
+Manual `.env` variables:
 
-### Settings not taking effect
-
-**Cause:** You're editing a different config file than the one Epistora is loading.
-
-**Fix:** Either:
-- Run `epistora doctor` and check the reported config path
-- If running from a source checkout, edit that checkout's `.env`
-- If running an installed CLI, edit Epistora's app config file
-- Set `VAULT_PATH` and other settings as environment variables
-- Use absolute paths in your config file
-
----
-
-## Vault Issues
-
-### "Vault not found"
-
-**Fix:**
 ```bash
-# Check where it's configured:
-epistora status
-
-# Initialize it:
-epistora init --vault /path/to/your/vault
-# Or re-run setup:
-epistora setup
+READWISE_API_TOKEN=...
+RAINDROP_API_TOKEN=...
+RAINDROP_COLLECTION_ID=0
 ```
 
-### Vault exists but is incomplete
+## Backend Unavailable
 
-**Fix:**
+Check:
+
 ```bash
-epistora init --vault /path/to/existing/vault
-```
-
-This is safe to run on existing vaults — it only adds missing directories
-and files without overwriting anything.
-
-### Vault notes look wrong or are missing content
-
-**Possible causes:**
-- Backend (LLM) is not configured or not available
-- Content extraction failed for certain URLs
-- The source is behind a paywall or requires JavaScript
-
-**Fix:**
-```bash
-# Check backend status
 epistora backend status
-
-# Try re-ingesting with force
-epistora ingest url --force "https://example.com/article"
-
-# Check the raw capture in raw/ for extraction quality
 ```
 
----
+At least one configured backend must be available. For direct API usage, set:
 
-## Backend Issues
-
-### "No backend available"
-
-**Fix:** You need at least one LLM backend configured.
-
-**Easiest option — API backend:**
 ```bash
-# In your Epistora config:
-API_API_KEY=sk-your-key-here
+API_ENABLED=true
+API_API_KEY=...
 API_MODEL=gpt-4o-mini
 ```
 
-**CLI backend option:**
+CLI backends require the matching binary on PATH:
+
 ```bash
-# Make sure claude/opencode/codex is installed and on PATH
-which claude
-which opencode
-which codex
-
-# Check availability:
-epistora backend status
+opencode --help
+claude --help
+codex --help
 ```
 
-### Backend times out
+Fallback order is controlled by:
 
-**Fix:** Increase the timeout in your Epistora config:
-```env
-OPENCODE_TIMEOUT_SECONDS=600
-CLAUDE_CODE_TIMEOUT_SECONDS=300
-```
-
-### "opencode/claude not found on PATH"
-
-**Fix:** Install the CLI tool and make sure it's on your PATH:
 ```bash
-which opencode  # should show a path
-which claude    # should show a path
+BACKEND_ORDER_INGEST=api,opencode,claude_code,codex
+BACKEND_ORDER_QUERY=api,opencode,claude_code,codex
+BACKEND_ORDER_LINT=api,opencode,claude_code,codex
 ```
 
-If installed but not found, add its directory to your PATH.
+## Vault Missing Or Incomplete
 
----
+Show the active vault:
 
-## Raindrop Issues
-
-### Sync returns no items
-
-**Possible causes:**
-- No new bookmarks since last sync
-- Wrong collection ID
-- Token has expired
-
-**Fix:**
 ```bash
-# Check configuration
-epistora doctor
-
-# Try syncing with force (re-processes already-seen items)
-epistora sync-raindrop --force --limit 5
-
-# Verify your token works at:
-# https://api.raindrop.io/rest/v1/raindrops/0
-# (paste your token as a Bearer token)
+epistora vault show
 ```
 
-### "403 Forbidden" from Raindrop
+Initialize or repair the folder structure:
 
-**Cause:** Invalid or expired API token.
-
-**Fix:** Generate a new token at https://app.raindrop.io/settings/integrations
-and update your Epistora config:
 ```bash
-epistora connect raindrop
+epistora init --vault /path/to/vault
 ```
 
----
+Switch vaults:
 
-## Automation Issues
-
-### Automation does nothing
-
-**Fix:** Make sure automation is enabled:
-```env
-AUTOMATION_ENABLED=true
-```
-
-Then run:
 ```bash
-epistora automation run-pending --mode safe
+epistora vault use /path/to/new-vault
 ```
 
-### Items stuck in "processing" state
+Copy the current vault while switching:
 
-**Cause:** A previous run may have crashed mid-processing.
-
-**Fix:**
 ```bash
-# Check the queue
-epistora automation list-pending
-
-# Retry failed items
-epistora automation retry-failed
+epistora vault use /path/to/new-vault --copy-current
 ```
 
-### Scheduler not running
+## Readwise Import Works But No Notes Appear
 
-**Fix:**
+Readwise import creates catalog rows and raw/content-ready state without
+necessarily compiling every item. Compile pending briefs:
+
 ```bash
-# Regenerate scheduler config
-epistora automation generate-scheduler --platform macos --mode safe
-
-# Check if it's loaded (macOS)
-launchctl list | grep epistora
-
-# Check logs
-cat logs/automation-stdout.log
-cat logs/automation-stderr.log
+epistora brief pending --limit 5
 ```
 
----
+Or use Studio's Readwise sync and brief controls:
 
-## Cross-Platform Notes
+```bash
+epistora studio
+```
 
-### Windows
+## Raindrop Or URL Ingest Fails
 
-- Use `python` instead of `python3`
-- Use `.\\.venv\\Scripts\\activate` to activate the virtualenv
-- File paths use backslashes, but Epistora handles this internally
-- For Task Scheduler, use `epistora automation generate-scheduler --platform windows`
+Try a small batch:
 
-### Linux
+```bash
+epistora ingest latest --limit 1
+```
 
-- Use `python3` or `python` (depending on your distro)
-- For systemd scheduling, use `epistora automation generate-scheduler --platform linux`
-- Make sure your user has write access to the vault directory
+For one URL:
 
-### macOS
+```bash
+epistora ingest url "https://example.com/article" --force
+```
 
-- Python from Homebrew (`brew install python`) works well
-- For launchd scheduling, use `epistora automation generate-scheduler --platform macos`
+Common causes:
 
----
+- No backend is available.
+- The page blocks extraction.
+- The source is private, paywalled, or JavaScript-heavy.
+- Browser fallback is disabled.
 
-## Getting Help
+Optional browser fallback requires Playwright:
 
-If you're still stuck:
+```bash
+uv sync --extra browser
+uv run playwright install chromium
+```
 
-1. Run `epistora doctor` and check the output carefully
-2. Check the [GitHub issues](https://github.com/joeljstephen/epistora/issues)
-3. Open a new issue with:
-   - Your OS and Python version
-   - The output of `epistora doctor`
-   - Steps to reproduce the problem
-   - Any error messages
+Then set:
+
+```bash
+BROWSER_FALLBACK_ENABLED=true
+ARTICLE_USE_BROWSER_FALLBACK=true
+```
+
+## YouTube Transcript Issues
+
+Check whether transcript fallback is enabled:
+
+```bash
+YOUTUBE_USE_YTDLP_FALLBACK=true
+```
+
+Install `yt-dlp` if you rely on that fallback. Very long transcripts may be
+chunked before analysis according to:
+
+```bash
+INGEST_YOUTUBE_EVIDENCE_MAX_CHARS=100000
+INGEST_YOUTUBE_CHUNK_CHARS=24000
+```
+
+## X/Twitter Extraction Issues
+
+The default path uses mirror/oEmbed fallbacks when enabled:
+
+```bash
+X_MIRROR_ENABLED=true
+X_OEMBED_ENABLED=true
+```
+
+For official API access:
+
+```bash
+X_API_ENABLED=true
+X_API_BEARER_TOKEN=...
+```
+
+## Studio Does Not Load
+
+Rebuild frontend assets:
+
+```bash
+cd studio
+npm install
+npm run build
+cd ..
+epistora studio
+```
+
+If the preferred port is busy, `epistora studio` selects another available port.
+
+If API auth is enabled, use the same local Studio session started by the CLI or
+provide the configured bearer token to direct API clients.
+
+## API Requests Return 401
+
+When `EPISTORA_API_KEY` is set, protected routes require:
+
+```text
+Authorization: Bearer <token>
+```
+
+`/health` is intentionally unauthenticated.
+
+## JSON Export Missing
+
+Enable the sink:
+
+```bash
+ARTIFACT_SINK_IDS=markdown_vault,json_export
+```
+
+Default export path:
+
+```text
+<vault>/.system/exports/json/
+```
+
+`json_export` only writes when a source is compiled/published through the sink.
+
+## Large Raw Notes Or Blob Confusion
+
+Large evidence can be stored as blob-backed raw captures:
+
+```bash
+EVIDENCE_BLOB_DIR=.system/blobs
+EVIDENCE_BLOB_THRESHOLD_BYTES=50000
+EVIDENCE_BLOB_PREVIEW_CHARS=4000
+```
+
+The visible raw note remains the stable evidence entrypoint and points to the
+full blob path plus checksum metadata.
+
+## Reset Generated State
+
+For a clean replay while keeping the vault shell:
+
+```bash
+epistora reset-generated --yes --archive
+```
+
+This clears generated artifacts and can archive existing generated outputs. It
+does not replace the need to back up important vault content.

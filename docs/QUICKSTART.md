@@ -1,160 +1,140 @@
-# Quickstart Guide
+# Quickstart
 
-Get Epistora running in under 5 minutes.
+Use this path for a local checkout.
 
-## What You'll Need
+## Prerequisites
 
-- **Python 3.11 or later** — check with `python --version`
-- **A Raindrop.io account** (free) — for syncing your saved bookmarks
-- **An LLM backend** — at least one of:
-  - An OpenAI API key (or any OpenAI-compatible API)
-  - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed
-  - [OpenCode](https://github.com/opencode-ai/opencode) installed
-  - Codex CLI installed
+- Python 3.11 or newer.
+- `uv`.
+- At least one reasoning backend:
+  - `API_API_KEY` for an OpenAI-compatible API, or
+  - `opencode`, `claude`, or `codex` installed on your PATH.
+- Optional connector credentials:
+  - `READWISE_API_TOKEN` for Readwise Reader import.
+  - `RAINDROP_API_TOKEN` for Raindrop ingest.
 
-## Step 1: Install Epistora
-
-The recommended way to install is with [uv](https://docs.astral.sh/uv/):
-
-```bash
-# Install uv (if you don't have it)
-curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Install Epistora from a local checkout
-uv tool install .
-
-# Or install from GitHub once the repo is accessible to you
-# uv tool install git+ssh://git@github.com/joeljstephen/epistora.git
-```
-
-Or install from source for development:
+## Install
 
 ```bash
 git clone https://github.com/joeljstephen/epistora.git
 cd epistora
 uv sync --extra dev
-uv run epistora --help
 ```
 
-## Step 2: Run the Setup Wizard
+Installed tool path:
+
+```bash
+uv tool install .
+```
+
+## Configure
+
+Guided setup:
+
+```bash
+uv run epistora setup
+```
+
+Installed CLI:
 
 ```bash
 epistora setup
 ```
 
-The wizard will walk you through:
-
-1. **Vault location** — where your knowledge files will live
-2. **Raindrop connection** — your API token for syncing bookmarks
-3. **Backend selection** — which LLM to use for content analysis
-4. **Automation mode** — how aggressively to process bookmarks
-
-It creates all the configuration for you automatically.
-
-## Step 3: Verify Everything Works
+Manual setup from a checkout:
 
 ```bash
-epistora doctor
+cp .env.example .env
 ```
 
-This checks your Python version, configuration, vault structure, backend
-availability, plugin health, sink/storage settings, and more. Fix any issues
-it reports.
+Then set at least `VAULT_PATH` and one backend. Add connector tokens if you want
+Readwise or Raindrop.
 
-If you're still inside a source checkout instead of an installed tool, use:
+Verify the active config:
 
 ```bash
 uv run epistora doctor
 ```
 
-## Step 4: Ingest Your First Content
+## Ingest One URL
 
 ```bash
-# Start with one bookmark so you can verify the flow quickly
-epistora ingest latest --limit 1
-
-# Or ingest a single URL
-epistora ingest url "https://lilianweng.github.io/posts/2023-06-23-agent/"
+uv run epistora ingest url "https://example.com/article"
 ```
 
-If you want a short command reference:
+The link-only URL path fetches content, runs compiler analysis through the
+backend router, writes raw evidence, renders vault notes, and records processing
+state.
+
+## Import Readwise And Compile Briefs
+
+Configure the connector:
 
 ```bash
-epistora help
-eps help
+uv run epistora connect readwise
 ```
 
-## Step 5: Use Your Vault
-
-Your knowledge vault is now populated! You can:
-
-### Browse Reader Views
-
-Rebuild the deterministic browse pages whenever you want to refresh the
-attention surfaces from current source metadata:
+Import Readwise items into the source catalog:
 
 ```bash
-epistora views rebuild
+uv run epistora sync-readwise --limit 25
 ```
 
-The generated views live under `wiki/indexes/`:
-
-- `READING_HOME.md`
-- `VIDEOS.md`
-- `ARTICLES.md`
-- `TOPICS_FEED.md`
-
-### Open in Obsidian
-
-Open the vault folder in [Obsidian](https://obsidian.md/) and browse your
-compiled knowledge notes, topics, entities, and concepts.
-
-### Query with Claude Code or OpenCode
+Compile pending imported sources:
 
 ```bash
-cd ~/epistora-vault  # or wherever your vault lives
-
-# Then ask questions naturally:
-# "What do I know about AI agents?"
-# "Compare what different sources say about RAG vs fine-tuning"
+uv run epistora brief pending --limit 5
 ```
 
-The agent reads `AGENTS.md` and navigates your vault to produce grounded,
-source-backed answers.
+Readwise import itself does not call an LLM. Brief compilation is the LLM
+boundary.
 
-### Set Up Automation
+## Ingest Raindrop
+
+Configure the connector:
 
 ```bash
-# Process bookmarks automatically
-epistora automation run-pending
-
-# Run the composed personal-learning workflow
-epistora automation run-personal-learning --mode balanced
-
-# Or generate OS scheduler config for hands-free operation
-epistora automation generate-scheduler --platform macos --mode safe
+uv run epistora connect raindrop
 ```
 
-### Generate Learning Outputs
+Run a small smoke test:
 
 ```bash
-# Build a grounded packet from saved source notes
-epistora topic-bundle "agentic AI"
-
-# Generate review digests when there is enough signal
-epistora review daily
-epistora review weekly
+uv run epistora ingest latest --limit 1
 ```
 
-## What's Next?
+## Open Studio
 
-- **`epistora status`** — see vault stats and configuration
-- **`epistora vault use <path>`** — switch to a different vault without rerunning setup
-- **`epistora lint`** — check vault health
-- **`epistora backend status`** — see backend availability
-- **`epistora automation status`** — see automation queue status
-- **`epistora views rebuild`** — rebuild reader-style browse pages
-- **`epistora topic-bundle <topic>`** — create a topic learning packet
+```bash
+uv run epistora studio
+```
 
-See the full [README](../README.md) for detailed documentation on all
-commands, backends, automation modes, and more.
+Studio is served by the local FastAPI app at `/studio`. It includes Library,
+Search, Queue, Settings, source reader pages, Readwise sync, brief compilation,
+snapshot tools, and chat surfaces.
+
+## Use The Vault
+
+Open the configured vault in Obsidian or point an agent at it:
+
+```bash
+cd ~/epistora-vault
+```
+
+Start with:
+
+1. `AGENTS.md`
+2. `wiki/indexes/START_HERE.md`
+3. `wiki/indexes/QUERY_PROTOCOL.md`
+
+## Useful Follow-Up Commands
+
+```bash
+uv run epistora status
+uv run epistora backend status
+uv run epistora views rebuild
+uv run epistora topic-bundle "agentic AI"
+uv run epistora review daily
+uv run epistora automation run-pending --mode safe
+uv run epistora automation run-personal-learning --mode balanced
+```

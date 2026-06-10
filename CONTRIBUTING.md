@@ -1,58 +1,36 @@
-# Contributing to Epistora
+# Contributing
 
-Thank you for your interest in contributing to Epistora! This guide will help you
-get started.
-
-## Getting Started
-
-### Prerequisites
-
-- **Python 3.11+** (3.12 recommended)
-- **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (recommended)
-- **Git**
-
-### Development Setup
+## Setup
 
 ```bash
-# Clone the repository
 git clone https://github.com/joeljstephen/epistora.git
 cd epistora
-
-# Install dependencies with uv (recommended)
 uv sync --extra dev
-
-# Or use pip
-python -m venv .venv
-source .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -e ".[dev]"
-
-# Copy the example environment file
 cp .env.example .env
-# Edit .env with your configuration
-
-# Initialize a test vault
-uv run epistora init
+uv run epistora doctor
 ```
 
-### Running Tests
+You can also run the setup wizard:
 
 ```bash
-# Run all tests
+uv run epistora setup
+```
+
+## Tests And Lint
+
+```bash
 uv run pytest
+uv run ruff check .
+uv run ruff format .
+```
 
-# Run with coverage
-uv run pytest --cov=app --cov-report=term-missing
+Run a focused test file:
 
-# Run a specific test file
+```bash
 uv run pytest tests/test_classifier.py -v
 ```
 
-All tests mock external dependencies — you don't need real API keys or CLI tools
-to run the test suite.
-
-### Packaging Smoke Test
-
-Before opening a release-oriented PR, also validate the packaging path:
+Packaging smoke test:
 
 ```bash
 uv build
@@ -60,114 +38,61 @@ uv tool install --from . epistora --force
 epistora doctor
 ```
 
-### Code Style
+## Pull Requests
 
-We use [Ruff](https://docs.astral.sh/ruff/) for linting and formatting:
+- Keep PRs focused.
+- Add or update tests for changed behavior.
+- Update docs when user-facing behavior changes.
+- Update `.env.example` when configuration changes.
+- Prefer small, reviewable commits.
 
-```bash
-# Check for issues
-uv run ruff check .
+## Code Style
 
-# Auto-fix issues
-uv run ruff check --fix .
+- Use type hints on public function boundaries.
+- Keep IO paths async where the surrounding code is async.
+- Use Pydantic models for structured data boundaries.
+- Keep line length at 100 characters.
+- Follow existing service/repository/sink patterns before adding new
+  abstractions.
 
-# Format code
-uv run ruff format .
-```
+## Architecture Reference
 
-**Style guidelines:**
-- Type hints on all function signatures
-- Async-first for IO operations
-- Pydantic models for data boundaries
-- Max line length: 100 characters
-- Follow existing patterns in the codebase
+See:
 
-## How to Contribute
+- [Architecture](docs/ARCHITECTURE.md)
+- [Development](docs/DEVELOPMENT.md)
+- [Roadmap](docs/ROADMAP.md)
+- [ADRs](docs/adr/)
 
-### Reporting Bugs
+## Adding Connectors
 
-1. Check [existing issues](https://github.com/joeljstephen/epistora/issues) first
-2. Use the **Bug Report** issue template
-3. Include:
-   - Your OS and Python version
-   - Steps to reproduce
-   - Expected vs actual behavior
-   - Relevant error messages or logs
+For link-only sources, add or update fetcher behavior under
+`app/connectors/fetchers/`, update classification/dispatch, and test extraction
+quality plus failure handling.
 
-### Suggesting Features
+For inbox providers, implement the connector under `app/connectors/`, preserve
+provider references and tags, register it in `app/connectors/registry.py`, and
+add user-facing CLI/API/Studio controls only when needed.
 
-1. Check [existing issues](https://github.com/joeljstephen/epistora/issues) and the
-   [roadmap](docs/ROADMAP.md)
-2. Use the **Feature Request** issue template
-3. Describe the use case and why it would be valuable
+Extracted-content providers should normalize provider content into
+`SourceContent` without forcing a native URL fetch.
 
-### Submitting Code
+## Adding Backends
 
-1. **Fork** the repository
-2. **Create a branch** from `main`:
-   ```bash
-   git checkout -b feature/my-feature
-   ```
-3. **Make your changes** with tests
-4. **Run the test suite** to make sure nothing is broken:
-   ```bash
-   uv run pytest
-   uv run ruff check .
-   ```
-5. **Commit** with a clear message:
-   ```bash
-   git commit -m "Add support for RSS feed connector"
-   ```
-6. **Push** and open a **Pull Request**
+1. Implement `ReasoningBackend` from `app/backends/base.py`.
+2. Register the factory in `app/backends/registry.py`.
+3. Add settings to `app/config.py`.
+4. Update `.env.example`.
+5. Add availability and generation tests.
 
-### Pull Request Guidelines
+## Adding Sinks
 
-- Keep PRs focused — one feature or fix per PR
-- Include tests for new functionality
-- Update documentation if the user-facing behavior changes
-- Update `.env.example` if new configuration is added
-- Reference any related issues
+Sinks consume `ArtifactBundle` objects. Implement `app/sinks/base.py`, register
+in `app/sinks/registry.py`, and keep compiler logic out of sink-specific code.
 
-## Architecture Quick Reference
+## Documentation Scope
 
-```
-app/
-  cli/           → Typer CLI commands
-  api/           → FastAPI routes
-  backends/      → LLM backend abstraction (API, OpenCode, Claude Code, Codex)
-  automation/    → Queue-based automation system
-  connectors/    → Source connectors and content extraction
-  compiler/      → LangGraph workflows (ingest, lint, query)
-  models/        → Pydantic data models
-  vault/         → Vault read/write operations
-  services/      → High-level business logic
-  storage/       → SQLite persistence
-  retrieval/     → Search and indexing
-  utils/         → Shared utilities
-```
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full architecture guide.
-See [docs/REPO_HYGIENE.md](docs/REPO_HYGIENE.md) for commit/ignore guidance.
-
-## Adding a New Connector
-
-1. Create a fetcher in `app/connectors/fetchers/`
-2. Implement an async function: `SourceItem` → `SourceContent`
-3. Register it in `app/connectors/fetchers/__init__.py`
-4. Add URL classification patterns in `app/connectors/classifier.py`
-5. Write tests
-6. Update docs
-
-## Adding a New Backend
-
-1. Create `app/backends/my_backend.py` implementing `ReasoningBackend`
-2. Add `MY_BACKEND` to `BackendType` enum
-3. Register in `app/backends/registry.py`
-4. Add config settings to `app/config.py`
-5. Write tests
-6. Update `.env.example` and docs
-
-## Questions?
-
-Open a [discussion](https://github.com/joeljstephen/epistora/discussions) or
-[issue](https://github.com/joeljstephen/epistora/issues) — we're happy to help!
+Keep the docs set intentionally small. Do not add long-lived implementation
+plans in `docs/` once a feature lands. Fold current behavior into
+`ARCHITECTURE.md`, contributor workflow into `DEVELOPMENT.md`, and durable
+decisions into ADRs.

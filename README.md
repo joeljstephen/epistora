@@ -1,40 +1,43 @@
 # Epistora
 
-Epistora turns saved links into a local markdown knowledge vault you can browse
-in Obsidian, query with filesystem-capable agents, and use as a personal
-learning system.
+Epistora is a local-first knowledge compiler. It imports saved sources, captures
+their evidence, compiles source briefs and knowledge artifacts, and publishes the
+result into a markdown vault that works well in Obsidian and with
+filesystem-capable agents.
 
-The markdown vault remains the default output. Epistora also has an optional
-JSON export sink for canonical artifact bundles.
+The markdown vault is the durable product. SQLite supports runtime state,
+catalog search, queues, chat history, and derived read models, but it is not the
+primary knowledge store.
 
-It fetches content from sources like articles, YouTube videos, X/Twitter threads, and PDFs, then compiles:
+## What It Supports
 
-- raw captures
-- grounded source notes
-- topic, entity, and concept pages
-- reader-style index views
-- topic learning bundles and review digests
-- vault indexes for humans and agents
+- Inputs: Readwise Reader, Raindrop, and direct URL ingest.
+- Source types: articles, YouTube videos, X/Twitter threads, PDFs, and generic
+  web pages.
+- Outputs: markdown vault by default, optional deterministic JSON artifact
+  export.
+- Interfaces: Typer CLI, FastAPI API, and a local React/Vite Studio served at
+  `/studio`.
+- Reasoning backends: OpenAI-compatible API, OpenCode CLI, Claude Code CLI, and
+  Codex CLI with per-task fallback order.
+- Automation: queue-based discovery, processing, retry, maintenance, and a
+  personal-learning workflow preset.
 
 ## Quick Start
 
 ```bash
-# Install from this checkout
-uv tool install .
-
-# Or for local development
-# uv sync --extra dev
-# uv run epistora --help
+uv sync --extra dev
+uv run epistora setup
+uv run epistora doctor
+uv run epistora ingest url "https://example.com/article"
 ```
 
+Installed CLI:
+
 ```bash
-# 1. Guided setup
+uv tool install .
 epistora setup
-
-# 2. Verify config
 epistora doctor
-
-# 3. Try a small ingest first
 epistora ingest latest --limit 1
 ```
 
@@ -46,109 +49,54 @@ eps help
 
 ## Everyday Commands
 
-These are the commands most users need regularly:
+| Command | What it does |
+| --- | --- |
+| `epistora setup` | Guided first-time setup |
+| `epistora doctor` | Checks config, vault, backends, sinks, plugins, and storage |
+| `epistora ingest url <url>` | Fetch, compile, and publish one URL |
+| `epistora ingest latest --limit 1` | Ingest recent Raindrop items |
+| `epistora sync-readwise --limit 25` | Import Readwise items into the source catalog |
+| `epistora brief pending --limit 5` | Compile pending catalog sources into vault notes |
+| `epistora studio` | Start the local API and open Studio |
+| `epistora status` | Show active vault and runtime stats |
+| `epistora vault show` | Show the active vault path |
+| `epistora vault use <path>` | Switch to another vault |
 
+Advanced commands:
 
-| Command                            | What it does                            |
-| ---------------------------------- | --------------------------------------- |
-| `epistora setup`                   | Guided first-time setup                 |
-| `epistora doctor`                  | Checks your environment and config      |
-| `epistora help`                    | Shows the important commands quickly    |
-| `epistora ingest latest --limit 1` | Ingest a small batch from Raindrop      |
-| `epistora ingest url <url>`        | Ingest one specific source              |
-| `epistora automation run-personal-learning` | Run the composed personal learning workflow |
-| `epistora status`                  | Shows current vault path and stats      |
-| `epistora vault show`              | Shows which vault directory is active   |
-| `epistora vault use <path>`        | Switches to a different vault directory |
-
-
-## Changing The Vault Location
-
-If you already ran setup and just want Epistora to use a different vault directory, you do not need to rerun setup.
-
-```bash
-epistora vault use ~/notes/my-epistora-vault
-```
-
-That command:
-
-- updates `VAULT_PATH`
-- updates the SQLite database path to the new vault
-- initializes the target folder if needed
-
-If you want to bring your current vault contents with you:
-
-```bash
-epistora vault use ~/notes/my-new-vault --copy-current
-```
-
-You can still choose the vault path during first-time setup too:
-
-```bash
-epistora setup --vault ~/notes/my-epistora-vault
-```
-
-## Help And Discovery
-
-Epistora supports both the normal CLI help flag and a cleaner shortcut:
-
-```bash
-epistora --help
-epistora help
-epistora ingest --help
-epistora automation --help
-```
-
-## What Ingest Looks Like
-
-`epistora ingest latest` now shows lightweight progress so you can tell work is happening without getting flooded with logs:
-
-- fetching the latest saved items
-- moving through each item
-- showing when notes are written
-- printing a short done/skip/fail line per item
-- ending with a compact summary
-
-For a first smoke test, use one bookmark:
-
-```bash
-epistora ingest latest --limit 1
-```
-
-## Advanced Commands
-
-Use these when you want more control:
-
-
-| Command                           | What it does                                       |
-| --------------------------------- | -------------------------------------------------- |
-| `epistora connect raindrop`       | Configure or update Raindrop credentials           |
-| `epistora backend setup`          | Change LLM backend settings                        |
-| `epistora backend status`         | See which backends are available                   |
-| `epistora sync-raindrop`          | Sync from Raindrop directly                        |
-| `epistora sync-inbox`             | Sync from a configured inbox connector             |
-| `epistora lint`                   | Run vault health checks                            |
-| `epistora rebuild-indexes`        | Rebuild vault index files                          |
-| `epistora views rebuild`          | Rebuild reader-style browse pages                  |
-| `epistora topic-bundle <topic>`    | Generate a grounded topic learning packet          |
-| `epistora review daily`           | Generate the daily review digest                   |
-| `epistora review weekly`          | Generate the weekly review digest                  |
-| `epistora reset-generated`        | Clear generated artifacts and keep the vault shell |
-| `epistora automation setup`       | Configure automation                               |
-| `epistora automation run-pending` | Run discovery, processing, and maintenance once    |
-
+| Command | What it does |
+| --- | --- |
+| `epistora connect raindrop` | Configure Raindrop credentials |
+| `epistora connect readwise` | Configure Readwise credentials |
+| `epistora backend status` | Show backend availability |
+| `epistora backend setup` | Configure backend defaults interactively |
+| `epistora sync-raindrop --limit 10` | Sync Raindrop through the classic ingest flow |
+| `epistora sync-inbox --connector raindrop` | Sync a configured link-only inbox connector |
+| `epistora lint` | Run vault health checks |
+| `epistora rebuild-indexes` | Rebuild vault index pages |
+| `epistora views rebuild` | Rebuild reader-style index views |
+| `epistora topic-bundle <topic>` | Generate a grounded topic packet |
+| `epistora review daily` | Generate a daily review digest when enough signal exists |
+| `epistora review weekly` | Generate a weekly review digest when enough signal exists |
+| `epistora reset-generated` | Clear generated artifacts while keeping the vault shell |
+| `epistora automation run-pending` | Discover, process, and optionally maintain once |
+| `epistora automation run-personal-learning` | Run the composed personal-learning preset |
 
 ## How It Works
 
 ```text
-Raindrop / URLs -> fetchers -> compiler -> configured sinks
-                               |              |
-                               |              -> markdown vault (default)
-                               |              -> JSON export (optional)
-                               -> backend router (API / OpenCode / Claude Code / Codex)
+Readwise / Raindrop / URL
+  -> connector or fetcher
+  -> SourceContent
+  -> Source Brief / compiler analysis
+  -> ArtifactBundle
+  -> configured sinks
+       -> markdown vault
+       -> optional JSON export
+  -> derived read model and Studio catalog state
 ```
 
-The vault is plain markdown:
+Typical vault layout:
 
 ```text
 your-vault/
@@ -159,14 +107,71 @@ your-vault/
     topics/
     entities/
     concepts/
+    synthesis/
     indexes/
     logs/
   outputs/
+    digests/
+  .system/
+    blobs/
+    exports/
+    state/
 ```
+
+Large raw evidence is kept auditable without bloating visible notes. Compiled
+source notes live in `wiki/sources/`, raw manifests live in `raw/`, and
+oversized full payloads can be stored under `.system/blobs/`.
+
+## Configuration
+
+Run `epistora setup` for the normal path. Manual configuration is environment
+variable based.
+
+When run from a source checkout, Epistora prefers the checkout `.env`. When run
+as an installed tool, it uses the OS-specific Epistora config directory unless
+`EPISTORA_ENV_FILE` is set.
+
+Important settings:
+
+| Variable | Description |
+| --- | --- |
+| `VAULT_PATH` | Active markdown vault |
+| `DATABASE_URL` | Main SQLite database |
+| `EPISTORA_API_KEY` | Optional bearer token for protected API routes |
+| `RAINDROP_API_TOKEN` | Raindrop connector token |
+| `READWISE_API_TOKEN` | Readwise Reader connector token |
+| `ARTIFACT_SINK_IDS` | Comma-separated sinks. Default: `markdown_vault` |
+| `JSON_EXPORT_DIR` | JSON export location when `json_export` is enabled |
+| `EVIDENCE_BLOB_DIR` | Blob tier for oversized raw evidence |
+| `API_API_KEY` | Direct OpenAI-compatible backend key |
+| `BACKEND_ORDER_INGEST` | Ingest backend fallback order |
+| `BACKEND_ORDER_QUERY` | Query backend fallback order |
+| `BACKEND_ORDER_LINT` | Lint backend fallback order |
+| `AUTOMATION_ENABLED` | Enables queue automation defaults |
+| `AUTOMATION_DEFAULT_MODE` | `safe`, `balanced`, or `deep` |
+| `EPISTORA_PLUGIN_DIRS` | Extra plugin search paths |
+| `EPISTORA_PROMPT_PACK` | Active prompt-pack plugin ID |
+| `EPISTORA_PROMPT_PROFILE` | Active prompt profile, such as `personal_learning` |
+
+Enable JSON export alongside the vault:
+
+```bash
+ARTIFACT_SINK_IDS=markdown_vault,json_export
+```
+
+## Studio
+
+`epistora studio` starts the local FastAPI server and serves the built React
+Studio at `/studio`. Studio provides library/search views, source detail and
+reader pages, queue controls, Readwise sync, pending brief compilation, catalog
+snapshot import/export, chat settings, sidebar chat, and broad chat.
+
+Set `EPISTORA_API_KEY` before exposing the API beyond localhost.
 
 ## Using Agents On The Vault
 
-Epistora is designed for agent-first use. Point Claude Code, OpenCode, Codex, or another filesystem-capable agent at the vault directory and ask questions there.
+Point Claude Code, OpenCode, Codex, or another filesystem-capable agent at the
+vault directory:
 
 ```bash
 cd ~/epistora-vault
@@ -178,125 +183,31 @@ The agent should read:
 2. `wiki/indexes/START_HERE.md`
 3. `wiki/indexes/QUERY_PROTOCOL.md`
 
-## Configuration
-
-Run `epistora setup` for the guided path. If you need to edit config manually, Epistora uses environment variables.
-
-When run from a source checkout, config is usually stored in that checkout’s `.env`.
-
-When run as an installed tool, config is usually stored in the Epistora app directory, such as:
-
-- Linux: `~/.config/epistora/.env`
-- macOS: `~/Library/Application Support/Epistora/.env`
-- Windows: `%APPDATA%\\Epistora\\.env`
-
-Important settings:
-
-
-| Variable                        | Description                                                                           |
-| ------------------------------- | ------------------------------------------------------------------------------------- |
-| `VAULT_PATH`                    | Active vault directory                                                                |
-| `DATABASE_URL`                  | SQLite database location                                                              |
-| `ARTIFACT_SINK_IDS`             | Comma-separated sinks to publish to. Default: `markdown_vault`                        |
-| `JSON_EXPORT_DIR`               | Relative or absolute path for `json_export`. Default: `.system/exports/json`          |
-| `EVIDENCE_BLOB_DIR`             | Relative vault path for cold evidence blobs. Default: `.system/blobs`                 |
-| `EVIDENCE_BLOB_THRESHOLD_BYTES` | Oversized raw captures are blob-backed above this size. Default: `50000`              |
-| `EVIDENCE_BLOB_PREVIEW_CHARS`   | Preview length kept in the visible raw note for blob-backed evidence. Default: `4000` |
-| `EPISTORA_PLUGIN_DIRS`          | Extra local plugin search paths                                                       |
-| `EPISTORA_PROMPT_PACK`          | Active prompt-pack plugin ID                                                          |
-| `EPISTORA_PROMPT_PROFILE`       | Active prompt profile, such as `personal_learning`                                    |
-| `RAINDROP_API_TOKEN`            | Raindrop token                                                                        |
-| `API_API_KEY`                   | API key for the direct API backend                                                    |
-| `AUTOMATION_ENABLED`            | Enables automation                                                                    |
-| `AUTOMATION_DEFAULT_MODE`       | `safe`, `balanced`, or `deep`                                                         |
-
-
-`epistora doctor` reports the active config path, the preferred config write target,
-plugin health, configured sinks, and storage-tier settings.
-
-## JSON Export Sink
-
-To publish canonical artifacts to JSON as well as the markdown vault:
-
-```bash
-ARTIFACT_SINK_IDS=markdown_vault,json_export
-```
-
-By default, JSON bundle exports are written under:
-
-```text
-<vault>/.system/exports/json/<source_type>/<slug>.json
-```
-
-To move them somewhere else:
-
-```bash
-JSON_EXPORT_DIR=.system/exports/custom-json
-```
-
-The compiler does not special-case JSON publishing. It still produces canonical `ArtifactBundle`s, and the configured sinks consume that bundle independently.
-
-## Storage Tiers
-
-Epistora uses local storage tiers for large evidence:
-
-- hot: compiled source notes in `wiki/sources/`
-- warm: stable raw evidence notes in `raw/`
-- cold: oversized preserved payloads under `.system/blobs/`
-
-For large captures, source notes still point to the raw note, and the raw note remains the stable visible manifest. That raw note then points to the full blob payload in `.system/blobs/`.
-
-## Automation Modes
-
-
-| Mode       | What it does                         |
-| ---------- | ------------------------------------ |
-| `safe`     | Fetch and archive with no LLM cost   |
-| `balanced` | Limited enrichment per run           |
-| `deep`     | Full topic/entity/concept enrichment |
-
-
-Examples:
-
-```bash
-epistora automation run-pending --mode safe
-epistora automation run-pending --mode balanced
-epistora automation run-pending --mode deep
-```
-
-Personal Learning Mode is a composed workflow on top of those modes. It uses
-the `personal_learning` prompt profile, processes the Raindrop queue, refreshes
-the read model, rebuilds reader views, evaluates daily/weekly review digests,
-and optionally runs bounded maintenance:
-
-```bash
-epistora automation run-personal-learning --mode balanced
-```
-
 ## Development
 
 ```bash
-git clone https://github.com/joeljstephen/epistora.git
-cd epistora
 uv sync --extra dev
 uv run pytest
 uv run ruff check .
 uv run epistora help
 ```
 
+Studio frontend:
+
+```bash
+cd studio
+npm install
+npm run build
+```
+
 ## Documentation
 
 - [Quickstart](docs/QUICKSTART.md)
 - [Architecture](docs/ARCHITECTURE.md)
-- [JSON Export Sink](docs/JSON_EXPORT_SINK.md)
-- [Storage Tiers](docs/STORAGE_TIERS.md)
-- [Prompt Layering](docs/PROMPT_LAYERING.md)
-- [Maintenance Framework](docs/MAINTENANCE_FRAMEWORK.md)
 - [Development](docs/DEVELOPMENT.md)
-- [Plugin Author Guide](docs/PLUGIN_AUTHOR_GUIDE.md)
-- [Repo Hygiene](docs/REPO_HYGIENE.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Roadmap](docs/ROADMAP.md)
+- [ADRs](docs/adr/)
 
 ## License
 

@@ -1,54 +1,58 @@
-# Epistora Roadmap
+# Roadmap
 
-This roadmap tracks the current product direction. Historical implementation
-plans and audit snapshots were removed from `docs/`; `ARCHITECTURE.md` is the
-canonical description of the implemented system.
+This roadmap tracks active direction only. Historical implementation plans have
+been removed from `docs/`; durable decisions belong in `docs/adr/`.
 
 ## Implemented Foundation
 
-- Local-first markdown vault with immutable raw evidence, source notes, hubs,
-  indexes, logs, and generated outputs.
-- Raindrop inbox connector plus direct URL ingest.
+- Local-first markdown vault with raw evidence, compiled source notes, hub
+  pages, generated outputs, logs, and index views.
+- Direct URL ingest plus Raindrop and Readwise connector flows.
+- Readwise import as an extracted-content path that can avoid LLM calls until
+  brief compilation.
 - Article, YouTube, X/Twitter, PDF, and generic extraction paths with fallback
-  chains and extraction-quality metadata.
-- Canonical `ArtifactBundle` compiler boundary before sink publishing.
+  metadata.
+- Rich source brief path feeding canonical `ArtifactBundle` construction.
 - Markdown vault sink by default and optional deterministic JSON export sink.
-- Read-model-native built-in retrieval backed by `.system/state/read_model.db`.
-- Queue-based automation with `safe`, `balanced`, and `deep` execution-depth
-  policies.
-- Prompt composition with built-in prompts, plugin prompt packs, workspace
-  prompt guidance, prompt profiles, and user overrides.
-- Plugin manifest discovery for inbox providers, reasoning backends, sinks, and
-  prompt packs.
+- Evidence storage tiers with blob-backed large raw captures.
+- Source catalog, provider refs, tags, source-linked jobs, attempts, usage
+  events, and catalog snapshots in SQLite.
+- Derived read model for built-in retrieval and Studio knowledge/search views.
+- Local Studio served by FastAPI with Library, Search, Queue, Settings, source
+  reader pages, Readwise sync, brief compilation, snapshots, and chat.
+- Sidebar and broad Studio chat with persisted broad conversations and chat
+  settings.
+- Queue automation with `safe`, `balanced`, and `deep` modes.
+- Personal-learning workflow preset with reader views, topic bundles, and
+  daily/weekly review digests.
+- Prompt layering with built-in prompts, prompt packs, profiles, vault-local
+  overrides, and backend/model hints.
+- Plugin manifest discovery for prompt packs, providers, backends, and sinks.
 - Bounded maintenance planning for structure, hubs, backlinks, candidate
-  synthesis, and read-model refresh.
-- Personal Learning Mode as a composed preset with reader views, topic bundles,
-  daily/weekly review digests, and a `personal_learning` prompt profile.
+  synthesis, read-model refresh, and search refresh.
 
 ## Near-Term Priorities
 
-- Begin the Local Studio foundation described in
-  [`LOCAL_STUDIO_DECISIONS.md`](LOCAL_STUDIO_DECISIONS.md): source catalog,
-  provider refs, source-linked jobs, Studio APIs, and local web UI shell.
-- Improve the brief-first source-note experience for non-YouTube sources.
-- Expand deterministic theme-tag mappings beyond the current small allowed set.
-- Harden personal-learning review thresholds with more real-vault examples.
-- Add focused golden-path tests for YouTube briefs, topic bundles, and review
-  digests.
-- Decide whether to retire the legacy interval worker now that the queue-first
-  runner is the recommended automation path.
-- Replace the markdown sink compatibility bridge with direct artifact-to-note
-  rendering when the risk is worth the cleanup.
+- Polish the Readwise-to-vault loop: import quality, brief rendering, Studio
+  controls, and force re-briefing behavior.
+- Improve source brief consistency across articles, YouTube, threads, PDFs, and
+  generic pages.
+- Harden Studio chat references and tool-call rendering against real vaults.
+- Improve catalog snapshot recovery and operator messaging.
+- Add more focused golden tests for source briefs, Studio flows, and chat.
+- Reduce compatibility bridges where direct artifact-to-note rendering is now
+  mature enough.
+- Decide whether to retire the legacy interval worker in favor of queue-only
+  automation.
 
 ## Later Work
 
-- Additional inbox connectors such as Readwise Reader, RSS, and local folder
-  watch ingestion.
-- Better semantic deduplication for related topics and near-duplicate concepts.
-- Local embedding-backed retrieval or reranking as an optional helper, without
-  replacing direct vault navigation.
-- More media-specific extraction paths beyond YouTube.
+- Additional inbox connectors such as RSS, local folder watch, or more Reader
+  providers.
+- Stronger semantic deduplication for near-duplicate sources and hub pages.
+- Optional embedding-backed retrieval or reranking without replacing direct
+  vault navigation.
+- More media-specific extraction paths.
 - Git-based vault versioning helpers.
-- Optional export targets such as Notion or static sites.
-- Advanced review and spaced-repetition flows built on top of review history
-  rather than replacing the current digest model.
+- Additional export targets beyond markdown and JSON.
+- Deeper spaced-repetition and review workflows based on review history.

@@ -1,51 +1,73 @@
 # Epistora Domain Context
 
-## Core Domain
+## Product Boundary
 
-Epistora is a local-first Readwise-to-Obsidian intelligence compiler. It imports
-articles, highlights, threads, and video transcripts from Readwise, compiles them
-into structured Markdown source notes with summaries, watch/read verdicts, key
-sections, takeaways, and next actions. The Obsidian vault is the durable product.
-SQLite supports the runtime.
+Epistora is a local-first knowledge compiler for saved sources. It preserves
+source evidence, compiles useful source briefs and knowledge artifacts, and
+publishes them into a markdown vault for Obsidian and filesystem-capable agents.
 
-The architecture is provider-neutral internally. Readwise is the first polished
-input. Raindrop, manual URLs, and other connectors are supported by the
-architecture and will be expanded after the Readwise → Obsidian flow is excellent.
+The durable product is the vault on disk. SQLite supports source catalog state,
+processing jobs, chat history, usage records, snapshots, and derived read models.
+Those stores are operational state, not the main knowledge artifact.
+
+The architecture is provider-neutral. Readwise is the first extracted-content
+provider, Raindrop is the first link-only inbox provider, and direct URLs use the
+same link-only fetcher path.
 
 ## Domain Terms
 
 | Term | Definition |
-|------|-----------|
-| **Source** | A saved link (article, YouTube video, X thread, PDF, etc.) that enters the knowledge pipeline. Has a lifecycle: metadata-only → captured → briefed → deep-compiled. |
-| **SourceType** | The kind of source: `article`, `youtube`, `x_thread`, `pdf`, `generic`, or `derived_work`. |
-| **Source Content** | Normalized extracted evidence after fetch. Includes raw text, cleaned text, archived markdown, and extraction quality metadata. |
-| **Source Brief** | The rich v1 LLM analysis of a Source. It is the stable compiler contract between Source Content and Artifact Bundle construction. Produces triage fields, reading fields, evidence fields, topic/entity/concept extraction, evidence limits, and type-specific fields such as watch/read verdicts or thread claims. |
-| **Compiled Note** | The Markdown source note in `wiki/sources/` rendered from the Source Brief. Contains the verdict, overview, key ideas, takeaways, and next actions. |
-| **Raw Capture** | The immutable evidence entrypoint in `raw/`. The original extracted text (article body, transcript, etc.) before LLM analysis. |
-| **Artifact Bundle** | The canonical compiler output: source artifact, topic/entity/concept artifacts, relationship artifacts, and evidence references. |
-| **Vault** | The local markdown knowledge base on disk. The durable product of the system. |
-| **Read Model** | A derived SQLite database (`.system/state/read_model.db`) for retrieval. Rebuildable from vault files. |
-| **Topic** | A thematic hub page in `wiki/topics/` that aggregates sources about a subject. Deferred to post-v1. |
-| **Entity** | A named hub page in `wiki/entities/` for people, companies, tools. Deferred to post-v1. |
-| **Concept** | An idea hub page in `wiki/concepts/` for mental models, patterns, techniques. Deferred to post-v1. |
-| **Synthesis Note** | A candidate synthesized note in `wiki/synthesis/` produced by maintenance. Deferred to post-v1. |
-| **Backend** | An LLM reasoning backend: `api` (direct OpenAI-compatible), `opencode` (CLI), `claude_code` (CLI), or `codex` (CLI). The backend router falls back through these in order. |
-| **Studio** | The local web UI served by FastAPI at `/studio`. React + Vite, production assets in `studio/static/`. |
-| **Provider** | An input connector that feeds sources into Epistora. Either an extracted-content provider (Readwise) or a link-only provider (Raindrop). |
-| **Extracted Content Provider** | A provider that already gives Epistora the useful content body (text, highlights, transcripts). Readwise is the first. Epistora normalizes provider content directly into SourceContent without native URL fetching. |
-| **Link-Only Provider** | A provider that mainly gives URLs and metadata. Raindrop is the first. Epistora needs fetchers/extractors to obtain SourceContent. |
-| **Provider Content Mode** | `extracted_content` or `link_only`. Distinguishes how Epistora obtains SourceContent from a provider. Set per-connector. |
+| --- | --- |
+| Source | A saved document, link, video, thread, PDF, or generic web page that enters Epistora. |
+| Source type | The source classification: `article`, `youtube`, `x_thread`, `pdf`, `generic`, or `derived_work`. |
+| Link-only provider | A provider that mainly supplies URL and metadata. Epistora must fetch/extract content. Raindrop and manual URLs use this shape. |
+| Extracted-content provider | A provider that supplies usable text, highlights, transcript, or body content directly. Readwise uses this shape. |
+| Source item | Provider/input metadata before content normalization. |
+| Source content | Normalized evidence after fetch or provider-content normalization. |
+| Raw capture | Immutable evidence entrypoint written under `raw/`. Large captures can point to full blobs under `.system/blobs/`. |
+| Source brief | Rich source-level analysis used to render the compiled note and build artifacts. |
+| Compiled note | The markdown source note in `wiki/sources/` rendered from source analysis. |
+| Artifact bundle | Canonical compiler output containing source, topic, entity, concept, relationship, synthesis, and evidence-reference artifacts. |
+| Sink | Publisher that consumes an artifact bundle. Built-ins are `markdown_vault` and `json_export`. |
+| Vault | The local markdown knowledge base on disk. It is the durable product. |
+| Read model | Derived SQLite retrieval/index state under `.system/state/read_model.db`. Rebuildable from vault notes. |
+| Source catalog | Runtime library table that tracks source identity, lifecycle state, provider refs, tags, and queue work. |
+| Provider ref | A provider-specific sighting of a source, such as a Readwise document ID or Raindrop item ID. |
+| Processing job | Source-linked queued work such as capture or brief compilation. |
+| Backend | A reasoning backend: `api`, `opencode`, `claude_code`, or `codex`. |
+| Studio | The local React/Vite web UI served by FastAPI at `/studio`. |
 
-## AI Chat Terms (Deferred to post-v1)
-
-All chat features are architecturally supported but deferred from the v1 product path.
+## Vault Terms
 
 | Term | Definition |
-|------|-----------|
-| **Sidebar Chat** | A contextual chat panel attached to a source detail view. Uses simple context injection (compiled note + raw capture) with no tools. Ephemeral per-source in-memory history. |
-| **Broad Chat** | A dedicated Chat page for vault-wide conversations. Uses an agent with tools that can search, read, and navigate the entire knowledge base. Persistent multi-conversation history stored in SQLite. |
-| **Chat Conversation** | A persistent thread of messages in the Broad Chat. Auto-titled from the first message. Stored in SQLite with full message history. |
-| **Chat Agent** | The LLM agent in the Broad Chat that has read-only tools to navigate the vault: search sources, read sources, read vault notes, list sources, browse knowledge graph, and get source relationships. |
-| **Agent Tool** | A callable function the Broad Chat agent can invoke: `search_sources`, `read_source`, `read_note`, `list_sources`, `list_topics`/`list_entities`/`list_concepts`, `get_source_relations`. |
-| **Chat Backend** | The LLM backend used for chat. Follows the same backend fallback chain as the rest of the system (api → opencode → claude_code → codex). Configurable via Settings UI (overrides env vars). |
-| **Chat Streaming** | SSE-based token streaming from FastAPI to the frontend. Available when using the direct API backend. CLI backends return non-streaming responses with a UI indicator. |
+| --- | --- |
+| Source note | Durable source-level note under `wiki/sources/`. |
+| Topic | Hub page under `wiki/topics/` for a recurring subject. |
+| Entity | Hub page under `wiki/entities/` for people, companies, tools, projects, or other named things. |
+| Concept | Hub page under `wiki/concepts/` for ideas, models, patterns, or techniques. |
+| Synthesis note | Cross-source note under `wiki/synthesis/`, usually generated by deeper maintenance. |
+| Reader view | Deterministic generated index page such as reading home, videos, articles, or topic feeds. |
+| Topic bundle | Generated report under `outputs/digests/topic-bundles/`; not automatically promoted to durable knowledge. |
+| Review digest | Daily or weekly generated output under `outputs/digests/`; not automatically promoted to durable knowledge. |
+
+## Workflow Terms
+
+| Term | Definition |
+| --- | --- |
+| Safe mode | Low-cost automation mode focused on capture/archive behavior. |
+| Balanced mode | Bounded enrichment and focused maintenance. |
+| Deep mode | Richer enrichment and broader bounded maintenance. |
+| Personal-learning workflow | Composed automation preset that applies the prompt profile, processes sources, refreshes read model/views, evaluates review digests, and optionally maintains. |
+| Prompt pack | Plugin-provided prompt root selected with `EPISTORA_PROMPT_PACK`. |
+| Prompt profile | Prompt layer such as `personal_learning`, selected with `EPISTORA_PROMPT_PROFILE`. |
+
+## Studio And Chat Terms
+
+| Term | Definition |
+| --- | --- |
+| Library | Studio source-catalog view with filters over type, state, provider, and tag. |
+| Reader page | Studio source detail view that renders compiled and raw markdown. |
+| Sidebar chat | Per-source chat surface using the selected source context. |
+| Broad chat | Vault-wide Studio chat with persisted conversations and read-only navigation tools. |
+| Chat settings | SQLite-backed Studio settings for backend type, model, API key, and base URL. |
+| Tool call | A broad-chat read-only operation such as searching sources or reading a note. |

@@ -1,443 +1,164 @@
-# Epistora — Development Guide
-
-## Prerequisites
-
-- **Python 3.11+** (3.12 recommended)
-- **[uv](https://docs.astral.sh/uv/)** — fast Python package manager (recommended)
-- At least one of: OpenAI API key, `opencode` binary, `claude` binary, `codex` binary
-- (Optional) Raindrop.io API token
-- (Optional) `summarize` binary if you want summarize-backed extraction enabled
+# Development
 
 ## Setup
 
-### Using uv (recommended)
-
 ```bash
-# Clone and enter the project
 git clone https://github.com/joeljstephen/epistora.git
 cd epistora
-
-# Install all dependencies (including dev)
 uv sync --extra dev
-
-# Configure environment
 cp .env.example .env
-# Edit .env with your API keys / backend config
-
-# Or run the interactive setup wizard
-uv run epistora setup
-
-# Verify the active config, plugins, sinks, and storage settings
 uv run epistora doctor
 ```
 
-### Using pip
+At minimum, set `VAULT_PATH` and one backend in `.env`, or run:
 
 ```bash
-cd epistora
-python -m venv .venv
-source .venv/bin/activate   # or .venv\Scripts\activate on Windows
-pip install -e ".[dev]"
-cp .env.example .env
+uv run epistora setup
 ```
 
-## Running
-
-### CLI
+## Common Commands
 
 ```bash
-# Interactive setup (recommended for first-time)
-epistora setup
-
-# Check environment health
-epistora doctor
-
-# Initialize vault
-epistora init --vault ./my-vault
-
-# Ingest a URL
-epistora ingest url "https://example.com/article"
-
-# Ingest latest bookmarks
-epistora ingest latest
-
-# Re-run ingest without clearing prior vault state
-epistora ingest url --force "https://example.com/article"
-
-# Sync from Raindrop
-epistora sync-raindrop --limit 10
-
-# Reset generated vault artifacts before a clean replay
-epistora reset-generated --yes --archive
-
-# Run lint
-epistora lint
-
-# Check status
-epistora status
-
-# Rebuild indexes
-epistora rebuild-indexes
-
-# Check backend availability
-epistora backend status
-
-# Configure backend interactively
-epistora backend setup
-
-# Connect to Raindrop
-epistora connect raindrop
-
-# --- Queue-Based Automation ---
-
-# Configure automation interactively
-epistora automation setup
-
-# Discover and queue new bookmarks
-epistora automation discover
-
-# Process pending items (safe mode — no LLM cost)
-epistora automation process-pending --mode safe
-
-# Process with AI enrichment (capped)
-epistora automation process-pending --mode balanced --limit 5
-
-# One-shot end-to-end: discover + process + maintain
-epistora automation run-pending --mode safe
-
-# Personal learning preset: discover, process, refresh read model, rebuild
-# reader views, evaluate review digests, and optionally maintain
-epistora automation run-personal-learning --mode balanced
-
-# Check automation status
-epistora automation status
-
-# List pending queue items
-epistora automation list-pending
-
-# Retry failed items
-epistora automation retry-failed --mode balanced
-
-# Run bounded maintenance tasks
-epistora automation maintain --lint --rebuild
-
-# Generate OS scheduler helpers
-epistora automation generate-scheduler --platform macos --mode safe --interval 30
-
-# --- Personal Learning Outputs ---
-
-# Rebuild reader-style browse pages
-epistora views rebuild
-
-# Generate a grounded topic packet from saved source notes
-epistora topic-bundle "agentic AI" --days 30 --source-types article,youtube
-
-# Generate daily and weekly review digests when signal thresholds are met
-epistora review daily
-epistora review weekly
+uv run epistora help
+uv run epistora doctor
+uv run epistora status
+uv run epistora backend status
+uv run epistora ingest url "https://example.com/article"
+uv run epistora sync-readwise --limit 25
+uv run epistora brief pending --limit 5
+uv run epistora studio
 ```
 
-Note: If running from source, prefix commands with `uv run` (e.g., `uv run epistora setup`).
-The short alias is `eps`.
-
-### Automation Modes
-
-| Mode | LLM Usage | Description |
-|------|-----------|-------------|
-| `safe` | None | Fetch + archive only. No LLM cost. Good for default scheduled runs. |
-| `balanced` | Capped | Safe mode + limited LLM enrichment per run, then first-degree hub maintenance. |
-| `deep` | Full | Full ingest graph with deeper neighborhood maintenance and bounded candidate synthesis refresh. |
-
-Personal Learning Mode is a composed preset over these modes. It uses the
-`personal_learning` prompt profile and keeps `safe`, `balanced`, and `deep` as
-execution-depth policies rather than separate product personas.
-
-### Cross-Platform Scheduling
-
-The `epistora automation run-pending` command is the primary building block for OS schedulers. It runs one-shot, is idempotent, and exits cleanly.
+Tests and lint:
 
 ```bash
-# Generate scheduler configs for your OS
-epistora automation generate-scheduler --platform all --mode safe --interval 30
-```
-
-This generates:
-- macOS: LaunchAgent plist
-- Linux: systemd service + timer
-- Windows: Task Scheduler XML
-- Instructions: SCHEDULING.md
-
-### Querying the Vault
-
-The recommended way to query the vault is to use Claude Code or OpenCode
-directly on the vault directory:
-
-```bash
-cd knowledge_vault
-
-# Then ask questions naturally using your agent
-# "What do I know about LangChain?"
-# "What are the main takeaways from the AI agent video?"
-```
-
-The agent reads `AGENTS.md` and navigates the vault using the index files.
-See `wiki/indexes/START_HERE.md` and `wiki/indexes/QUERY_PROTOCOL.md` for
-the navigation procedure.
-
-For tool-driven query flows, `epistora query` and `POST /query` now resolve
-retrieval context from the read model first, expand across typed relationships,
-and use lexical search only as a supporting signal.
-
-### API Server
-
-```bash
-uvicorn app.main:app --reload --port 8000
-```
-
-Then visit http://localhost:8000/docs for the interactive API documentation.
-
-## Testing
-
-```bash
-# Run all tests
 uv run pytest
-
-# Run with coverage
-uv run pytest --cov=app --cov-report=term-missing
-
-# Run specific test file
-uv run pytest tests/test_classifier.py -v
-
-# Run backend tests
-uv run pytest tests/test_backends.py -v
-
-# Run queue-based automation tests
-uv run pytest tests/test_queue_automation.py -v
-
-# Run CLI tests
-uv run pytest tests/test_cli_commands.py -v
+uv run ruff check .
+uv run ruff format .
 ```
 
-## Packaging Smoke Tests
-
-Before treating the repo as release-ready, run the install and packaging flow too:
+Packaging smoke test:
 
 ```bash
-# Build source + wheel artifacts
 uv build
-
-# Smoke-test the installed CLI from the current checkout
 uv tool install --from . epistora --force
 epistora doctor
 ```
 
-If you are validating from source rather than the installed tool, prefer:
+## Studio Frontend
+
+The Studio frontend is a React/Vite app in `studio/`. FastAPI serves built
+assets from `studio/static/`.
 
 ```bash
-uv run epistora doctor
-uv run epistora help
+cd studio
+npm install
+npm run dev
+npm run build
 ```
 
-### Testing Without Real Backends
-
-All tests mock external dependencies. You don't need a real OpenAI key, `opencode`
-binary, `claude` binary, or `codex` binary to run the test suite.
-
-**Mocking the backend router:**
-
-```python
-from unittest.mock import AsyncMock, patch
-from app.backends.models import BackendResponse, BackendType
-
-# Mock run_structured for graph node tests
-with patch(
-    "app.compiler.ingest_graph.run_structured",
-    new_callable=AsyncMock,
-    return_value=BackendResponse(
-        text='{"summary": "test"}',
-        success=True,
-        backend_used=BackendType.API,
-        model_used="mock",
-    ),
-):
-    result = await some_graph_node(state)
-```
-
-**Mocking CLI backend binaries:**
-
-```python
-from unittest.mock import patch
-
-# Pretend opencode is installed
-with patch("shutil.which", return_value="/usr/local/bin/opencode"):
-    backend = OpenCodeCliBackend(enabled=True)
-    assert backend.is_available() is True
-
-# Pretend it's missing
-with patch("shutil.which", return_value=None):
-    backend = OpenCodeCliBackend(enabled=True)
-    assert backend.is_available() is False
-```
-
-### Testing summarize Integration
-
-summarize-backed extraction is fully mockable; tests do not require the real
-binary or network access.
-
-- Wrapper tests patch `subprocess.run` in `app/connectors/fetchers/summarize_cli.py`
-- Fetcher integration tests patch `summarize_extract_url`, `summarize_is_available`, and `summarize_result_to_source_content`
-- Existing fetcher tests stay hermetic because summarize is disabled by default unless the test opts in
-
-Example:
-
-```python
-from unittest.mock import AsyncMock, patch
-
-with patch("app.connectors.fetchers.youtube.summarize_is_available", return_value=True), patch(
-    "app.connectors.fetchers.youtube.summarize_extract_url",
-    new_callable=AsyncMock,
-) as mock_extract:
-    mock_extract.return_value = SummarizeResult(success=False, provider_notes="mock failure")
-    result = await fetch_youtube(item)
-```
-
-### Local summarize Debugging
-
-To validate the live CLI path locally:
+After a production build, run:
 
 ```bash
-summarize --version
-epistora ingest url "https://www.youtube.com/watch?v=..."
+uv run epistora studio
 ```
 
-Useful settings while debugging:
+## Environment Resolution
 
-```env
-SUMMARIZE_ENABLED=true
-SUMMARIZE_TIMEOUT_SECONDS=180
-SUMMARIZE_USE_FOR_YOUTUBE_PRIMARY=true
-SUMMARIZE_USE_FOR_ARTICLE_FALLBACK=true
-SUMMARIZE_USE_FOR_GENERIC_FALLBACK=true
-SUMMARIZE_USE_FOR_X_FALLBACK=true
-```
+Epistora loads environment files in this order:
 
-Inspect `extraction_method`, `extraction_fallback_chain`, `extraction_notes`,
-and `raw_metadata["summarize"]` in the resulting `SourceContent` or raw note
-frontmatter to confirm which path won.
+1. `EPISTORA_ENV_FILE`, when set.
+2. `.env` in the current working directory.
+3. The repository `.env`, when running inside the checkout.
+4. The OS-specific Epistora app config directory.
 
-**Testing the router's fallback behavior:**
+`epistora doctor` reports the loaded config path and the preferred write target.
 
-```python
-# Create mock backends with controlled availability
-api = _make_mock_backend(available=False)
-oc = _make_mock_backend(available=True, response_text="from opencode")
-router = BackendRouter(
-    backends={BackendType.API: api, BackendType.OPENCODE: oc},
-    default_order=[BackendType.API, BackendType.OPENCODE],
-)
-# Router will skip API and use OpenCode
-selected, reasons = router.select_backend(TaskName.INGEST)
-assert selected is oc
-```
+## Runtime Data
 
-### Developing New Providers
+- Main DB: configured by `DATABASE_URL`.
+- Vault: configured by `VAULT_PATH`.
+- Read model: `.system/state/read_model.db` inside the vault.
+- JSON artifacts: `.system/exports/json/` when `json_export` is enabled.
+- Source catalog snapshots: `.system/exports/source_catalog/`.
+- Evidence blobs: `.system/blobs/`.
 
-To add a new backend provider:
+Generated runtime folders such as `data/`, `logs/`, `.system/`, `.pytest_cache/`,
+`.ruff_cache/`, `.venv/`, and built distributions should not be committed.
 
-1. Create `app/backends/my_provider.py`
-2. Subclass `ReasoningBackend` and implement:
-   - `generate(request) -> BackendResponse`
-   - `is_available(task) -> bool`
-   - `describe(task) -> BackendDescriptor`
-3. Add `MY_PROVIDER` to `BackendType` if you want a first-class built-in identifier
-4. Add config settings to `app/config.py`
-5. Register the factory in `app/backends/registry.py`
-6. Write availability and routing tests
-7. Update `.env.example`
+## Backend Development
 
-The `generate_structured()` method has a default implementation that calls `generate()` and parses JSON from the output. Override it if your provider supports native structured output.
+Backends implement the `ReasoningBackend` contract in `app/backends/base.py` and
+are registered in `app/backends/registry.py`.
 
-## Resetting Generated State
+Supported built-ins:
 
-Use `epistora reset-generated --yes --archive` when you want to:
+- `api`
+- `opencode`
+- `claude_code`
+- `codex`
 
-- archive the current generated raw/wiki/output/state artifacts
-- clear processed-source and sync cursor state
-- rerun the latest Raindrop items from a clean generated vault
+Add new backend settings to `app/config.py`, update `.env.example`, register the
+factory, and cover availability plus generation behavior with tests.
 
-This does not touch application source code or the vault operating manual.
+## Connector Development
 
-Use `--force` on ingest commands when you want to recompile an existing source
-in place without deleting generated vault content first. This is the preferred
-workflow for validating prompt/template upgrades against a single known source.
-The editable prompt files live under `prompts/`, with optional source-specific
-overrides such as `prompts/ingest/source_analysis.youtube.md`.
+There are two connector shapes:
 
-## Latest-Bookmark Validation
+- Link-only providers provide URLs and metadata. Fetchers obtain
+  `SourceContent`.
+- Extracted-content providers provide usable content directly. Readwise uses
+  this path.
 
-For prompt, template, extraction, and personal-learning changes, validate
-against one known bookmark before running a larger batch:
+For link fetchers:
 
-1. Run `epistora ingest latest --limit 1` or reingest a known URL with
-   `epistora ingest url --force <url>`.
-2. Inspect the raw capture, source note, related hub pages, indexes, and ingest
-   log.
-3. Rebuild reader views with `epistora views rebuild`.
-4. If the change affects learning outputs, run `epistora topic-bundle`,
-   `epistora review daily`, or `epistora automation run-personal-learning`
-   against a small limit.
+1. Add or update a fetcher under `app/connectors/fetchers/`.
+2. Update classifier or dispatch logic as needed.
+3. Return normalized `SourceContent`.
+4. Add tests for extraction quality, fallback metadata, and failure isolation.
 
-This workflow avoids resetting or deleting an existing vault while still
-exercising the current runtime path.
+For inbox providers:
 
-## Project Structure
+1. Implement the connector contract in `app/connectors/`.
+2. Preserve provider refs and raw metadata.
+3. Update `app/connectors/registry.py`.
+4. Add CLI/API/Studio support only when the provider needs user-facing controls.
 
-```
-app/
-  config.py          # Settings and environment
-  main.py            # FastAPI application
-  dependencies.py    # Dependency injection
-  cli/               # Typer CLI
-  api/               # FastAPI routes (+ automation endpoints)
-  backends/          # Multi-backend LLM abstraction
-    base.py          # Abstract ReasoningBackend
-    router.py        # BackendRouter with fallback
-    direct_api.py    # OpenAI-compatible API backend
-    opencode_cli.py  # OpenCode CLI backend
-    claude_code_cli.py # Claude Code CLI backend
-    models.py        # Backend data models
-  automation/        # Automation subsystem
-    models.py        # Queue and run data models
-    queue_store.py   # Durable SQLite queue persistence
-    discovery.py     # Bookmark discovery and staging
-    processing.py    # Mode-aware processing pipeline
-    runner.py        # One-shot automation runner
-    scheduler_helpers.py  # Cross-platform scheduler generation
-    worker.py        # Legacy interval-based worker loop
-    scheduler.py     # Legacy interval-based scheduler
-    jobs.py          # Legacy job definitions
-    locks.py         # File-based locking
-  connectors/        # Source connectors and fetchers
-  compiler/          # LangGraph workflows and LLM routing
-  models/            # Pydantic data models
-  retrieval/         # Search and indexing
-  vault/             # Vault read/write operations
-  services/          # High-level business logic
-  storage/           # SQLite persistence
-  utils/             # Shared utilities
-```
+## Sink Development
 
-## Adding a New Connector
+Sinks consume `ArtifactBundle` objects from `app/artifacts/models.py`.
 
-1. Create a fetcher in `app/connectors/fetchers/`
-2. Implement an async function that takes `SourceItem` and returns `SourceContent`
-3. Register it in `app/connectors/fetchers/__init__.py`
-4. Add URL classification patterns if needed in `app/connectors/classifier.py`
-5. Write tests
+Built-ins:
 
-## Code Style
+- `markdown_vault`
+- `json_export`
 
-- Ruff for linting (`ruff check .`)
-- Type hints everywhere
-- Async-first for IO operations
-- Pydantic models for all data boundaries
+New sinks should implement `app/sinks/base.py`, register in
+`app/sinks/registry.py`, and avoid compiler-specific special cases.
+
+## Prompt Development
+
+Prompt roots are resolved from:
+
+1. `EPISTORA_PROMPTS_DIR`
+2. active prompt-pack plugin selected by `EPISTORA_PROMPT_PACK`
+3. built-in `prompts/`
+
+Vault-local prompt overrides can live under `.system/prompts/`. Keep prompt
+changes covered by `tests/test_prompts.py` when behavior changes.
+
+## Documentation Policy
+
+Keep documentation small and current:
+
+- `README.md`: project overview and main command reference.
+- `CONTEXT.md`: domain language and product boundaries.
+- `docs/QUICKSTART.md`: first-run workflow.
+- `docs/ARCHITECTURE.md`: current implementation architecture.
+- `docs/DEVELOPMENT.md`: contributor workflow and extension points.
+- `docs/TROUBLESHOOTING.md`: operational fixes.
+- `docs/ROADMAP.md`: active direction.
+- `docs/adr/`: durable architectural decisions.
+
+Do not add long-lived planning docs unless they are ADRs. Fold implemented
+feature details back into the architecture or development guide.
